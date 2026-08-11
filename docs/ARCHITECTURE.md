@@ -22,7 +22,7 @@ flowchart LR
     ABI --> Emby
     ABI --> Danmaku
     Emby --> EmbyServer["用户的 Emby 站点"]
-    Danmaku --> Dandan["弹弹 play API"]
+    Danmaku --> DanmakuService["弹幕服务"]
     Storage --> SQLite["SQLite 元数据/缓存"]
     Storage --> Vault["系统凭据库"]
     ABI -->|"播放 URL + 临时请求头"| Controller
@@ -37,7 +37,7 @@ sequenceDiagram
     participant UI as QML
     participant Rust as Rust backend
     participant Emby as Emby
-    participant DDP as 弹弹 play
+    participant Danmaku as 弹幕服务
     participant MPV as libmpv
 
     UI->>Rust: 选择媒体 itemId
@@ -45,8 +45,8 @@ sequenceDiagram
     Rust->>Rust: 选择直连或转码播放源
     opt 已配置弹幕且媒体可直连
         Rust->>Emby: Range bytes=0-16777215
-        Rust->>DDP: 文件哈希匹配
-        Rust->>DDP: 获取评论
+        Rust->>Danmaku: 文件哈希匹配
+        Rust->>Danmaku: 获取评论
         Rust->>Rust: 缓存评论并生成 ASS
     end
     Rust-->>UI: URL、临时请求头、续播点、ASS 路径
