@@ -16,6 +16,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Install Linux credential-vault dependency
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
