@@ -1,0 +1,24 @@
+[package]
+name = "yanami-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+keyring.workspace = true
+rusqlite.workspace = true
+secrecy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+yanami-core = { path = "../yanami-core" }
+yanami-danmaku = { path = "../yanami-danmaku" }
+
+[dev-dependencies]
+tempfile.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

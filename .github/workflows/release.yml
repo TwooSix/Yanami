@@ -1,0 +1,52 @@
+name: Credentialed release preflight
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  credentialed-rust-backend:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+
+      - name: Require both release credentials
+        shell: pwsh
+        env:
+          YANAMI_DANDANPLAY_APP_ID: ${{ secrets.YANAMI_DANDANPLAY_APP_ID }}
+          YANAMI_DANDANPLAY_APP_SECRET: ${{ secrets.YANAMI_DANDANPLAY_APP_SECRET }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:YANAMI_DANDANPLAY_APP_ID) -or
+              [string]::IsNullOrWhiteSpace($env:YANAMI_DANDANPLAY_APP_SECRET)) {
+            throw "Configure both YANAMI_DANDANPLAY_APP_ID and YANAMI_DANDANPLAY_APP_SECRET as repository secrets."
+          }
+
+      - name: Verify workspace
+        run: cargo test --workspace --all-targets --locked
+
+      - name: Build credentialed Rust backend
+        env:
+          YANAMI_DANDANPLAY_APP_ID: ${{ secrets.YANAMI_DANDANPLAY_APP_ID }}
+          YANAMI_DANDANPLAY_APP_SECRET: ${{ secrets.YANAMI_DANDANPLAY_APP_SECRET }}
+        run: cargo build --release --locked --package yanami-desktop-bridge
+
+      - name: Upload backend preflight artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: yanami-credentialed-backend-${{ github.ref_name }}
+          path: target/release/yanami_desktop_bridge.dll
+          if-no-files-found: error
+          retention-days: 7
