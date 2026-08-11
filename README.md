@@ -1,34 +1,11 @@
 # Yanami
 
-> **Work in progress:** Yanami is under active development. There is no stable
-> release yet, and features may change as the project evolves.
+Yanami is a personal project built through Vibe Coding. My goal is to create a
+cross-platform Emby desktop client with a polished interface and a fast,
+responsive experience.
 
-Yanami is a cross-platform desktop client for Emby. It combines a modern Qt
-Quick interface with libmpv playback and a Rust application core.
-
-## Highlights
-
-- Connect to Emby servers over HTTP or HTTPS.
-- Browse and search your media library.
-- Prefer original-quality playback with automatic transcoding fallback.
-- Use hardware-accelerated playback when available.
-- Display external subtitles and danmaku during playback.
-- Resume playback from the saved position.
-- Switch between English and Simplified Chinese.
-
-## Project status
-
-The core browsing and playback experience is functional, but Yanami is still
-an early prototype. The following areas are being improved:
-
-- Manual selection when multiple danmaku matches are available.
-- Audio, subtitle, and playback-quality controls.
-- Media-library organization and navigation.
-- Signed installers and platform packaging.
-- Playback compatibility across more devices and codecs.
-
-Prebuilt downloads are not available yet. For now, Yanami must be built from
-source.
+The project is still at a very early stage of development. There is no stable
+release yet, and everything may change as development continues.
 
 ## Build from source
 
