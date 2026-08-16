@@ -255,6 +255,10 @@ jobs:
               throw "Required Windows platform plugin is missing: $platformPlugin"
             }
           }
+          $vulkanLoader = Join-Path $executable.DirectoryName "vulkan-1.dll"
+          if (-not (Test-Path -LiteralPath $vulkanLoader -PathType Leaf)) {
+            throw "The bundled Vulkan loader is missing."
+          }
           $packageRoot = Split-Path -Parent (Split-Path -Parent $executable.FullName)
           foreach ($required in @(
               "LICENSE",
@@ -326,6 +330,9 @@ jobs:
             Sort-Object -Unique)
           if ($runtimeOwners.Count -eq 0) {
             throw "No MSYS2 runtime owners were recorded."
+          }
+          if ("mingw-w64-ucrt-x86_64-vulkan-loader" -notin $runtimeOwners) {
+            throw "The bundled Vulkan loader owner was not recorded."
           }
           $projectLicenseOwners = @(
             "mingw-w64-ucrt-x86_64-ffmpeg",
@@ -711,52 +718,47 @@ jobs:
           done
           strings "$bridge" | grep -F "$YANAMI_RELEASE_VERSION" >/dev/null
 
-          loader_log="$RUNNER_TEMP/yanami-loader-${{ matrix.architecture }}.log"
           smoke_stdout="$RUNNER_TEMP/yanami-smoke-${{ matrix.architecture }}.stdout"
+          smoke_stderr="$RUNNER_TEMP/yanami-smoke-${{ matrix.architecture }}.stderr"
+          smoke_home="$(mktemp -d "$RUNNER_TEMP/yanami-smoke-home.XXXXXX")"
           forbidden_screenshot="$RUNNER_TEMP/yanami-forbidden-${{ matrix.architecture }}.png"
           forbidden_log="$RUNNER_TEMP/yanami-forbidden-${{ matrix.architecture }}.log"
           env \
+            HOME="$smoke_home" \
             PATH=/usr/bin:/bin:/usr/sbin:/sbin \
             QT_QUICK_BACKEND=software \
-            DYLD_PRINT_LIBRARIES=1 \
             YANAMI_DEV_AUTOPLAY_FIRST=1 \
             YANAMI_DEV_SCREENSHOT_PATH="$forbidden_screenshot" \
             YANAMI_DEV_LOG_PATH="$forbidden_log" \
-            "$executable" >"$smoke_stdout" 2>"$loader_log" &
+            "$executable" --runtime-smoke-test \
+              >"$smoke_stdout" 2>"$smoke_stderr" &
           smoke_pid=$!
-          runtime_log=""
-          runtime_log_candidates=(
-            "$HOME/Library/Application Support/Yanami/Yanami/logs/yanami-p${smoke_pid}.log"
-            "$HOME/Library/Application Support/Yanami/logs/yanami-p${smoke_pid}.log"
-          )
-          for _ in {1..10}; do
+          smoke_status=""
+          for _ in {1..60}; do
             if ! kill -0 "$smoke_pid" 2>/dev/null; then
-              wait "$smoke_pid" || true
-              cat "$smoke_stdout" >&2
-              cat "$loader_log" >&2
-              echo "Packaged macOS application exited during startup." >&2
-              exit 1
-            fi
-            runtime_log=""
-            for candidate_log in "${runtime_log_candidates[@]}"; do
-              if [[ -f "$candidate_log" ]] && grep -q application_start "$candidate_log"; then
-                runtime_log="$candidate_log"
-                break 2
+              if wait "$smoke_pid"; then
+                smoke_status=0
+              else
+                smoke_status=$?
               fi
-            done
+              break
+            fi
             sleep 1
           done
-          kill "$smoke_pid" 2>/dev/null || true
-          wait "$smoke_pid" 2>/dev/null || true
-          if [[ -z "$runtime_log" ]]; then
+          if [[ -z "$smoke_status" ]]; then
+            kill "$smoke_pid" 2>/dev/null || true
+            wait "$smoke_pid" 2>/dev/null || true
             cat "$smoke_stdout" >&2
-            cat "$loader_log" >&2
-            echo "Packaged macOS application did not record application_start." >&2
+            cat "$smoke_stderr" >&2
+            echo "Packaged macOS runtime smoke test timed out." >&2
             exit 1
           fi
-          grep -q 'libyanami_desktop_bridge.dylib' "$loader_log"
-          grep -q 'libmpv' "$loader_log"
-          grep -q 'QtCore.framework' "$loader_log"
+          if (( smoke_status != 0 )); then
+            cat "$smoke_stdout" >&2
+            cat "$smoke_stderr" >&2
+            echo "Packaged macOS runtime smoke test failed with exit code $smoke_status." >&2
+            exit 1
+          fi
           test ! -e "$forbidden_screenshot"
           test ! -e "$forbidden_log"
 

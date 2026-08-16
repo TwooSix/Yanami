@@ -10,7 +10,8 @@ foreach(required_variable IN ITEMS
         YANAMI_QML_DIR
         YANAMI_QT_PREFIX
         YANAMI_WINDEPLOYQT
-        YANAMI_MPV_RUNTIME)
+        YANAMI_MPV_RUNTIME
+        YANAMI_VULKAN_RUNTIME)
     if(NOT DEFINED ${required_variable} OR NOT EXISTS "${${required_variable}}")
         message(FATAL_ERROR "${required_variable} does not exist: ${${required_variable}}")
     endif()
@@ -18,6 +19,7 @@ endforeach()
 
 get_filename_component(app_dir "${YANAMI_EXECUTABLE}" DIRECTORY)
 get_filename_component(mpv_name "${YANAMI_MPV_RUNTIME}" NAME)
+get_filename_component(vulkan_name "${YANAMI_VULKAN_RUNTIME}" NAME)
 
 # Limit dependency and ownership scans to files that windeployqt can place in
 # the runnable application tree.  The build root may also contain nested CPack
@@ -60,6 +62,14 @@ file(COPY_FILE
     "${YANAMI_MPV_RUNTIME}"
     "${app_dir}/${mpv_name}"
     ONLY_IF_DIFFERENT)
+# Seed the application directory before resolving the recursive closure.
+# Otherwise GET_RUNTIME_DEPENDENCIES may resolve vulkan-1.dll from System32 on
+# developer machines and omit it, producing a package that only works on hosts
+# where a graphics driver happened to install the Vulkan loader globally.
+file(COPY_FILE
+    "${YANAMI_VULKAN_RUNTIME}"
+    "${app_dir}/${vulkan_name}"
+    ONLY_IF_DIFFERENT)
 
 # MSYS2 keeps qmlimportscanner under share/qt6/bin rather than beside
 # windeployqt. Put both tool directories on PATH for the deployment command,
@@ -99,13 +109,38 @@ file(GET_RUNTIME_DEPENDENCIES
     DIRECTORIES "${app_dir}" "${YANAMI_QT_PREFIX}/bin"
     RESOLVED_DEPENDENCIES_VAR resolved_dependencies
     UNRESOLVED_DEPENDENCIES_VAR unresolved_dependencies
+    CONFLICTING_DEPENDENCIES_PREFIX runtime_conflicts
     PRE_EXCLUDE_REGEXES
         "^api-ms-win-.*"
         "^ext-ms-win-.*"
-        "^vulkan-1\\.dll$"
     POST_EXCLUDE_REGEXES
         "^[A-Za-z]:/[Ww]indows/[Ss]ystem32/.*"
         "^[A-Za-z]:/[Ww]indows/[Ss]ysWOW64/.*")
+
+# CMake reports a conflict when an already staged DLL is also present in the
+# MSYS2 runtime directory. Accept that duplication only when every candidate is
+# byte-identical, and explicitly keep the application-local copy. A mismatched
+# duplicate is an unsafe partial-upgrade package and must fail closed.
+foreach(conflicting_name IN LISTS runtime_conflicts_FILENAMES)
+    set(preferred_dependency "${app_dir}/${conflicting_name}")
+    if(NOT EXISTS "${preferred_dependency}")
+        message(FATAL_ERROR
+            "Conflicting runtime dependency has no application-local copy: "
+            "${conflicting_name}")
+    endif()
+    file(SHA256 "${preferred_dependency}" preferred_hash)
+    set(conflicting_paths "${runtime_conflicts_${conflicting_name}}")
+    foreach(conflicting_path IN LISTS conflicting_paths)
+        file(SHA256 "${conflicting_path}" conflicting_hash)
+        if(NOT conflicting_hash STREQUAL preferred_hash)
+            message(FATAL_ERROR
+                "Conflicting runtime dependency differs from the staged copy: "
+                "${conflicting_path}")
+        endif()
+    endforeach()
+    list(APPEND resolved_dependencies "${preferred_dependency}")
+endforeach()
+list(REMOVE_DUPLICATES resolved_dependencies)
 
 if(unresolved_dependencies)
     list(JOIN unresolved_dependencies ", " unresolved_text)
