@@ -91,6 +91,16 @@ if(WIN32)
             "${YANAMI_QT_PREFIX}/bin"
         REQUIRED
     )
+    # libmpv links to the Vulkan loader through libplacebo. Consumer Windows
+    # installations are not guaranteed to provide vulkan-1.dll (and hosted
+    # Windows Server runners do not), so always select the MSYS2 copy instead
+    # of allowing find_file() to fall back to System32.
+    find_file(VULKAN_RUNTIME_DLL
+        NAMES vulkan-1.dll
+        HINTS "${YANAMI_QT_PREFIX}/bin"
+        NO_DEFAULT_PATH
+        REQUIRED
+    )
     find_program(PACMAN_EXECUTABLE
         NAMES pacman
         HINTS "${YANAMI_QT_PREFIX}/../usr/bin"
@@ -399,6 +409,7 @@ if(WIN32)
             "-DYANAMI_QT_PREFIX=${YANAMI_QT_PREFIX}"
             "-DYANAMI_WINDEPLOYQT=${WINDEPLOYQT_EXECUTABLE}"
             "-DYANAMI_MPV_RUNTIME=${MPV_RUNTIME_DLL}"
+            "-DYANAMI_VULKAN_RUNTIME=${VULKAN_RUNTIME_DLL}"
             "-DYANAMI_PACMAN=${PACMAN_EXECUTABLE}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/DeployWindowsRuntime.cmake"
         DEPENDS yanami-desktop yanami-deploy-rust-bridge
