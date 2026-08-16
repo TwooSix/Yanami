@@ -426,7 +426,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes \
             build-essential cmake file jq ninja-build pkg-config \
-            libdbus-1-dev libgl1-mesa-dev libmpv-dev
+            libdbus-1-dev libgl1-mesa-dev libmpv-dev libxkbcommon-x11-0
       - name: Install Qt 6.8.3
         shell: bash
         run: |
@@ -664,22 +664,7 @@ jobs:
           codesign --verify --deep --strict "$app"
           codesign -dv --verbose=4 "$app" 2>"$RUNNER_TEMP/codesign.txt"
           grep -q 'Signature=adhoc' "$RUNNER_TEMP/codesign.txt"
-
-          while IFS= read -r binary; do
-            file "$binary" | grep -q 'Mach-O' || continue
-            while IFS= read -r dependency; do
-              dependency="${dependency%% (*}"
-              dependency="${dependency#${dependency%%[![:space:]]*}}"
-              case "$dependency" in
-                @rpath/*|@loader_path/*|@executable_path/*|/usr/lib/*|/System/Library/*)
-                  ;;
-                *)
-                  echo "Non-portable dylib reference in $binary: $dependency" >&2
-                  exit 1
-                  ;;
-              esac
-            done < <(otool -L "$binary" | tail -n +2)
-          done < <(find "$app/Contents" -type f)
+          bash scripts/verify-macos-bundle.sh "$app"
 
           for binary in "$executable" "$bridge"; do
             if strings "$binary" | grep 'YANAMI_DEV_' >/dev/null; then
@@ -688,6 +673,55 @@ jobs:
             fi
           done
           strings "$bridge" | grep -F "$YANAMI_RELEASE_VERSION" >/dev/null
+
+          loader_log="$RUNNER_TEMP/yanami-loader-${{ matrix.architecture }}.log"
+          smoke_stdout="$RUNNER_TEMP/yanami-smoke-${{ matrix.architecture }}.stdout"
+          forbidden_screenshot="$RUNNER_TEMP/yanami-forbidden-${{ matrix.architecture }}.png"
+          forbidden_log="$RUNNER_TEMP/yanami-forbidden-${{ matrix.architecture }}.log"
+          env \
+            PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+            QT_QUICK_BACKEND=software \
+            DYLD_PRINT_LIBRARIES=1 \
+            YANAMI_DEV_AUTOPLAY_FIRST=1 \
+            YANAMI_DEV_SCREENSHOT_PATH="$forbidden_screenshot" \
+            YANAMI_DEV_LOG_PATH="$forbidden_log" \
+            "$executable" >"$smoke_stdout" 2>"$loader_log" &
+          smoke_pid=$!
+          runtime_log=""
+          runtime_log_candidates=(
+            "$HOME/Library/Application Support/Yanami/Yanami/logs/yanami-p${smoke_pid}.log"
+            "$HOME/Library/Application Support/Yanami/logs/yanami-p${smoke_pid}.log"
+          )
+          for _ in {1..10}; do
+            if ! kill -0 "$smoke_pid" 2>/dev/null; then
+              wait "$smoke_pid" || true
+              cat "$smoke_stdout" >&2
+              cat "$loader_log" >&2
+              echo "Packaged macOS application exited during startup." >&2
+              exit 1
+            fi
+            runtime_log=""
+            for candidate_log in "${runtime_log_candidates[@]}"; do
+              if [[ -f "$candidate_log" ]] && grep -q application_start "$candidate_log"; then
+                runtime_log="$candidate_log"
+                break 2
+              fi
+            done
+            sleep 1
+          done
+          kill "$smoke_pid" 2>/dev/null || true
+          wait "$smoke_pid" 2>/dev/null || true
+          if [[ -z "$runtime_log" ]]; then
+            cat "$smoke_stdout" >&2
+            cat "$loader_log" >&2
+            echo "Packaged macOS application did not record application_start." >&2
+            exit 1
+          fi
+          grep -q 'libyanami_desktop_bridge.dylib' "$loader_log"
+          grep -q 'libmpv' "$loader_log"
+          grep -q 'QtCore.framework' "$loader_log"
+          test ! -e "$forbidden_screenshot"
+          test ! -e "$forbidden_log"
 
           while IFS= read -r manifest_line; do
             [[ -z "$manifest_line" || "$manifest_line" == \#* ]] && continue
