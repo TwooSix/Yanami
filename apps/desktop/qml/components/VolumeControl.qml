@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import Yanami
+import Yanami.Ui
 
 Item {
     id: root
@@ -8,6 +8,8 @@ Item {
     property real volume: 100
     property real lastAudibleVolume: 70
     readonly property bool opened: volumePopup.opened
+    readonly property bool keyboardInteractionActive: volumePopup.opened
+        && (volumeSlider.activeFocus || volumeSlider.pressed)
     signal volumeRequested(real value)
 
     implicitWidth: 38
@@ -33,6 +35,23 @@ Item {
         volumePopup.close()
     }
 
+    function toggleMuted() {
+        root.closePopup()
+        if (root.volume > 0.5) {
+            root.lastAudibleVolume = root.volume
+            root.volumeRequested(0)
+        } else {
+            root.volumeRequested(Math.max(5, root.lastAudibleVolume))
+        }
+    }
+
+    function triggerFromOverlayClick() {
+        const popup = PopupCoordinator.topPopup()
+        if (popup && popup !== volumePopup)
+            popup.requestDismiss("overlay-action")
+        root.toggleMuted()
+    }
+
     AppButton {
         id: volumeButton
         anchors.fill: parent
@@ -44,27 +63,18 @@ Item {
         iconSize: 18
         controlSize: 38
         Accessible.name: root.volume <= 0 ? qsTr("Unmute") : qsTr("Mute")
-        ToolTip.visible: hovered && !volumePopup.opened
-        ToolTip.text: Accessible.name
-        ToolTip.delay: 500
+        toolTipVisible: hovered && !volumePopup.opened
+        toolTipText: Accessible.name
         onHoveredChanged: {
             if (hovered)
                 root.showVolume()
             else
                 root.scheduleClose()
         }
-        onClicked: {
-            if (root.volume > 0.5) {
-                root.lastAudibleVolume = root.volume
-                root.volumeRequested(0)
-            } else {
-                root.volumeRequested(Math.max(5, root.lastAudibleVolume))
-            }
-            root.showVolume()
-        }
+        onClicked: root.toggleMuted()
     }
 
-    Popup {
+    AppTransientPopup {
         id: volumePopup
         parent: root
         x: (root.width - width) / 2
@@ -72,9 +82,9 @@ Item {
         width: 64
         height: 174
         padding: 8
-        modal: false
-        focus: false
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        takesFocus: false
+        blocksShortcuts: false
+        exclusiveWithinScope: false
 
         background: Rectangle {
             radius: 22
@@ -169,10 +179,13 @@ Item {
                 blocking: true
                 acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                 onWheel: event => {
-                    const delta = event.pixelDelta.y !== 0
-                        ? event.pixelDelta.y : event.angleDelta.y
+                    let delta = event.pixelDelta.y !== 0
+                        ? event.pixelDelta.y * 0.12
+                        : event.angleDelta.y / 120 * 5
+                    if (event.inverted)
+                        delta = -delta
                     root.volumeRequested(Math.max(0, Math.min(100,
-                        root.volume + (delta > 0 ? 5 : -5))))
+                        root.volume + delta)))
                     event.accepted = true
                 }
             }
@@ -189,4 +202,9 @@ Item {
                 volumePopup.close()
         }
     }
+
+    Component.onCompleted:
+        PopupCoordinator.registerOverlayClickTarget(root)
+    Component.onDestruction:
+        PopupCoordinator.unregisterOverlayClickTarget(root)
 }

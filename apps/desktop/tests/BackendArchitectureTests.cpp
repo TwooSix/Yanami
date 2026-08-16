@@ -1,0 +1,263 @@
+#include <QDir>
+#include <QDirIterator>
+#include <QFile>
+#include <QFileInfo>
+#include <QRegularExpression>
+#include <QTest>
+
+namespace {
+
+bool isNativeSourceRoot(const QString &path)
+{
+    const QDir directory(path);
+    return directory.exists(QStringLiteral("main.cpp"))
+        && directory.exists(QStringLiteral("BackendPorts.hpp"))
+        && directory.exists(QStringLiteral("DesktopBackendServices.cpp"));
+}
+
+QString locateNativeSourceRoot()
+{
+#ifdef YANAMI_NATIVE_SOURCE_DIR
+    const QString configured = QDir::cleanPath(
+        QStringLiteral(YANAMI_NATIVE_SOURCE_DIR));
+    if (isNativeSourceRoot(configured))
+        return configured;
+#endif
+
+    // __FILE__ is absolute in CMake builds. The current-directory walk keeps
+    // an ad-hoc test binary runnable from either the workspace or its build
+    // tree without baking a machine-specific path into the test.
+    const QDir testSourceDirectory(
+        QFileInfo(QString::fromUtf8(__FILE__)).absolutePath());
+    const QString adjacentNative = QDir::cleanPath(
+        testSourceDirectory.filePath(QStringLiteral("../native")));
+    if (isNativeSourceRoot(adjacentNative))
+        return adjacentNative;
+
+    QDir cursor = QDir::current();
+    for (int depth = 0; depth < 10; ++depth) {
+        const QString desktopNative = cursor.filePath(
+            QStringLiteral("apps/desktop/native"));
+        if (isNativeSourceRoot(desktopNative))
+            return QDir::cleanPath(desktopNative);
+
+        const QString localNative = cursor.filePath(
+            QStringLiteral("native"));
+        if (isNativeSourceRoot(localNative))
+            return QDir::cleanPath(localNative);
+        if (!cursor.cdUp())
+            break;
+    }
+    return {};
+}
+
+QString source(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
+    return QString::fromUtf8(file.readAll());
+}
+
+QStringList productionNativeFiles(const QString &nativeRoot)
+{
+    QStringList files;
+    QDirIterator iterator(
+        nativeRoot,
+        {
+            QStringLiteral("*.cpp"),
+            QStringLiteral("*.hpp"),
+            QStringLiteral("*.h"),
+        },
+        QDir::Files,
+        QDirIterator::Subdirectories);
+    while (iterator.hasNext())
+        files.push_back(iterator.next());
+    files.sort();
+    return files;
+}
+
+QString diagnosticPath(const QString &nativeRoot, const QString &path)
+{
+    return QDir(nativeRoot).relativeFilePath(path);
+}
+
+} // namespace
+
+class BackendArchitectureTests final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void initTestCase()
+    {
+        m_nativeRoot = locateNativeSourceRoot();
+        QVERIFY2(!m_nativeRoot.isEmpty(),
+            "Could not locate apps/desktop/native");
+    }
+
+    void productionNativeHasNoLegacyControllerSurface()
+    {
+        const QStringList literalMarkers {
+            QStringLiteral("BackendController"),
+            QStringLiteral("BackendControllerState"),
+            QStringLiteral("YanamiItemAction"),
+            QStringLiteral("performItemAction"),
+            QStringLiteral("optimistic_item_action"),
+        };
+        const QRegularExpression memberAliasMacro(
+            QStringLiteral(R"(#\s*define\s+m_[A-Za-z0-9_]*)"));
+
+        const QStringList files = productionNativeFiles(m_nativeRoot);
+        QVERIFY2(!files.isEmpty(), "No production native sources found");
+        for (const QString &path : files) {
+            const QString relative = diagnosticPath(m_nativeRoot, path);
+            QVERIFY2(!QFileInfo(path).fileName().contains(
+                         QStringLiteral("BackendController")),
+                qPrintable(relative
+                    + QStringLiteral(" retains a legacy controller filename")));
+            const QString content = source(path);
+            QVERIFY2(!content.isEmpty(), qPrintable(relative));
+            for (const QString &marker : literalMarkers) {
+                QVERIFY2(!content.contains(marker),
+                    qPrintable(relative
+                        + QStringLiteral(" contains forbidden marker: ")
+                        + marker));
+            }
+            QVERIFY2(!memberAliasMacro.match(content).hasMatch(),
+                qPrintable(relative
+                    + QStringLiteral(" defines a legacy m_ alias macro")));
+        }
+    }
+
+    void backendPortsStayRuntimeAgnostic()
+    {
+        const QString path = QDir(m_nativeRoot).filePath(
+            QStringLiteral("BackendPorts.hpp"));
+        const QString content = source(path);
+        QVERIFY2(!content.isEmpty(), qPrintable(path));
+        const QStringList forbiddenTypes {
+            QStringLiteral("DesktopBackendServices"),
+            QStringLiteral("RustBridgeRuntime"),
+            QStringLiteral("QThreadPool"),
+        };
+        for (const QString &type : forbiddenTypes) {
+            const QRegularExpression token(
+                QStringLiteral(R"(\b%1\b)")
+                    .arg(QRegularExpression::escape(type)));
+            QVERIFY2(!token.match(content).hasMatch(),
+                qPrintable(QStringLiteral(
+                    "BackendPorts.hpp leaks concrete type: %1").arg(type)));
+        }
+    }
+
+    void mainUsesOnlyTheBackendCompositionRoot()
+    {
+        const QString path = QDir(m_nativeRoot).filePath(
+            QStringLiteral("main.cpp"));
+        const QString content = source(path);
+        QVERIFY2(!content.isEmpty(), qPrintable(path));
+
+        const QRegularExpression quotedInclude(
+            QStringLiteral("^\\s*#\\s*include\\s*\"([^\"]+)\""),
+            QRegularExpression::MultilineOption);
+        QStringList includedHeaders;
+        auto match = quotedInclude.globalMatch(content);
+        while (match.hasNext())
+            includedHeaders.push_back(match.next().captured(1));
+
+        QCOMPARE(
+            includedHeaders.count(
+                QStringLiteral("DesktopBackendServices.hpp")),
+            1);
+        for (const QString &header : includedHeaders) {
+            if (header == QStringLiteral("DesktopBackendServices.hpp"))
+                continue;
+            const bool concreteBackendHeader =
+                header.contains(QStringLiteral("Backend"))
+                || header.endsWith(QStringLiteral("Coordinator.hpp"))
+                || header == QStringLiteral("RustBridgeRuntime.hpp")
+                || header == QStringLiteral("PlaybackReporter.hpp")
+                || header == QStringLiteral("RequestCoordinator.hpp");
+            QVERIFY2(!concreteBackendHeader,
+                qPrintable(QStringLiteral(
+                    "main.cpp bypasses DesktopBackendServices via %1")
+                    .arg(header)));
+        }
+    }
+
+    void featureCoordinatorsDirectlyImplementTheirPorts()
+    {
+        struct ExpectedBase {
+            const char *coordinator;
+            const char *port;
+        };
+        static constexpr ExpectedBase expected[] {
+            {"SessionCoordinator", "SessionPort"},
+            {"CatalogCoordinator", "CatalogPort"},
+            {"MediaCoordinator", "MediaPort"},
+            {"PlaybackCoordinator", "PlaybackPort"},
+            {"DanmakuCoordinator", "DanmakuPort"},
+        };
+
+        for (const ExpectedBase &entry : expected) {
+            const QString coordinator = QString::fromLatin1(
+                entry.coordinator);
+            const QString port = QString::fromLatin1(entry.port);
+            const QString fileName = coordinator
+                + QStringLiteral(".hpp");
+            const QString path = QDir(m_nativeRoot).filePath(fileName);
+            const QString content = source(path);
+            QVERIFY2(!content.isEmpty(), qPrintable(fileName));
+            const QRegularExpression directInheritance(
+                QStringLiteral(
+                    R"(class\s+%1\s+final\s*:\s*public\s+%2\b)")
+                    .arg(QRegularExpression::escape(coordinator),
+                         QRegularExpression::escape(port)));
+            QVERIFY2(directInheritance.match(content).hasMatch(),
+                qPrintable(QStringLiteral(
+                    "%1 must directly implement %2")
+                    .arg(coordinator, port)));
+        }
+    }
+
+    void mediaCoordinatorDoesNotOwnDanmaku()
+    {
+        const QRegularExpression danmaku(
+            QStringLiteral("danmaku"),
+            QRegularExpression::CaseInsensitiveOption);
+        const QStringList files {
+            QStringLiteral("MediaCoordinator.hpp"),
+            QStringLiteral("MediaCoordinator.cpp"),
+        };
+        for (const QString &fileName : files) {
+            const QString content = source(
+                QDir(m_nativeRoot).filePath(fileName));
+            QVERIFY2(!content.isEmpty(), qPrintable(fileName));
+            QVERIFY2(!danmaku.match(content).hasMatch(),
+                qPrintable(fileName
+                    + QStringLiteral(" must not depend on Danmaku")));
+        }
+    }
+
+    void desktopBackendServicesIsACompositionRootNotAnAdapter()
+    {
+        const QString path = QDir(m_nativeRoot).filePath(
+            QStringLiteral("DesktopBackendServices.cpp"));
+        const QString content = source(path);
+        QVERIFY2(!content.isEmpty(), qPrintable(path));
+        QVERIFY2(!content.contains(QStringLiteral("BackendController")),
+            "DesktopBackendServices must not wrap BackendController");
+        const QRegularExpression adapter(
+            QStringLiteral(R"(\badapter\b)"),
+            QRegularExpression::CaseInsensitiveOption);
+        QVERIFY2(!adapter.match(content).hasMatch(),
+            "DesktopBackendServices must remain a composition root, not an adapter");
+    }
+
+private:
+    QString m_nativeRoot;
+};
+
+QTEST_APPLESS_MAIN(BackendArchitectureTests)
+#include "BackendArchitectureTests.moc"

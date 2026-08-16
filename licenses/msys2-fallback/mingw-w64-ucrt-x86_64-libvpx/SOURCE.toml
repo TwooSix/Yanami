@@ -1,0 +1,29 @@
+package = "mingw-w64-ucrt-x86_64-libvpx"
+package_version = "1.16.0-1"
+source_archive_url = "https://github.com/webmproject/libvpx/archive/v1.16.0/libvpx-1.16.0.tar.gz"
+source_archive_sha256 = "7a479a3c66b9f5d5542a4c6a1b7d3768a983b1e5c14c60a9396edc9b649e015c"
+
+[[license_files]]
+path = "LICENSE"
+sha256 = "8267348d5af1262c11d1a08de2f5afc77457755f1ac658627dd9acf71011d615"
+
+[[license_files]]
+path = "third_party/googletest/src/LICENSE"
+sha256 = "9702de7e4117a8e2b20dafab11ffda58c198aede066406496bef670d40a22138"
+
+[[license_files]]
+path = "third_party/libwebm/LICENSE.TXT"
+sha256 = "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf"
+
+[[license_files]]
+path = "third_party/libyuv/LICENSE"
+sha256 = "2b2cc1180c7e6988328ad2033b04b80117419db9c4c584918bbb3cfec7e9364f"
+
+[[license_files]]
+path = "third_party/nalloc/LICENSE"
+sha256 = "d7dd0396ec46975e1bf9093680068ef301bc0ed204603e623a6f7073ab922ab1"
+
+[[license_files]]
+path = "third_party/x86inc/LICENSE"
+sha256 = "719d8fa235f2068e0ae6d6a7dceb0a7720d7840f0f0ebed29957989e6ded3cd8"
+

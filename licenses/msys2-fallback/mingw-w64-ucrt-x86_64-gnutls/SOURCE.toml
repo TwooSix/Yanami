@@ -1,0 +1,29 @@
+package = "mingw-w64-ucrt-x86_64-gnutls"
+package_version = "3.8.13-3"
+source_archive_url = "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz"
+source_archive_sha256 = "ffed8ec1bf09c2426d4f14aae377de4753b53e537d685e604e99a8b16ca9c97e"
+
+[[license_files]]
+path = "COPYING"
+sha256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+
+[[license_files]]
+path = "COPYING.LESSERv2"
+sha256 = "20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d3555d95"
+
+[[license_files]]
+path = "doc/examples/tlsproxy/LICENSE"
+sha256 = "b42dbe48110754b99f026ad30e69b1069f826fb07e7c616b526bd1090952fb1b"
+
+[[license_files]]
+path = "lib/accelerated/x86/license.txt"
+sha256 = "0c35a52bcfa4da2f0df4a1282a6034e211c976b8b6d43691a639eef9c8aebf7e"
+
+[[license_files]]
+path = "lib/crau/LICENSE"
+sha256 = "b3c9aed2f5750f6bf698c74916d675d1734e12455b96bfdf6f90e23ab01595cd"
+
+[[license_files]]
+path = "lib/inih/LICENSE.txt"
+sha256 = "9ae3b39e83e9158e44b67733baa3bb2d84e80efdcfb14a5820210a42c7abdf7f"
+

@@ -1,0 +1,21 @@
+package = "mingw-w64-ucrt-x86_64-lz4"
+package_version = "1.10.0-1"
+source_archive_url = "https://github.com/lz4/lz4/archive/v1.10.0/lz4-1.10.0.tar.gz"
+source_archive_sha256 = "537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b"
+
+[[license_files]]
+path = "LICENSE"
+sha256 = "4bc9c403f6b679cc076dee210e0e21c27b4e8f6d3fb43d85364c76657bfaaac5"
+
+[[license_files]]
+path = "contrib/debian/copyright"
+sha256 = "4f6ef9d0e844bf432d6a0abb2623f5a61175ae40f7f0e3665490311d89e3af87"
+
+[[license_files]]
+path = "lib/LICENSE"
+sha256 = "8b58c446121a109ccf32edc094bba3010a3d85e4ee3702950db55e4d3e87736c"
+
+[[license_files]]
+path = "programs/COPYING"
+sha256 = "609b910ef05c9c855ecc1da155a36ed0f57514eac452cf93446530b5ea4b3bc3"
+

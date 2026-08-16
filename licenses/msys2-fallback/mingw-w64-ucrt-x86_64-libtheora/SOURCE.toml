@@ -1,0 +1,13 @@
+package = "mingw-w64-ucrt-x86_64-libtheora"
+package_version = "1.2.0-1"
+source_archive_url = "https://downloads.xiph.org/releases/theora/libtheora-1.2.0.tar.gz"
+source_archive_sha256 = "279327339903b544c28a92aeada7d0dcfd0397b59c2f368cc698ac56f515906e"
+
+[[license_files]]
+path = "LICENSE"
+sha256 = "2c902950c73a63cd285dc0c36573de9c5fefe66d49312949c51d941f33e92932"
+
+[[license_files]]
+path = "COPYING"
+sha256 = "8417fad7da775735564e209484a2e011e0fa201e94f01fdbee6e4977e478e6fc"
+

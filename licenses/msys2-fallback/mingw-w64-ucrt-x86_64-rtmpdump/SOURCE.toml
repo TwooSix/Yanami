@@ -1,0 +1,14 @@
+package = "mingw-w64-ucrt-x86_64-rtmpdump"
+package_version = "2.6-2"
+source_repository = "https://git.ffmpeg.org/rtmpdump.git"
+source_revision = "138fdb258d9fc26f1843fd1b891180416c9dc575"
+source_tree_archive_sha256 = "307c0e7b8bd0f77be13f8e03e4e474c8e8124fd5ba7e328a29fa8f058142affe"
+msys2_vcs_source_sha256 = "0cba5d49d41b5e35a34ea8230124ed853eeeac19091d17a4188a47c31a17d352"
+
+[[license_files]]
+path = "COPYING"
+sha256 = "9f2e250993c6206fac643824e05e5a0d7d3e0895d9e09a5ce4b12bc2610afc11"
+
+[[license_files]]
+path = "librtmp/COPYING"
+sha256 = "521772c4e9eebf87b677360766b9aff51664ea740f8951c96764276a5f5474c6"

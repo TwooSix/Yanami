@@ -1,0 +1,9 @@
+package = "mingw-w64-ucrt-x86_64-libx264"
+package_version = "0.165.r3222.b35605a-3"
+source_archive_url = "https://code.videolan.org/videolan/x264/-/archive/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.gz"
+source_archive_sha256 = "cd71a7515b0e9a012e1ac9b1f8415bebcaf6fc97d4db32286642ac4c0fbe24f9"
+
+[[license_files]]
+path = "COPYING"
+sha256 = "32b1062f7da84967e7019d01ab805935caa7ab7321a7ced0e30ebe75e5df1670"
+

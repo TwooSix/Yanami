@@ -1,0 +1,17 @@
+package = "mingw-w64-ucrt-x86_64-fftw"
+package_version = "3.3.11-1"
+source_archive_url = "https://www.fftw.org/fftw-3.3.11.tar.gz"
+source_archive_sha256 = "5630c24cdeb33b131612f7eb4b1a9934234754f9f388ff8617458d0be6f239a1"
+
+[[license_files]]
+path = "COPYING"
+sha256 = "231f7edcc7352d7734a96eef0b8030f77982678c516876fcb81e25b32d68564c"
+
+[[license_files]]
+path = "COPYRIGHT"
+sha256 = "8a74b35d541d93fdf58a22a3d3baa48ae3edbf6d715edfeb6457c21968ae43ac"
+
+[[license_files]]
+path = "doc/license.texi"
+sha256 = "68f733830a3b4dbf66815ca54b5637015517848c5f32f38f1ea2057782161a77"
+

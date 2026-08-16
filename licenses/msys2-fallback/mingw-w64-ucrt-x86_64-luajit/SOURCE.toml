@@ -1,0 +1,9 @@
+package = "mingw-w64-ucrt-x86_64-luajit"
+package_version = "2.1.1785606157-1"
+source_archive_url = "https://github.com/LuaJIT/LuaJIT/archive/28084004ee68d576f3f0c9ea61ea448fe3e10f07.tar.gz"
+source_archive_sha256 = "e55869628e8fbadd4779854187ce979537df7bd7ed3c937a8f9f3e7077b33221"
+
+[[license_files]]
+path = "COPYRIGHT"
+sha256 = "6cda3076a8c09b31bb1f90da614ea89e7ee194589626eeac613e522849604e47"
+

@@ -1,5 +1,7 @@
 #include "WindowController.hpp"
 
+#include "DevelopmentHooks.hpp"
+
 #include <QCursor>
 #include <QDebug>
 #include <QGuiApplication>
@@ -160,8 +162,8 @@ void logWindowAndOutputState(QWindow *window, const QString &phase, int elapsedM
 
 void logTransitionTimeline(QWindow *window, const QString &phase)
 {
-    if (!qEnvironmentVariableIsSet("YANAMI_DEV_LOG_PATH")
-        && !qEnvironmentVariableIsSet("YANAMI_DEV_FULLSCREEN_DIAGNOSTICS"))
+    if (!DevelopmentHooks::isSet(DevelopmentHooks::Variable::LogPath)
+        && !DevelopmentHooks::isSet(DevelopmentHooks::Variable::FullscreenDiagnostics))
         return;
     const int checkpoints[] = {0, 16, 33, 67, 125, 250, 500, 1000, 2000};
     for (const int milliseconds : checkpoints) {
@@ -190,13 +192,25 @@ WindowController::WindowController(QObject *parent)
     });
 }
 
+qreal WindowController::devicePixelRatio() const
+{
+    return m_window ? m_window->devicePixelRatio() : 1.0;
+}
+
 void WindowController::configureWindow(QWindow *window)
 {
-    if (m_window && m_window != window)
+    if (m_window) {
         m_window->removeEventFilter(this);
+        disconnect(m_window, nullptr, this, nullptr);
+    }
     m_window = window;
-    if (m_window)
-        m_window->installEventFilter(this);
+    emit devicePixelRatioChanged();
+    if (!m_window)
+        return;
+    connect(window, &QWindow::screenChanged, this, [this] {
+        emit devicePixelRatioChanged();
+    });
+    m_window->installEventFilter(this);
     setRoundedCorners(window, true);
 }
 
@@ -276,12 +290,14 @@ void WindowController::setCursorHidden(bool hidden)
         QGuiApplication::setOverrideCursor(QCursor(Qt::BlankCursor));
     else
         QGuiApplication::restoreOverrideCursor();
-    if (qEnvironmentVariableIsSet("YANAMI_DEV_RENDER_DIAGNOSTICS"))
+    if (DevelopmentHooks::isSet(DevelopmentHooks::Variable::RenderDiagnostics))
         qInfo() << "player-cursor override-hidden=" << hidden;
 }
 
 bool WindowController::eventFilter(QObject *watched, QEvent *event)
 {
+    if (watched == m_window && event->type() == QEvent::DevicePixelRatioChange)
+        emit devicePixelRatioChanged();
     if (watched == m_window && m_fullScreen
         && (event->type() == QEvent::MouseMove || event->type() == QEvent::Enter))
         notePointerActivity();
@@ -340,7 +356,8 @@ void WindowController::applyBorderlessFullScreen(QWindow *window)
     if (!GetMonitorInfoW(monitor, &monitorInfo))
         return;
     RECT bounds = monitorInfo.rcMonitor;
-    const QByteArray diagnosticGeometry = qgetenv("YANAMI_DEV_FULLSCREEN_GEOMETRY").trimmed();
+    const QByteArray diagnosticGeometry =
+        DevelopmentHooks::bytes(DevelopmentHooks::Variable::FullscreenGeometry).trimmed();
     if (diagnosticGeometry == "overscan-x") {
         --bounds.left;
         ++bounds.right;

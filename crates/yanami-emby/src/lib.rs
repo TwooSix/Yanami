@@ -1,12 +1,20 @@
 //! Typed access to the Emby REST API and playback-plan selection.
 
+mod catalog;
 mod client;
+#[cfg(test)]
+mod client_tests;
+mod images;
+mod media;
 mod models;
 mod planner;
+mod playback_api;
+mod transport;
 
-pub use client::{ClientIdentity, EmbyClient, EmbyError, ItemQuery};
+pub use client::{ClientIdentity, EmbyClient, EmbyError, ItemQuery, RemoteImageQuery};
 pub use models::{
-    AuthenticationResult, BaseItem, ChapterInfo, ItemsResult, MediaSource, MediaStream,
-    PlaybackInfo, PlaybackProgress, UserDto, UserItemData,
+    AuthenticationResult, BaseItem, ChapterInfo, ImageInfo, ImageProviderInfo, ItemsResult,
+    MediaSource, MediaStream, PlaybackInfo, PlaybackProgress, RefreshProgress, RemoteImageInfo,
+    RemoteImageResult, UserDto, UserItemData,
 };
-pub use planner::{PlaybackPlanner, PlaybackPreference};
+pub use planner::PlaybackPlanner;

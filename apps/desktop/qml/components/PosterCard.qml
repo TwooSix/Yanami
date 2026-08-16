@@ -1,20 +1,49 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import Yanami
+import Yanami.Ui
 
 Item {
     id: root
-    Accessible.role: Accessible.ListItem
-    Accessible.name: root.title + (root.subtitle.length > 0 ? ", " + root.subtitle : "")
     property string title
     property string subtitle
     property string itemType
     property url posterUrl
     property real progress: 0
     property int unplayedCount: 0
+    property var mediaItem: ({})
     property color posterColor: "#33405B"
+    property bool playable: true
     signal activated()
     signal playRequested()
+    signal contextMenuRequested(var item, var sourceItem, real x, real y,
+                                bool keyboardInvocation)
+
+    function requestContextMenu() {
+        root.contextMenuRequested(root.mediaItem, root,
+                                  root.width / 2, root.height / 2, true)
+    }
+
+    activeFocusOnTab: true
+    Accessible.role: Accessible.Button
+    Accessible.name: root.title + (root.subtitle.length > 0 ? ", " + root.subtitle : "")
+    Accessible.onPressAction: root.activated()
+    Keys.onPressed: event => {
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            root.activated()
+            event.accepted = true
+        } else if (event.key === Qt.Key_Space) {
+            if (root.playable)
+                root.playRequested()
+            else
+                root.activated()
+            event.accepted = true
+        } else if (event.key === Qt.Key_Menu
+                   || (event.key === Qt.Key_F10
+                       && (event.modifiers & Qt.ShiftModifier))) {
+            root.requestContextMenu()
+            event.accepted = true
+        }
+    }
 
     implicitWidth: 178
     implicitHeight: 302
@@ -26,7 +55,8 @@ Item {
         height: 246
         radius: Theme.radius
         color: root.posterColor
-        border.color: "#24FFFFFF"
+        border.width: root.activeFocus ? 2 : 1
+        border.color: root.activeFocus ? Theme.accent : "#24FFFFFF"
         clip: true
 
         gradient: Gradient {
@@ -56,7 +86,15 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: root.activated()
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onPressed: root.forceActiveFocus(Qt.MouseFocusReason)
+            onClicked: event => {
+                if (event.button === Qt.RightButton)
+                    root.contextMenuRequested(root.mediaItem, root,
+                                              event.x, event.y, false)
+                else
+                    root.activated()
+            }
         }
 
         AppButton {
@@ -66,9 +104,12 @@ Item {
             kind: "primary"
             iconOnly: true
             iconName: "play"
-            iconSize: 19
-            controlSize: 50
-            opacity: mouse.containsMouse || hovered ? 1 : 0
+            accessibleName: qsTr("Play")
+            iconSize: 23
+            controlSize: 44
+            focusPolicy: Qt.NoFocus
+            visible: root.playable
+            opacity: mouse.containsMouse || hovered || root.activeFocus ? 1 : 0
             scale: opacity > 0 ? 1 : 0.86
             onClicked: root.playRequested()
 
@@ -77,22 +118,38 @@ Item {
         }
 
         Rectangle {
-            visible: root.unplayedCount > 0
+            id: unreadBadge
+            visible: opacity > 0
             anchors.top: parent.top
             anchors.right: parent.right
-            anchors.topMargin: 10
-            anchors.rightMargin: 10
+            anchors.margins: 6
             z: 3
-            width: Math.max(25, unreadLabel.implicitWidth + 12)
-            height: 25
-            radius: 13
+            width: Math.max(height, Math.ceil(unreadMetrics.tightBoundingRect.width) + 12)
+            height: 26
+            radius: height / 2
             color: Theme.accent
             border.width: 1
             border.color: "#55FFFFFF"
+            opacity: root.unplayedCount > 0 ? 1 : 0
+            scale: root.unplayedCount > 0 ? 1 : 0.84
+
+            Behavior on opacity { NumberAnimation { duration: 150 } }
+            Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
+            Behavior on width { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+            TextMetrics {
+                id: unreadMetrics
+                font: unreadLabel.font
+                renderType: unreadLabel.renderType
+                text: unreadLabel.text
+            }
 
             Text {
                 id: unreadLabel
-                anchors.centerIn: parent
+                x: (unreadBadge.width - unreadMetrics.tightBoundingRect.width) / 2
+                    - unreadMetrics.tightBoundingRect.x
+                y: (unreadBadge.height - unreadMetrics.tightBoundingRect.height) / 2
+                    - baselineOffset - unreadMetrics.tightBoundingRect.y
                 text: root.unplayedCount > 99 ? "99+" : String(root.unplayedCount)
                 color: "white"
                 font.family: Theme.fontFamily
@@ -102,7 +159,8 @@ Item {
         }
 
         Rectangle {
-            visible: root.progress > 0 && root.progress < 100
+            visible: opacity > 0
+            opacity: root.progress > 0 && root.progress < 100 ? 1 : 0
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -113,11 +171,14 @@ Item {
             radius: 2
             color: "#70FFFFFF"
 
+            Behavior on opacity { NumberAnimation { duration: 150 } }
+
             Rectangle {
                 width: parent.width * Math.min(1, Math.max(0, root.progress / 100))
                 height: parent.height
                 radius: parent.radius
                 color: Theme.accent
+                Behavior on width { NumberAnimation { duration: 210; easing.type: Easing.OutCubic } }
             }
         }
     }

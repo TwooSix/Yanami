@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import Yanami
+import Yanami.Ui
 
 Flickable {
     id: root
@@ -8,6 +8,15 @@ Flickable {
     property real lastWheelTime: 0
     property real wheelBoost: 1
     readonly property bool canScrollVertically: contentHeight > height + 1
+
+    function scrollToContentY(value) {
+        const maximum = Math.max(0, root.contentHeight - root.height)
+        root.cancelFlick()
+        root.lastWheelTime = 0
+        root.wheelBoost = 1
+        wheelAnimation.to = Math.max(0, Math.min(maximum, value))
+        wheelAnimation.restart()
+    }
 
     clip: true
     boundsBehavior: Flickable.StopAtBounds
@@ -38,9 +47,11 @@ Flickable {
                 ? Math.min(2.25, root.wheelBoost + 0.18)
                 : 1
             root.lastWheelTime = now
-            const rawDelta = event.pixelDelta.y !== 0
+            let rawDelta = event.pixelDelta.y !== 0
                 ? event.pixelDelta.y
                 : event.angleDelta.y * 1.7
+            if (event.inverted)
+                rawDelta = -rawDelta
             const currentTarget = wheelAnimation.running ? wheelAnimation.to : root.contentY
             const maximum = Math.max(0, root.contentHeight - root.height)
             wheelAnimation.to = Math.max(0, Math.min(maximum,

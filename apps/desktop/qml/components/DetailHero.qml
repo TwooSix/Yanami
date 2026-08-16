@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import Yanami
+import Yanami.Ui
 
 GlassPanel {
     id: root

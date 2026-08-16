@@ -1,28 +1,47 @@
-use std::{
-    collections::BTreeMap,
-    fmt,
-    ops::{Deref, DerefMut},
-};
+use std::{collections::BTreeMap, fmt, ops::Deref};
 
+use http::{HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
-use url::Url;
+use thiserror::Error;
+
+use crate::SameOriginUrl;
 
 #[derive(Clone, PartialEq, Eq, Default)]
-pub struct SensitiveHeaders(BTreeMap<String, String>);
+pub struct PlaybackHeaders(BTreeMap<String, String>);
 
-impl SensitiveHeaders {
-    pub fn insert(&mut self, name: String, value: String) -> Option<String> {
-        self.0.insert(name, value)
+#[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
+#[error("playback headers contain an invalid or disallowed value")]
+pub struct PlaybackHeaderError;
+
+impl PlaybackHeaders {
+    /// Builds the read-only header set accepted by the native playback adapter.
+    ///
+    /// Account credentials and arbitrary server-provided headers are rejected
+    /// because libmpv applies its header list to redirects and child requests.
+    pub fn try_from_map(headers: &BTreeMap<String, String>) -> Result<Self, PlaybackHeaderError> {
+        let mut safe = BTreeMap::new();
+        for (name, value) in headers {
+            let parsed_name =
+                HeaderName::from_bytes(name.as_bytes()).map_err(|_| PlaybackHeaderError)?;
+            HeaderValue::from_str(value).map_err(|_| PlaybackHeaderError)?;
+            if !matches!(
+                parsed_name.as_str(),
+                "accept"
+                    | "accept-encoding"
+                    | "accept-language"
+                    | "cache-control"
+                    | "pragma"
+                    | "user-agent"
+            ) {
+                return Err(PlaybackHeaderError);
+            }
+            safe.insert(parsed_name.as_str().to_owned(), value.clone());
+        }
+        Ok(Self(safe))
     }
 }
 
-impl From<BTreeMap<String, String>> for SensitiveHeaders {
-    fn from(value: BTreeMap<String, String>) -> Self {
-        Self(value)
-    }
-}
-
-impl Deref for SensitiveHeaders {
+impl Deref for PlaybackHeaders {
     type Target = BTreeMap<String, String>;
 
     fn deref(&self) -> &Self::Target {
@@ -30,16 +49,10 @@ impl Deref for SensitiveHeaders {
     }
 }
 
-impl DerefMut for SensitiveHeaders {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl fmt::Debug for SensitiveHeaders {
+impl fmt::Debug for PlaybackHeaders {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("SensitiveHeaders")
+            .debug_struct("PlaybackHeaders")
             .field("count", &self.0.len())
             .field("values", &"[REDACTED]")
             .finish()
@@ -59,7 +72,7 @@ pub enum TrackKind {
     Subtitle,
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct MediaTrack {
     pub index: i32,
     pub kind: TrackKind,
@@ -67,7 +80,12 @@ pub struct MediaTrack {
     pub language: Option<String>,
     pub title: Option<String>,
     pub external: bool,
-    pub delivery_url: Option<Url>,
+    pub delivery_url: Option<SameOriginUrl>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum PlaybackWarning {
+    ExternalSubtitleUnavailable { index: i32 },
 }
 
 impl fmt::Debug for MediaTrack {
@@ -88,20 +106,21 @@ impl fmt::Debug for MediaTrack {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct PlaybackPlan {
     pub item_id: String,
     pub media_source_id: String,
     pub play_session_id: String,
     pub method: PlaybackMethod,
-    pub url: Url,
+    pub url: SameOriginUrl,
     /// Headers passed to libmpv. Values are never persisted or logged.
     #[serde(skip)]
-    pub request_headers: SensitiveHeaders,
+    pub request_headers: PlaybackHeaders,
     pub resume_position_ticks: u64,
     pub audio_stream_index: Option<i32>,
     pub subtitle_stream_index: Option<i32>,
     pub tracks: Vec<MediaTrack>,
+    pub warnings: Vec<PlaybackWarning>,
 }
 
 impl fmt::Debug for PlaybackPlan {
@@ -118,52 +137,42 @@ impl fmt::Debug for PlaybackPlan {
             .field("audio_stream_index", &self.audio_stream_index)
             .field("subtitle_stream_index", &self.subtitle_stream_index)
             .field("tracks", &self.tracks)
+            .field("warnings", &self.warnings)
             .finish()
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum PlayerCommand {
-    Load(PlaybackPlan),
-    Play,
-    Pause,
-    Seek(f64),
-    Stop,
-    SetVolume(f64),
-    SetRate(f64),
-    SelectAudio(Option<i32>),
-    SelectSubtitle(Option<i32>),
-    AddSubtitle { url: Url, title: String },
-    SetDanmakuTrack(Option<Url>),
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum PlayerState {
-    #[default]
-    Idle,
-    Loading,
-    Playing,
-    Paused,
-    Buffering,
-    Ended,
-    Failed,
-}
+    #[test]
+    fn playback_headers_enforce_the_native_allowlist() {
+        let safe = BTreeMap::from([("User-Agent".to_owned(), "Yanami test".to_owned())]);
+        let headers = PlaybackHeaders::try_from_map(&safe).unwrap();
+        assert_eq!(headers["user-agent"], "Yanami test");
 
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct PlayerSnapshot {
-    pub state: PlayerState,
-    pub position_seconds: f64,
-    pub duration_seconds: f64,
-    pub volume: f64,
-    pub rate: f64,
-    pub audio_stream_index: Option<i32>,
-    pub subtitle_stream_index: Option<i32>,
-}
+        for unsafe_headers in [
+            BTreeMap::from([("X-Emby-Token".to_owned(), "secret".to_owned())]),
+            BTreeMap::from([("User-Agent\r\nInjected".to_owned(), "value".to_owned())]),
+            BTreeMap::from([("User-Agent".to_owned(), "value\r\nInjected".to_owned())]),
+        ] {
+            assert_eq!(
+                PlaybackHeaders::try_from_map(&unsafe_headers),
+                Err(PlaybackHeaderError)
+            );
+        }
+    }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum PlayerEvent {
-    Snapshot(PlayerSnapshot),
-    TracksChanged(Vec<MediaTrack>),
-    EndFile,
-    Error(String),
+    #[test]
+    fn playback_header_debug_output_is_redacted() {
+        let headers = PlaybackHeaders::try_from_map(&BTreeMap::from([(
+            "User-Agent".to_owned(),
+            "secret marker".to_owned(),
+        )]))
+        .unwrap();
+        let debug = format!("{headers:?}");
+        assert!(debug.contains("REDACTED"));
+        assert!(!debug.contains("secret marker"));
+    }
 }

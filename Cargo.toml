@@ -6,21 +6,21 @@ members = [
     "crates/yanami-emby",
     "crates/yanami-danmaku",
     "crates/yanami-storage",
-    "crates/yanami-player",
     "crates/yanami-desktop-bridge",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.0-dev.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
 rust-version = "1.85"
 authors = ["Yanami contributors"]
 
 [workspace.dependencies]
-async-trait = "0.1"
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+futures-util = "0.3"
+http = "1"
 keyring = { version = "3", default-features = false, features = ["windows-native", "apple-native", "sync-secret-service"] }
 md-5 = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
@@ -31,9 +31,9 @@ serde_json = "1"
 sha2 = "0.10"
 tempfile = "3"
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 tracing = "0.1"
-unicode-width = "0.2"
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 zeroize = "1"

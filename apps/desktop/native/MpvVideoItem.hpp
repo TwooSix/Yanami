@@ -1,15 +1,17 @@
 #pragma once
 
 #include <QPointer>
+#include <QElapsedTimer>
 #include <QQuickFramebufferObject>
-#include <QTimer>
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 
 #include <mpv/client.h>
 
-#include <atomic>
+#include <memory>
+
+struct MpvRenderState;
 
 class MpvVideoItem : public QQuickFramebufferObject
 {
@@ -19,13 +21,26 @@ class MpvVideoItem : public QQuickFramebufferObject
     Q_PROPERTY(double duration READ duration NOTIFY durationChanged)
     Q_PROPERTY(double bufferedPosition READ bufferedPosition NOTIFY bufferedPositionChanged)
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
-    Q_PROPERTY(QString playbackState READ playbackState NOTIFY playbackStateChanged)
+    Q_PROPERTY(bool muted READ muted WRITE setMuted NOTIFY mutedChanged)
+    Q_PROPERTY(double rate READ rate WRITE setRate NOTIFY rateChanged)
+    Q_PROPERTY(bool seekable READ seekable NOTIFY seekableChanged)
+    Q_PROPERTY(PlaybackState playbackState READ playbackState NOTIFY playbackStateChanged)
     Q_PROPERTY(QVariantList audioTracks READ audioTracks NOTIFY tracksChanged)
     Q_PROPERTY(QVariantList subtitleTracks READ subtitleTracks NOTIFY tracksChanged)
     Q_PROPERTY(qint64 selectedAudioTrack READ selectedAudioTrack NOTIFY tracksChanged)
     Q_PROPERTY(qint64 selectedSubtitleTrack READ selectedSubtitleTrack NOTIFY tracksChanged)
 
 public:
+    enum class PlaybackState {
+        Idle,
+        Loading,
+        Playing,
+        Paused,
+        Buffering,
+        Ended,
+    };
+    Q_ENUM(PlaybackState)
+
     explicit MpvVideoItem(QQuickItem *parent = nullptr);
     ~MpvVideoItem() override;
 
@@ -36,7 +51,10 @@ public:
     double duration() const { return m_duration; }
     double bufferedPosition() const { return m_bufferedPosition; }
     double volume() const { return m_volume; }
-    QString playbackState() const { return m_playbackState; }
+    bool muted() const { return m_muted; }
+    double rate() const { return m_rate; }
+    bool seekable() const { return m_seekable; }
+    PlaybackState playbackState() const { return m_playbackState; }
     QVariantList audioTracks() const { return m_audioTracks; }
     QVariantList subtitleTracks() const { return m_subtitleTracks; }
     qint64 selectedAudioTrack() const { return m_selectedAudioTrack; }
@@ -46,10 +64,9 @@ public:
     Q_INVOKABLE void stop();
     Q_INVOKABLE void seek(double seconds);
     Q_INVOKABLE void setVolume(double volume);
+    Q_INVOKABLE void setMuted(bool muted);
     Q_INVOKABLE void setRate(double rate);
     Q_INVOKABLE void addSubtitle(const QUrl &url, const QString &title, bool selected = false);
-    Q_INVOKABLE void setDanmakuFile(const QUrl &url);
-    Q_INVOKABLE void setDanmakuVisible(bool visible);
     Q_INVOKABLE void selectAudioTrack(qint64 trackId);
     Q_INVOKABLE void selectSubtitleTrack(qint64 trackId);
     Q_INVOKABLE void disableSubtitles();
@@ -66,41 +83,49 @@ signals:
     void durationChanged();
     void bufferedPositionChanged();
     void volumeChanged();
+    void mutedChanged();
+    void rateChanged();
+    void seekableChanged();
     void playbackStateChanged();
     void playbackError(const QString &message);
     void tracksChanged();
     void fileLoaded();
     void fileEnded();
+    void seekRequested(double positionSeconds);
 
 private slots:
     void drainEvents();
-    void selectDanmakuTrack();
 
 private:
     friend class MpvRenderer;
 
     static void wakeup(void *context);
-    void setPlaybackState(const QString &state);
-    void command(const QList<QByteArray> &arguments);
+    void setPlaybackState(PlaybackState state);
+    void command(const QList<QByteArray> &arguments, quint64 replyUserdata = 0);
     void setHeaders(const QVariantMap &headers);
     void refreshTracks();
 
+    std::shared_ptr<mpv_handle> m_mpvOwner;
     mpv_handle *m_mpv = nullptr;
+    std::shared_ptr<MpvRenderState> m_renderState;
     bool m_paused = false;
     bool m_buffering = false;
     bool m_fileLoaded = false;
+    quint64 m_loadGeneration = 0;
+    quint64 m_bufferingTransitions = 0;
+    qint64 m_totalBufferingMs = 0;
+    QElapsedTimer m_loadTimer;
+    QElapsedTimer m_bufferingTimer;
     double m_position = 0.0;
     double m_duration = 0.0;
     double m_bufferedPosition = 0.0;
     double m_volume = 100.0;
-    QString m_playbackState = QStringLiteral("idle");
-    QString m_pendingDanmaku;
+    bool m_muted = false;
+    double m_rate = 1.0;
+    bool m_seekable = false;
+    PlaybackState m_playbackState = PlaybackState::Idle;
     QVariantList m_audioTracks;
     QVariantList m_subtitleTracks;
     qint64 m_selectedAudioTrack = -1;
     qint64 m_selectedSubtitleTrack = -1;
-    std::atomic_uint64_t m_renderCallbackCount{0};
-    std::atomic_uint64_t m_renderCount{0};
-    std::atomic_uint64_t m_renderTotalNanoseconds{0};
-    std::atomic_uint64_t m_renderMaximumNanoseconds{0};
 };

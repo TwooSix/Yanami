@@ -1,18 +1,40 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import Yanami
+import Yanami.Ui
 
 Item {
     id: root
-    Accessible.role: Accessible.ListItem
-    Accessible.name: root.title + (root.subtitle.length > 0 ? ", " + root.subtitle : "")
-
     property string title
     property string subtitle
     property url imageUrl
     property real progress: 0
+    property var mediaItem: ({})
     readonly property bool artworkReady: episodeImage.status === Image.Ready
     signal playRequested()
+    signal contextMenuRequested(var item, var sourceItem, real x, real y,
+                                bool keyboardInvocation)
+
+    function requestContextMenu() {
+        root.contextMenuRequested(root.mediaItem, root,
+                                  root.width / 2, root.height / 2, true)
+    }
+
+    activeFocusOnTab: true
+    Accessible.role: Accessible.Button
+    Accessible.name: root.title + (root.subtitle.length > 0 ? ", " + root.subtitle : "")
+    Accessible.onPressAction: root.playRequested()
+    Keys.onPressed: event => {
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                || event.key === Qt.Key_Space) {
+            root.playRequested()
+            event.accepted = true
+        } else if (event.key === Qt.Key_Menu
+                   || (event.key === Qt.Key_F10
+                       && (event.modifiers & Qt.ShiftModifier))) {
+            root.requestContextMenu()
+            event.accepted = true
+        }
+    }
 
     implicitWidth: 292
     implicitHeight: 176
@@ -23,8 +45,9 @@ Item {
         radius: 20
         clip: true
         color: "#202633"
-        border.width: 1
-        border.color: hover.containsMouse ? Theme.outlineStrong : Theme.outline
+        border.width: root.activeFocus ? 2 : 1
+        border.color: root.activeFocus ? Theme.accent
+            : (hover.containsMouse ? Theme.outlineStrong : Theme.outline)
 
         RoundedImage {
             id: episodeImage
@@ -39,7 +62,7 @@ Item {
         Rectangle {
             anchors.fill: parent
             radius: artwork.radius
-            opacity: root.artworkReady ? 1 : 0
+            opacity: 1
             gradient: Gradient {
                 orientation: Gradient.Vertical
                 GradientStop { position: 0; color: "#08000000" }
@@ -57,9 +80,6 @@ Item {
             anchors.rightMargin: 12
             anchors.bottomMargin: 16
             spacing: 4
-            opacity: root.artworkReady ? 1 : 0
-
-            Behavior on opacity { NumberAnimation { duration: 180 } }
 
             Text {
                 width: parent.width
@@ -85,7 +105,15 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: root.playRequested()
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onPressed: root.forceActiveFocus(Qt.MouseFocusReason)
+            onClicked: event => {
+                if (event.button === Qt.RightButton)
+                    root.contextMenuRequested(root.mediaItem, root,
+                                              event.x, event.y, false)
+                else
+                    root.playRequested()
+            }
         }
 
         AppButton {
@@ -98,13 +126,17 @@ Item {
             kind: "primary"
             iconOnly: true
             iconName: "play"
-            controlSize: 42
-            opacity: !root.artworkReady ? 0 : (hover.containsMouse || hovered ? 1 : 0.88)
+            accessibleName: qsTr("Play")
+            controlSize: 44
+            iconSize: 23
+            focusPolicy: Qt.NoFocus
+            opacity: hover.containsMouse || hovered ? 1 : 0.88
             onClicked: root.playRequested()
         }
 
         Rectangle {
-            visible: root.artworkReady && root.progress > 0 && root.progress < 100
+            visible: opacity > 0
+            opacity: root.progress > 0 && root.progress < 100 ? 1 : 0
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -115,11 +147,14 @@ Item {
             radius: 2
             color: "#50FFFFFF"
 
+            Behavior on opacity { NumberAnimation { duration: 150 } }
+
             Rectangle {
                 width: parent.width * Math.min(1, Math.max(0, root.progress / 100))
                 height: parent.height
                 radius: parent.radius
                 color: Theme.accent
+                Behavior on width { NumberAnimation { duration: 210; easing.type: Easing.OutCubic } }
             }
         }
     }

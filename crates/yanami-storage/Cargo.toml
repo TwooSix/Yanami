@@ -14,7 +14,6 @@ serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 yanami-core = { path = "../yanami-core" }
-yanami-danmaku = { path = "../yanami-danmaku" }
 
 [dev-dependencies]
 tempfile.workspace = true

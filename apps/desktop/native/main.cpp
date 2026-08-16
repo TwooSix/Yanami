@@ -1,13 +1,16 @@
 #include <QGuiApplication>
-#include <QFile>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QIcon>
-#include <QMessageLogContext>
+#include <QJsonDocument>
+#include <QJsonParseError>
+#include <QLoggingCategory>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
-#include <QTextStream>
+#include <QStandardPaths>
+#include <QSysInfo>
 #include <QTimer>
 
 #include <algorithm>
@@ -15,49 +18,49 @@
 #include <memory>
 
 #include "MpvVideoItem.hpp"
-#include "BackendController.hpp"
+#include "ApplicationViewModel.hpp"
+#include "AsyncOperationState.hpp"
+#include "AsyncResourceState.hpp"
+#include "AsyncImageProvider.hpp"
+#include "DesktopBackendServices.hpp"
+#include "DevelopmentHooks.hpp"
+#include "MediaStore.hpp"
 #include "LocaleController.hpp"
+#include "RuntimeLogger.hpp"
 #include "WindowController.hpp"
 
 namespace {
-QString developmentLogPath;
+Q_LOGGING_CATEGORY(applicationLog, "yanami.application")
+using DevelopmentHook = DevelopmentHooks::Variable;
 
-void developmentMessageHandler(
-    QtMsgType type,
-    const QMessageLogContext &context,
-    const QString &message)
+class RuntimeLoggerGuard final
 {
-    QFile logFile(developmentLogPath);
-    if (!logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
-        return;
+public:
+    explicit RuntimeLoggerGuard(bool installed)
+        : m_installed(installed)
+    {
+    }
 
-    const char *level = "INFO";
-    if (type == QtDebugMsg)
-        level = "DEBUG";
-    else if (type == QtWarningMsg)
-        level = "WARNING";
-    else if (type == QtCriticalMsg)
-        level = "CRITICAL";
-    else if (type == QtFatalMsg)
-        level = "FATAL";
+    ~RuntimeLoggerGuard()
+    {
+        if (m_installed)
+            RuntimeLogger::shutdown();
+    }
 
-    QTextStream stream(&logFile);
-    stream << level << ": " << message;
-    if (context.file)
-        stream << " (" << context.file << ':' << context.line << ')';
-    stream << '\n';
-}
+    RuntimeLoggerGuard(const RuntimeLoggerGuard &) = delete;
+    RuntimeLoggerGuard &operator=(const RuntimeLoggerGuard &) = delete;
+
+private:
+    bool m_installed = false;
+};
 }
 
 int main(int argc, char *argv[])
 {
     QGuiApplication::setApplicationName(QStringLiteral("Yanami"));
+    QGuiApplication::setApplicationVersion(QStringLiteral(YANAMI_VERSION));
     QGuiApplication::setOrganizationName(QStringLiteral("Yanami"));
     QGuiApplication::setOrganizationDomain(QStringLiteral("yanami.local"));
-
-    developmentLogPath = qEnvironmentVariable("YANAMI_DEV_LOG_PATH");
-    if (!developmentLogPath.isEmpty())
-        qInstallMessageHandler(developmentMessageHandler);
 
     // libmpv's render API is OpenGL. Keeping Qt on the same graphics API avoids
     // cross-API copies and lets controls and video share one scene graph.
@@ -65,23 +68,72 @@ int main(int argc, char *argv[])
     QQuickWindow::setDefaultAlphaBuffer(false);
 
     QGuiApplication app(argc, argv);
+    const bool runtimeLoggerInstalled = RuntimeLogger::install();
+    RuntimeLoggerGuard runtimeLoggerGuard(runtimeLoggerInstalled);
+    if (runtimeLoggerInstalled) {
+        qCInfo(applicationLog).noquote()
+            << "application_start"
+            << "version=" << QCoreApplication::applicationVersion()
+            << "qtVersion=" << qVersion()
+            << "os=" << QSysInfo::prettyProductName()
+            << "kernel=" << QSysInfo::kernelType()
+            << "kernelVersion=" << QSysInfo::kernelVersion()
+            << "cpuArchitecture=" << QSysInfo::currentCpuArchitecture()
+            << "buildAbi=" << QSysInfo::buildAbi()
+            << "logPath=" << RuntimeLogger::currentLogPath();
+    } else {
+        qWarning().noquote()
+            << "application_logging_unavailable"
+            << "reason=runtime_logger_install_failed";
+    }
+    app.setWindowIcon(QIcon(QStringLiteral(
+        ":/qt/qml/Yanami/Ui/qml/assets/yanami-logo.png")));
     qmlRegisterType<MpvVideoItem>("Yanami.Native", 1, 0, "MpvVideoItem");
-
-    BackendController backend;
+    qmlRegisterType<MediaQueryProxyModel>(
+        "Yanami.Native", 1, 0, "MediaQueryProxyModel");
+    qmlRegisterType<AsyncResourceState>(
+        "Yanami.Native", 1, 0, "AsyncResourceState");
+    qmlRegisterUncreatableType<AsyncOperationState>(
+        "Yanami.Native", 1, 0, "AsyncOperationState",
+        QStringLiteral("AsyncOperationState instances are owned by feature view models."));
+    DesktopBackendServices backendServices;
+    ApplicationViewModel applicationViewModel(backendServices.portSet());
     LocaleController localeController(nullptr);
     WindowController windowController;
     QQmlApplicationEngine engine;
+    engine.addImageProvider(
+        QStringLiteral("yanami"),
+        new AsyncImageProvider(QDir(
+            QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
+            .filePath(QStringLiteral("cache"))));
     localeController.setEngine(&engine);
-    const QString autoplayItemId = qEnvironmentVariable("YANAMI_DEV_AUTOPLAY_ITEM_ID");
-    const QString autoplayRecentTitle = qEnvironmentVariable("YANAMI_DEV_AUTOPLAY_RECENT_TITLE");
-    const bool autoplayResumeFirst = qEnvironmentVariableIsSet("YANAMI_DEV_AUTOPLAY_RESUME_FIRST");
+#ifdef YANAMI_ENABLE_DEV_HOOKS
+    const QString autoplayItemId = DevelopmentHooks::value(DevelopmentHook::AutoplayItemId);
+    QVariantMap autoplayContext;
+    const QByteArray autoplayContextJson =
+        DevelopmentHooks::value(DevelopmentHook::AutoplayContextJson).toUtf8();
+    if (!autoplayContextJson.isEmpty()) {
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(
+            autoplayContextJson, &parseError);
+        if (parseError.error == QJsonParseError::NoError && document.isObject())
+            autoplayContext = document.object().toVariantMap();
+        else
+            qWarning().noquote() << "development_autoplay_context_invalid";
+    }
+    const QString autoplayRecentTitle =
+        DevelopmentHooks::value(DevelopmentHook::AutoplayRecentTitle);
+    const bool autoplayResumeFirst =
+        DevelopmentHooks::isSet(DevelopmentHook::AutoplayResumeFirst);
     if (!autoplayRecentTitle.isEmpty()) {
         const auto autoplayStarted = std::make_shared<bool>(false);
-        const auto tryAutoplayRecent = [&backend, autoplayRecentTitle, autoplayStarted] {
+        const auto tryAutoplayRecent = [&applicationViewModel, autoplayRecentTitle, autoplayStarted] {
             if (*autoplayStarted)
                 return;
-            QVariantList items = backend.recentItems();
-            items.append(backend.resumeItems());
+            QVariantList items = applicationViewModel.home()->mediaStore()
+                ->queryItems(QStringLiteral("recent"));
+            items.append(applicationViewModel.home()->mediaStore()
+                ->queryItems(QStringLiteral("resume")));
             const auto match = std::find_if(items.cbegin(), items.cend(), [&autoplayRecentTitle](const QVariant &value) {
                 return value.toMap()
                     .value(QStringLiteral("title"))
@@ -94,60 +146,75 @@ int main(int argc, char *argv[])
             if (itemId.isEmpty())
                 return;
             *autoplayStarted = true;
-            backend.preparePlayback(itemId);
+            applicationViewModel.playback()->prepare(itemId);
         };
         QObject::connect(
-            &backend,
-            &BackendController::recentItemsChanged,
-            &backend,
+            applicationViewModel.home()->mediaStore(),
+            &MediaStore::queryChanged,
+            &applicationViewModel,
             tryAutoplayRecent);
-        QObject::connect(
-            &backend,
-            &BackendController::resumeItemsChanged,
-            &backend,
-            tryAutoplayRecent);
-        QTimer::singleShot(0, &backend, tryAutoplayRecent);
+        QTimer::singleShot(0, &applicationViewModel, tryAutoplayRecent);
     } else if (autoplayResumeFirst) {
         const auto autoplayStarted = std::make_shared<bool>(false);
-        const auto tryAutoplayResume = [&backend, autoplayStarted] {
+        const auto tryAutoplayResume = [&applicationViewModel, autoplayStarted] {
             if (*autoplayStarted)
                 return;
-            const QVariantList items = backend.resumeItems();
+            const QVariantList items =
+                applicationViewModel.home()->mediaStore()
+                    ->queryItems(QStringLiteral("resume"));
             if (items.isEmpty())
                 return;
             const QString itemId = items.constFirst().toMap().value(QStringLiteral("id")).toString();
             if (itemId.isEmpty())
                 return;
             *autoplayStarted = true;
-            backend.preparePlayback(itemId);
+            applicationViewModel.playback()->prepare(itemId);
         };
         QObject::connect(
-            &backend,
-            &BackendController::resumeItemsChanged,
-            &backend,
+            applicationViewModel.home()->mediaStore(),
+            &MediaStore::queryChanged,
+            &applicationViewModel,
             tryAutoplayResume);
-        QTimer::singleShot(0, &backend, tryAutoplayResume);
+        QTimer::singleShot(0, &applicationViewModel, tryAutoplayResume);
     } else if (!autoplayItemId.isEmpty()) {
-        QTimer::singleShot(0, &backend, [&backend, autoplayItemId] {
-            backend.preparePlayback(autoplayItemId);
+        auto *autoplayTimer = new QTimer(&applicationViewModel);
+        autoplayTimer->setInterval(250);
+        QObject::connect(autoplayTimer, &QTimer::timeout,
+                         &applicationViewModel,
+                         [&applicationViewModel, autoplayItemId, autoplayContext, autoplayTimer] {
+            if (!applicationViewModel.session()->connected()
+                || applicationViewModel.session()->busy())
+                return;
+            autoplayTimer->stop();
+            applicationViewModel.playback()->prepareInContext(
+                autoplayItemId, autoplayContext);
         });
-    } else if (qEnvironmentVariableIsSet("YANAMI_DEV_AUTOPLAY_FIRST")) {
+        autoplayTimer->start();
+    } else if (DevelopmentHooks::isSet(DevelopmentHook::AutoplayFirst)) {
+        const auto autoplayStarted = std::make_shared<bool>(false);
         QObject::connect(
-            &backend,
-            &BackendController::mediaItemsChanged,
-            &backend,
-            [&backend] {
-                const QVariantList items = backend.mediaItems();
+            applicationViewModel.home()->mediaStore(),
+            &MediaStore::queryChanged,
+            &applicationViewModel,
+            [&applicationViewModel, autoplayStarted](const QString &kind, const QString &) {
+                if (*autoplayStarted || kind != QStringLiteral("library"))
+                    return;
+                const QVariantList items =
+                    applicationViewModel.home()->mediaStore()
+                        ->queryItems(QStringLiteral("library"));
                 if (items.isEmpty())
                     return;
                 const QString itemId = items.constFirst().toMap().value(QStringLiteral("id")).toString();
-                if (!itemId.isEmpty())
-                    backend.preparePlayback(itemId);
-            },
-            Qt::SingleShotConnection);
+                if (!itemId.isEmpty()) {
+                    *autoplayStarted = true;
+                    applicationViewModel.playback()->prepare(itemId);
+                }
+            });
     }
+#endif
 
-    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(
+        QStringLiteral("app"), &applicationViewModel);
     engine.rootContext()->setContextProperty(QStringLiteral("i18n"), &localeController);
     engine.rootContext()->setContextProperty(QStringLiteral("windowShell"), &windowController);
     QObject::connect(
@@ -158,18 +225,22 @@ int main(int argc, char *argv[])
         Qt::QueuedConnection);
     engine.loadFromModule("Yanami", "Main");
 
-    const QString developmentLanguage = qEnvironmentVariable("YANAMI_DEV_SWITCH_LANGUAGE");
+#ifdef YANAMI_ENABLE_DEV_HOOKS
+    const QString developmentLanguage =
+        DevelopmentHooks::value(DevelopmentHook::SwitchLanguage);
     if (!developmentLanguage.isEmpty()) {
         QTimer::singleShot(500, &localeController, [&localeController, developmentLanguage] {
             localeController.setLanguage(developmentLanguage);
         });
     }
+#endif
 
     if (!engine.rootObjects().isEmpty()) {
         auto *root = engine.rootObjects().constFirst();
         if (auto *window = qobject_cast<QWindow *>(root))
             windowController.configureWindow(window);
-        if (qEnvironmentVariableIsSet("YANAMI_DEV_RENDER_DIAGNOSTICS")) {
+#ifdef YANAMI_ENABLE_DEV_HOOKS
+        if (DevelopmentHooks::isSet(DevelopmentHook::RenderDiagnostics)) {
             root->setProperty("developmentRenderDiagnostics", true);
             if (auto *quickWindow = qobject_cast<QQuickWindow *>(root)) {
                 struct FrameTimingState {
@@ -223,33 +294,110 @@ int main(int argc, char *argv[])
                     Qt::DirectConnection);
             }
         }
+        const QString developmentSearchQuery =
+            DevelopmentHooks::value(DevelopmentHook::SearchQuery);
+        if (!developmentSearchQuery.isEmpty())
+            root->setProperty("developmentSearchQuery", developmentSearchQuery);
+        const QString developmentMediaMenuPreview =
+            DevelopmentHooks::value(DevelopmentHook::MediaMenuPreview);
+        if (!developmentMediaMenuPreview.isEmpty())
+            root->setProperty("developmentMediaMenuPreview", developmentMediaMenuPreview);
+        const QString developmentCollectionSequence =
+            DevelopmentHooks::value(DevelopmentHook::CollectionSequence);
+        if (!developmentCollectionSequence.isEmpty())
+            root->setProperty("developmentCollectionSequence", developmentCollectionSequence);
+        if (DevelopmentHooks::isSet(DevelopmentHook::ScrollRegression))
+            root->setProperty("developmentScrollRegression", true);
+        bool scanProgressIsValid = false;
+        const double developmentLibraryScanProgress =
+            DevelopmentHooks::value(DevelopmentHook::LibraryScanProgress)
+                .toDouble(&scanProgressIsValid);
+        if (scanProgressIsValid) {
+            root->setProperty(
+                "developmentLibraryScanProgress",
+                std::clamp(developmentLibraryScanProgress, 0.0, 100.0));
+        }
         bool seekIsValid = false;
-        const int developmentSeekSeconds = qEnvironmentVariableIntValue(
-            "YANAMI_DEV_PLAYBACK_SEEK_SECONDS", &seekIsValid);
+        const int developmentSeekSeconds = DevelopmentHooks::intValue(
+            DevelopmentHook::PlaybackSeekSeconds, &seekIsValid);
         if (seekIsValid && developmentSeekSeconds > 0)
             root->setProperty("developmentSeekSeconds", developmentSeekSeconds);
         bool autoStopIsValid = false;
-        const int developmentAutoStopMs = qEnvironmentVariableIntValue(
-            "YANAMI_DEV_PLAYBACK_AUTOSTOP_MS", &autoStopIsValid);
+        const int developmentAutoStopMs = DevelopmentHooks::intValue(
+            DevelopmentHook::PlaybackAutostopMs, &autoStopIsValid);
         if (autoStopIsValid && developmentAutoStopMs > 0)
             root->setProperty("developmentAutoStopMs", developmentAutoStopMs);
-        if (qEnvironmentVariableIsSet("YANAMI_DEV_AUTO_SKIP_INTRO"))
+        if (DevelopmentHooks::isSet(DevelopmentHook::AutoSkipIntro))
             root->setProperty("developmentAutoSkipIntro", true);
-        if (qEnvironmentVariableIsSet("YANAMI_DEV_SHOW_LOADING"))
+        if (DevelopmentHooks::isSet(DevelopmentHook::ShowLoading))
             root->setProperty("developmentLoadingPreview", true);
+        if (DevelopmentHooks::isSet(DevelopmentHook::ShowDanmakuMenu))
+            root->setProperty("developmentDanmakuPreview", true);
+        if (DevelopmentHooks::isSet(DevelopmentHook::ShowPlaybackQueue))
+            root->setProperty("developmentPlaybackQueuePreview", true);
+        const QString developmentDanmakuSearchQuery =
+            DevelopmentHooks::value(DevelopmentHook::DanmakuSearchQuery);
+        if (!developmentDanmakuSearchQuery.isEmpty())
+            root->setProperty("developmentDanmakuSearchQuery", developmentDanmakuSearchQuery);
+        bool danmakuPreviewSizeIsValid = false;
+        const double developmentDanmakuPreviewFontSize =
+            DevelopmentHooks::value(DevelopmentHook::DanmakuPreviewFontSize)
+                .toDouble(&danmakuPreviewSizeIsValid);
+        if (danmakuPreviewSizeIsValid && developmentDanmakuPreviewFontSize > 0)
+            root->setProperty(
+                "developmentDanmakuPreviewFontSize",
+                developmentDanmakuPreviewFontSize);
+        if (DevelopmentHooks::isSet(DevelopmentHook::DisableDanmakuAfterLoad))
+            root->setProperty("developmentDisableDanmakuAfterLoad", true);
+        if (DevelopmentHooks::isSet(DevelopmentHook::ReenableDanmakuAfterDisable))
+            root->setProperty("developmentReenableDanmakuAfterDisable", true);
+        const QString developmentLocalMedia =
+            DevelopmentHooks::value(DevelopmentHook::LocalMedia);
+        if (!developmentLocalMedia.isEmpty()) {
+            root->setProperty("developmentLocalMediaUrl",
+                              QUrl::fromLocalFile(developmentLocalMedia));
+        }
+        bool danmakuStressCountIsValid = false;
+        const int danmakuStressCount = DevelopmentHooks::intValue(
+            DevelopmentHook::DanmakuStyleStressCount,
+            &danmakuStressCountIsValid);
+        if (danmakuStressCountIsValid && danmakuStressCount > 0)
+            root->setProperty("developmentDanmakuStyleStressCount",
+                              danmakuStressCount);
+        bool danmakuToggleStressIsValid = false;
+        const int danmakuToggleStressCount = DevelopmentHooks::intValue(
+            DevelopmentHook::DanmakuToggleStressCount,
+            &danmakuToggleStressIsValid);
+        if (danmakuToggleStressIsValid && danmakuToggleStressCount > 0)
+            root->setProperty("developmentDanmakuToggleStressCount",
+                              danmakuToggleStressCount);
+#endif
     }
 
-    const QString screenshotPath = qEnvironmentVariable("YANAMI_DEV_SCREENSHOT_PATH");
+#ifdef YANAMI_ENABLE_DEV_HOOKS
+    const QString screenshotPath =
+        DevelopmentHooks::value(DevelopmentHook::ScreenshotPath);
     if (!screenshotPath.isEmpty() && !engine.rootObjects().isEmpty()) {
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
         if (window) {
+            bool widthIsValid = false;
+            bool heightIsValid = false;
+            const int requestedWidth = DevelopmentHooks::intValue(
+                DevelopmentHook::WindowWidth, &widthIsValid);
+            const int requestedHeight = DevelopmentHooks::intValue(
+                DevelopmentHook::WindowHeight, &heightIsValid);
+            if (widthIsValid)
+                window->setWidth(std::max(window->minimumWidth(), requestedWidth));
+            if (heightIsValid)
+                window->setHeight(std::max(window->minimumHeight(), requestedHeight));
             bool pageIsValid = false;
-            const int page = qEnvironmentVariableIntValue("YANAMI_DEV_SCREENSHOT_PAGE", &pageIsValid);
+            const int page = DevelopmentHooks::intValue(
+                DevelopmentHook::ScreenshotPage, &pageIsValid);
             if (pageIsValid)
                 window->setProperty("currentPage", page);
             bool delayIsValid = false;
-            const int requestedDelay = qEnvironmentVariableIntValue(
-                "YANAMI_DEV_SCREENSHOT_DELAY_MS", &delayIsValid);
+            const int requestedDelay = DevelopmentHooks::intValue(
+                DevelopmentHook::ScreenshotDelayMs, &delayIsValid);
             const int screenshotDelay = delayIsValid ? qBound(250, requestedDelay, 60000) : 1200;
             QTimer::singleShot(screenshotDelay, window, [window, screenshotPath, &app] {
                 const bool saved = window->grabWindow().save(screenshotPath);
@@ -257,5 +405,10 @@ int main(int argc, char *argv[])
             });
         }
     }
-    return app.exec();
+#endif
+    const int exitCode = app.exec();
+    qCInfo(applicationLog).noquote()
+        << "application_event_loop_finished"
+        << "exitCode=" << exitCode;
+    return exitCode;
 }

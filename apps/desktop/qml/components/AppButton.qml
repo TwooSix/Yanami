@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import Yanami
+import Yanami.Ui
 
 Button {
     id: control
@@ -8,8 +8,19 @@ Button {
     property string kind: "secondary"
     property bool iconOnly: false
     property string iconName: ""
-    property real iconSize: iconOnly ? 20 : 17
+    property string accessibleName: ""
+    property bool iconSpinning: false
     property real controlSize: 44
+    property string toolTipText: ""
+    property bool toolTipVisible: hovered && toolTipText.length > 0
+    property int toolTipDelay: 500
+    property int toolTipTimeout: 5000
+    // Icon-only controls use the same visual proportion throughout the app:
+    // 48% of the circular control, clamped for compact and large variants.
+    // Deliberate emphasis (for example the primary play control) can still
+    // opt in to a different ratio by specifying iconSize explicitly.
+    property real iconSize: iconOnly
+        ? Math.max(14, Math.min(20, Math.round(controlSize * 0.48))) : 17
     readonly property color foregroundColor: !control.enabled
         ? "#737C8C"
         : (control.kind === "primary" ? "white" : Theme.text)
@@ -21,6 +32,29 @@ Button {
     topPadding: 0
     bottomPadding: 0
     hoverEnabled: true
+    focusPolicy: Qt.StrongFocus
+    Accessible.role: Accessible.Button
+    Accessible.name: control.accessibleName.length > 0
+        ? control.accessibleName
+        : (control.text.length > 0
+        ? control.text
+        : (control.toolTipText.length > 0
+            ? control.toolTipText : control.iconName))
+    Keys.onPressed: event => {
+        if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter)
+            return
+        control.click()
+        event.accepted = true
+    }
+
+    onIconSpinningChanged: {
+        if (!iconSpinning)
+            buttonIcon.rotation = 0
+    }
+    onPressedChanged: {
+        if (pressed)
+            PopupCoordinator.notePopupContentPress()
+    }
 
     contentItem: Item {
         implicitWidth: contentRow.implicitWidth
@@ -32,7 +66,10 @@ Button {
             spacing: control.iconName.length > 0 && label.visible ? 8 : 0
 
             AppIcon {
+                id: buttonIcon
                 anchors.verticalCenter: parent.verticalCenter
+                anchors.horizontalCenterOffset: control.iconOnly
+                    && control.iconName === "play" ? 0.8 : 0
                 visible: control.iconName.length > 0
                 width: visible ? control.iconSize : 0
                 height: control.iconSize
@@ -40,6 +77,16 @@ Button {
                 color: control.foregroundColor
 
                 Behavior on color { ColorAnimation { duration: 140 } }
+
+                RotationAnimator {
+                    target: buttonIcon
+                    from: 0
+                    to: 360
+                    duration: 820
+                    loops: Animation.Infinite
+                    running: control.iconSpinning
+                }
+
             }
 
             Text {
@@ -76,13 +123,24 @@ Button {
                 return control.down ? "#24FFFFFF" : (control.hovered ? "#18FFFFFF" : "#08FFFFFF")
             return control.down ? "#2BFFFFFF" : (control.hovered ? "#20FFFFFF" : "#14FFFFFF")
         }
-        border.width: control.kind === "primary" ? 0 : 1
-        border.color: control.checked ? "#70FF6687"
-            : (control.kind === "glass" ? "#48FFFFFF" : Theme.outline)
+        border.width: control.visualFocus ? 2
+            : (control.kind === "primary" ? 0 : 1)
+        border.color: control.visualFocus
+            ? (control.kind === "primary" ? "white" : Theme.accent)
+            : (control.checked ? "#70FF6687"
+                : (control.kind === "glass" ? "#48FFFFFF" : Theme.outline))
         scale: control.down ? 0.97 : 1
 
         Behavior on color { ColorAnimation { duration: 140 } }
         Behavior on border.color { ColorAnimation { duration: 140 } }
         Behavior on scale { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+    }
+
+    AppToolTip {
+        parent: control
+        visible: control.toolTipVisible && control.toolTipText.length > 0
+        text: control.toolTipText
+        delay: control.toolTipDelay
+        timeout: control.toolTipTimeout
     }
 }

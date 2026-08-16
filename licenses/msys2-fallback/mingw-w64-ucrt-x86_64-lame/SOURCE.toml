@@ -1,0 +1,17 @@
+package = "mingw-w64-ucrt-x86_64-lame"
+package_version = "3.100-3"
+source_archive_url = "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz"
+source_archive_sha256 = "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e"
+
+[[license_files]]
+path = "COPYING"
+sha256 = "bfe4a52dc4645385f356a8e83cc54216a293e3b6f1cb4f79f5fc0277abf937fd"
+
+[[license_files]]
+path = "LICENSE"
+sha256 = "7a40cbd8818c57e5285e83c772a459a996d1662c824a879836b97b473c07cae4"
+
+[[license_files]]
+path = "debian/copyright"
+sha256 = "1f27f9f698183275bd615c1140b7bf6e498750e9280597c6eb39790e54ae809b"
+

@@ -1,0 +1,19 @@
+package = "mingw-w64-ucrt-x86_64-gmp"
+package_version = "6.3.0-2"
+source_archive_url = "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz"
+source_archive_sha256 = "a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898"
+
+[[license_files]]
+path = "COPYINGv2"
+sha256 = "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+
+[[license_files]]
+path = "COPYINGv3"
+sha256 = "e6037104443f9a7829b2aa7c5370d0789a7bda3ca65a0b904cdc0c2e285d9195"
+[[license_files]]
+path = "COPYING"
+sha256 = "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+
+[[license_files]]
+path = "COPYING.LESSERv3"
+sha256 = "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c"

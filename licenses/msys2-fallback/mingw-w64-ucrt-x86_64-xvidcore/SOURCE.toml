@@ -1,0 +1,13 @@
+package = "mingw-w64-ucrt-x86_64-xvidcore"
+package_version = "1.3.7-5"
+source_archive_url = "https://downloads.xvid.com/downloads/xvidcore-1.3.7.tar.bz2"
+source_archive_sha256 = "aeeaae952d4db395249839a3bd03841d6844843f5a4f84c271ff88f7aa1acff7"
+
+[[license_files]]
+path = "LICENSE"
+sha256 = "2ab06d2335f9781f1a485c78a557e6c61b6c24e118caad4d4210c46426bbce95"
+
+[[license_files]]
+path = "vfw/LICENSE"
+sha256 = "40a8c1ea469c6813413443df59115ecc781421cc7d184839ccc7c9f54057a283"
+

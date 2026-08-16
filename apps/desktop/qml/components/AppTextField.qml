@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import Yanami
+import Yanami.Ui
 
 Item {
     id: root
@@ -11,6 +11,7 @@ Item {
     property alias echoMode: field.echoMode
     property alias validator: field.validator
     property alias inputMethodHints: field.inputMethodHints
+    signal accepted()
     implicitWidth: 280
     implicitHeight: 78
 
@@ -48,6 +49,7 @@ Item {
         font.family: Theme.fontForText(field.text.length > 0 ? field.text : field.placeholderText)
         font.pixelSize: 14
         selectByMouse: true
+        onAccepted: root.accepted()
 
         background: Rectangle {
             radius: Theme.radiusSmall
@@ -57,6 +59,15 @@ Item {
 
             Behavior on color { ColorAnimation { duration: 140 } }
             Behavior on border.color { ColorAnimation { duration: 140 } }
+        }
+    }
+
+    TapHandler {
+        parent: field
+        acceptedButtons: Qt.AllButtons
+        onPressedChanged: {
+            if (pressed)
+                PopupCoordinator.notePopupContentPress()
         }
     }
 }

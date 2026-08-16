@@ -1,9 +1,8 @@
 import QtQuick
-import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import Yanami
+import Yanami.Ui
 
-Popup {
+AppModalPopup {
     id: root
 
     property string message
@@ -17,19 +16,14 @@ Popup {
             root.open()
     }
 
-    parent: Overlay.overlay
     x: Math.round((parent.width - width) / 2)
     y: Math.round((parent.height - height) / 2)
     width: Math.min(480, Math.max(320, parent.width - 48))
     height: Math.min(300, Math.max(210, dialogContent.implicitHeight + 52))
-    modal: true
-    focus: true
     padding: 26
-    closePolicy: Popup.CloseOnEscape
-
-    Overlay.modal: Rectangle {
-        color: "#72000000"
-    }
+    popupRole: PopupCoordinator.errorRole
+    scrimColor: "#72000000"
+    initialFocusTarget: closeButton
 
     background: Rectangle {
         radius: 26
@@ -88,10 +82,11 @@ Popup {
         }
 
         AppButton {
+            id: closeButton
             Layout.alignment: Qt.AlignRight
             kind: "primary"
             text: qsTr("Close")
-            onClicked: root.close()
+            onClicked: root.requestDismiss("close-button")
         }
     }
 
