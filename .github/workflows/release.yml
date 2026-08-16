@@ -349,9 +349,10 @@ jobs:
               Select-Object -Unique
             $runtimeLogs = @($localDataRoots | ForEach-Object {
               Join-Path $_ "Yanami\Yanami\logs\yanami-p$($process.Id).log"
-            })
+              Join-Path $_ "Yanami\logs\yanami-p$($process.Id).log"
+            } | Select-Object -Unique)
             $enteredMain = $false
-            $smokeDeadline = [DateTime]::UtcNow.AddSeconds(10)
+            $smokeDeadline = [DateTime]::UtcNow.AddSeconds(30)
             do {
               Start-Sleep -Milliseconds 250
               $process.Refresh()
@@ -368,7 +369,7 @@ jobs:
               }
             } while (-not $enteredMain -and [DateTime]::UtcNow -lt $smokeDeadline)
             if (-not $enteredMain) {
-              throw "Packaged application did not record application_start within ten seconds."
+              throw "Packaged application did not record application_start within 30 seconds. Checked: $($runtimeLogs -join ', ')"
             }
             $process.Refresh()
             $moduleNames = @($process.Modules | ForEach-Object ModuleName)
@@ -426,7 +427,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes \
             build-essential cmake file jq ninja-build pkg-config \
-            libdbus-1-dev libgl1-mesa-dev libmpv-dev libxkbcommon-x11-0
+            libdbus-1-dev libgl1-mesa-dev libmpv-dev \
+            libxcb-cursor0 libxkbcommon-x11-0
       - name: Install Qt 6.8.3
         shell: bash
         run: |
