@@ -10,11 +10,13 @@ class WindowController final : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool fullScreen READ fullScreen NOTIFY fullScreenChanged)
+    Q_PROPERTY(qreal devicePixelRatio READ devicePixelRatio NOTIFY devicePixelRatioChanged)
 
 public:
     explicit WindowController(QObject *parent = nullptr);
 
     bool fullScreen() const { return m_fullScreen; }
+    qreal devicePixelRatio() const;
     void configureWindow(QWindow *window);
     Q_INVOKABLE void enterFullScreen(QWindow *window);
     Q_INVOKABLE void exitFullScreen();
@@ -23,6 +25,7 @@ public:
 
 signals:
     void fullScreenChanged();
+    void devicePixelRatioChanged();
 
 private:
     bool eventFilter(QObject *watched, QEvent *event) override;

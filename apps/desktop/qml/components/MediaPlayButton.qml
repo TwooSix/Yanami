@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import Yanami
+import Yanami.Ui
 
 Button {
     id: control
@@ -17,8 +17,8 @@ Button {
         AppIcon {
             anchors.centerIn: parent
             anchors.horizontalCenterOffset: control.paused ? 0.8 : 0
-            width: 20
-            height: 20
+            width: 23
+            height: 23
             name: control.paused ? "play" : "pause"
             color: "white"
         }

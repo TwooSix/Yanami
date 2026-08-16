@@ -1,18 +1,29 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import Yanami
+import Yanami.Ui
 import Yanami.Native
 
 Item {
     id: root
     property url mediaUrl
     property var requestHeaders: ({})
-    property url danmakuFile
+    property string currentItemId
+    property string danmakuSearchAnime
+    property string danmakuSearchEpisode
+    property bool danmakuEnabled: true
+    property var danmakuComments: []
     property var externalSubtitles: []
+    property string reportSessionId
+    property var embyTracks: []
     property string mediaTitle
     property var previousItem: ({})
     property var nextItem: ({})
+    property var playbackContext: ({})
+    property var playbackQueue: []
+    property int currentQueueIndex: -1
+    readonly property var previousQueueItem: queueEntryAt(currentQueueIndex - 1)
+    readonly property var nextQueueItem: queueEntryAt(currentQueueIndex + 1)
     property double resumeTicks: 0
     property double introStartSeconds: -1
     property double introEndSeconds: -1
@@ -20,24 +31,39 @@ Item {
     property bool developmentAutoSkipIntro: false
     property bool loadingPreview: false
     property bool windowFullScreen: false
-    property bool reportingActive: false
+    property bool playbackActive: false
     property bool introOfferArmed: false
     property bool introOfferDismissed: false
     property bool switchingEpisode: false
+    property bool preparingPlayback: false
     property bool developmentRenderDiagnostics: false
+    property bool developmentDanmakuPreview: false
+    property bool developmentPlaybackQueuePreview: false
+    property string developmentDanmakuSearchQuery: ""
+    property double developmentDanmakuPreviewFontSize: 0
+    property bool developmentDisableDanmakuAfterLoad: false
+    property bool developmentReenableDanmakuAfterDisable: false
+    property bool developmentSyntheticDanmaku: false
+    property int developmentDanmakuStyleStressCount: 1
+    property int developmentDanmakuToggleStressCount: 0
+    property bool developmentDanmakuStyleTriggered: false
     property double initialPlaybackTargetSeconds: 0
     readonly property bool chromeVisible: controls.opacity > 0.05
         || topChrome.opacity > 0.05
     readonly property bool popupOpened: subtitleMenu.opened
-        || audioMenu.opened || qualityMenu.opened || volumeControl.opened
+        || audioMenu.opened || qualityMenu.opened || danmakuMenu.opened
+        || queueMenu.opened || volumeControl.opened
     readonly property bool chromeInteractionActive: controlsHover.hovered
         || topChromeHover.hovered || skipIntroButton.hovered || popupOpened
     readonly property bool playbackShortcutsEnabled: root.visible
-        && root.reportingActive
+        && root.playbackActive
+        && !PopupCoordinator.blocksApplicationShortcuts
         && !subtitleMenu.opened
         && !audioMenu.opened
         && !qualityMenu.opened
-        && !volumeControl.opened
+        && !danmakuMenu.opened
+        && !queueMenu.opened
+        && !volumeControl.keyboardInteractionActive
     readonly property bool canSkipIntro: introOfferArmed
         && !introOfferDismissed
         && introStartSeconds >= 0
@@ -48,13 +74,21 @@ Item {
     signal toggleFullScreenRequested()
     signal errorOccurred(string message)
     signal playbackLoaded()
-    signal episodeSwitchRequested(string itemId, double positionSeconds, bool paused)
+    signal episodeSwitchRequested(string itemId, var context,
+                                  double positionSeconds, bool paused)
+
+    onPlaybackQueueChanged: {
+        if (developmentPlaybackQueuePreview && playbackQueue
+                && playbackQueue.length > 0)
+            developmentQueuePreviewTimer.restart()
+    }
 
     Rectangle { anchors.fill: parent; color: "black" }
 
     MpvVideoItem {
         id: player
         anchors.fill: parent
+        Component.onCompleted: app.playback.attachPlayer(player)
         onPlaybackError: message => {
             errorLabel.text = message
             root.errorOccurred(message)
@@ -72,27 +106,72 @@ Item {
                 const subtitle = root.externalSubtitles[index]
                 addSubtitle(subtitle.url, subtitle.title, subtitle.selected)
             }
-            if (root.danmakuFile.toString().length > 0)
-                setDanmakuFile(root.danmakuFile)
-            root.reportingActive = true
-            backend.reportPlayback("started",
-                Math.max(position, root.resumeTicks / 10000000,
-                    root.developmentSeekSeconds), paused)
-            playbackReportTimer.restart()
+            root.playbackActive = true
+            if (!root.developmentSyntheticDanmaku)
+                app.playback.beginSession(root.reportSessionId, root.embyTracks)
             root.playbackLoaded()
             introActivationTimer.restart()
+            if (root.developmentSyntheticDanmaku) {
+                const syntheticComments = []
+                for (let index = 0; index < 180; ++index) {
+                    syntheticComments.push({
+                        "id": "dev-" + index,
+                        "time": (index % 60) * 0.45,
+                        "mode": index % 17 === 0 ? "top"
+                              : index % 23 === 0 ? "bottom" : "scroll",
+                        "color": index % 5 === 0 ? 0xff7aa2 : 0xffffff,
+                        "text": "Danmaku overlay " + (index + 1)
+                    })
+                }
+                root.danmakuComments = syntheticComments
+                if (root.developmentDanmakuToggleStressCount > 0) {
+                    developmentDanmakuToggleStress.remaining =
+                        root.developmentDanmakuToggleStressCount * 2
+                    developmentDanmakuToggleStress.restart()
+                }
+                if (root.developmentDanmakuPreviewFontSize > 0
+                        && !root.developmentDanmakuStyleTriggered) {
+                    root.developmentDanmakuStyleTriggered = true
+                    developmentDanmakuStylePreview.restart()
+                }
+            } else if (root.developmentDanmakuSearchQuery.length > 0) {
+                Qt.callLater(function() {
+                    danmakuMenu.open()
+                    app.danmaku.search(root.currentItemId,
+                                       root.developmentDanmakuSearchQuery)
+                })
+            } else {
+                root.requestAutomaticDanmaku()
+            }
+            if (root.developmentDanmakuPreview)
+                Qt.callLater(danmakuMenu.open)
         }
         onFileEnded: {
-            if (root.reportingActive) {
-                backend.reportPlayback("stopped", position, paused)
-                root.reportingActive = false
-                playbackReportTimer.stop()
-            }
+            root.playbackActive = false
         }
-        onPausedChanged: {
-            if (root.reportingActive)
-                backend.reportPlayback("progress", position, paused)
-        }
+    }
+
+    DanmakuOverlay {
+        id: danmakuOverlay
+        anchors.fill: parent
+        z: 0.5
+        comments: root.danmakuComments
+        danmakuEnabled: root.danmakuEnabled
+        mediaPosition: player.position
+        paused: player.paused
+        buffering: player.playbackState === MpvVideoItem.Loading
+            || player.playbackState === MpvVideoItem.Buffering
+        fontSize: danmakuMenu.fontSize
+        commentOpacity: danmakuMenu.opacityValue
+        scrollDuration: danmakuMenu.scrollDuration
+        displayArea: danmakuMenu.displayArea
+        density: danmakuMenu.density
+        timeOffset: danmakuMenu.timeOffset
+        blockedTerms: danmakuMenu.blockedTerms
+        showScroll: danmakuMenu.showScroll
+        showTop: danmakuMenu.showTop
+        showBottom: danmakuMenu.showBottom
+        topMargin: danmakuMenu.danmakuTopMargin
     }
 
     MouseArea {
@@ -191,8 +270,10 @@ Item {
     LoadingOverlay {
         anchors.fill: parent
         z: 2
-        active: root.loadingPreview || root.switchingEpisode
-            || player.playbackState === "loading"
+        active: root.loadingPreview || root.preparingPlayback
+            || root.switchingEpisode
+            || player.playbackState === MpvVideoItem.Loading
+            || player.playbackState === MpvVideoItem.Buffering
     }
 
     AppButton {
@@ -260,14 +341,13 @@ Item {
                     iconSize: 18
                     controlSize: 38
                     enabled: !root.switchingEpisode
-                        && String(root.previousItem.id || "").length > 0
-                    Accessible.name: qsTr("Previous episode")
-                    ToolTip.visible: hovered
-                    ToolTip.text: root.previousItem.title
-                        ? qsTr("Previous episode") + " · " + root.previousItem.title
-                        : qsTr("Previous episode")
-                    ToolTip.delay: 500
-                    onClicked: root.playAdjacent(root.previousItem)
+                        && String((root.previousQueueItem || {}).id || "").length > 0
+                    Accessible.name: root.previousActionLabel()
+                    toolTipText: root.previousQueueItem.title
+                        ? Accessible.name + " · " + root.previousQueueItem.title
+                        : Accessible.name
+                    onClicked: root.playQueueEntry(root.previousQueueItem,
+                                                   root.currentQueueIndex - 1)
                 }
                 MediaPlayButton {
                     paused: player.paused
@@ -280,17 +360,16 @@ Item {
                     iconSize: 18
                     controlSize: 38
                     enabled: !root.switchingEpisode
-                        && String(root.nextItem.id || "").length > 0
-                    Accessible.name: qsTr("Next episode")
-                    ToolTip.visible: hovered
-                    ToolTip.text: root.nextItem.title
-                        ? qsTr("Next episode") + " · " + root.nextItem.title
-                        : qsTr("Next episode")
-                    ToolTip.delay: 500
-                    onClicked: root.playAdjacent(root.nextItem)
+                        && String((root.nextQueueItem || {}).id || "").length > 0
+                    Accessible.name: root.nextActionLabel()
+                    toolTipText: root.nextQueueItem.title
+                        ? Accessible.name + " · " + root.nextQueueItem.title
+                        : Accessible.name
+                    onClicked: root.playQueueEntry(root.nextQueueItem,
+                                                   root.currentQueueIndex + 1)
                 }
                 AppButton {
-                    id: danmakuButton
+                    id: seekBackwardButton
                     kind: "ghost"
                     text: "−10"
                     controlSize: 38
@@ -312,51 +391,103 @@ Item {
                 }
                 Item { Layout.fillWidth: true }
                 AppButton {
+                    id: danmakuButton
                     kind: "ghost"
                     text: qsTr("Danmaku")
                     controlSize: 38
                     checkable: true
-                    checked: true
-                    onToggled: player.setDanmakuVisible(checked)
+                    checked: root.danmakuEnabled
+                    function finishToggleInteraction() {
+                        danmakuHoverOpen.stop()
+                        danmakuHoverClose.stop()
+                        danmakuMenu.close()
+                        root.revealChrome()
+                    }
+                    function triggerFromOverlayClick() {
+                        const popup = PopupCoordinator.topPopup()
+                        if (popup && popup !== danmakuMenu)
+                            popup.requestDismiss("overlay-action")
+                        root.danmakuEnabled = !root.danmakuEnabled
+                        finishToggleInteraction()
+                    }
+                    onToggled: root.danmakuEnabled = checked
+                    onClicked: finishToggleInteraction()
+                    onHoveredChanged: {
+                        if (hovered) {
+                            danmakuHoverClose.stop()
+                            root.revealChrome()
+                            if (!danmakuMenu.opened)
+                                danmakuHoverOpen.restart()
+                        } else {
+                            danmakuHoverOpen.stop()
+                            danmakuHoverClose.restart()
+                        }
+                    }
+                    Component.onCompleted:
+                        PopupCoordinator.registerOverlayClickTarget(danmakuButton)
+                    Component.onDestruction:
+                        PopupCoordinator.unregisterOverlayClickTarget(danmakuButton)
                 }
-                AppButton {
+                AppPopupButton {
                     id: subtitleButton
                     kind: "ghost"
                     text: player.subtitleTracks.length > 0
                         ? qsTr("Subtitles · %1").arg(player.subtitleTracks.length)
                         : qsTr("Subtitles")
                     controlSize: 38
-                    checkable: true
-                    checked: subtitleMenu.opened
-                    onClicked: {
+                    popupTarget: subtitleMenu
+                    peerPopups: [audioMenu, qualityMenu, queueMenu, danmakuMenu]
+                    onPopupActivated: {
                         root.revealChrome()
-                        subtitleMenu.opened ? subtitleMenu.close() : subtitleMenu.open()
+                        volumeControl.closePopup()
                     }
                 }
-                AppButton {
+                AppPopupButton {
                     id: audioButton
                     kind: "ghost"
                     text: player.audioTracks.length > 0
                         ? qsTr("Audio · %1").arg(player.audioTracks.length)
                         : qsTr("Audio")
                     controlSize: 38
-                    checkable: true
-                    checked: audioMenu.opened
-                    onClicked: {
+                    popupTarget: audioMenu
+                    peerPopups: [subtitleMenu, qualityMenu, queueMenu, danmakuMenu]
+                    onPopupActivated: {
                         root.revealChrome()
-                        audioMenu.opened ? audioMenu.close() : audioMenu.open()
+                        volumeControl.closePopup()
                     }
                 }
-                AppButton {
+                AppPopupButton {
                     id: qualityButton
                     kind: "ghost"
                     text: qsTr("Original")
                     controlSize: 38
-                    checkable: true
-                    checked: qualityMenu.opened
-                    onClicked: {
+                    popupTarget: qualityMenu
+                    peerPopups: [subtitleMenu, audioMenu, queueMenu, danmakuMenu]
+                    onPopupActivated: {
                         root.revealChrome()
-                        qualityMenu.opened ? qualityMenu.close() : qualityMenu.open()
+                        volumeControl.closePopup()
+                    }
+                }
+                AppPopupButton {
+                    id: queueButton
+                    kind: "ghost"
+                    iconOnly: true
+                    iconName: "queue"
+                    iconSize: 18
+                    controlSize: 38
+                    enabled: root.playbackQueue && root.playbackQueue.length > 0
+                    popupTarget: queueMenu
+                    peerPopups: [subtitleMenu, audioMenu, qualityMenu, danmakuMenu]
+                    Accessible.name: qsTr("Play queue")
+                    toolTipVisible: hovered && !queueMenu.opened
+                    toolTipText: root.currentQueueIndex >= 0
+                        ? qsTr("Play queue · %1 of %2")
+                            .arg(root.currentQueueIndex + 1)
+                            .arg(root.playbackQueue.length)
+                        : Accessible.name
+                    onPopupActivated: {
+                        root.revealChrome()
+                        volumeControl.closePopup()
                     }
                 }
                 VolumeControl {
@@ -366,10 +497,11 @@ Item {
                     volume: player.volume
                     onVolumeRequested: value => player.setVolume(value)
                     onOpenedChanged: {
-                        if (opened)
+                        if (opened) {
                             hideTimer.stop()
-                        else
+                        } else {
                             root.revealChrome()
+                        }
                     }
                 }
                 AppButton {
@@ -382,9 +514,7 @@ Item {
                     Accessible.name: root.windowFullScreen
                         ? qsTr("Exit fullscreen")
                         : qsTr("Enter fullscreen")
-                    ToolTip.visible: hovered
-                    ToolTip.text: Accessible.name
-                    ToolTip.delay: 500
+                    toolTipText: Accessible.name
                     onClicked: {
                         root.revealChrome()
                         root.toggleFullScreenRequested()
@@ -446,16 +576,175 @@ Item {
             onTrackSelected: trackId => close()
         }
 
+        PlaybackQueueMenu {
+            id: queueMenu
+            parent: queueButton
+            x: queueButton.width - width
+            y: -height - 14
+            width: Math.min(404, Math.max(300, root.width - 48))
+            maximumHeight: Math.min(520,
+                Math.max(210, root.height - controls.height - 72))
+            playbackContext: root.playbackContext
+            queueItems: root.playbackQueue
+            currentIndex: root.currentQueueIndex
+            switching: root.switchingEpisode
+            paused: player.paused
+            onInteractionStarted: hideTimer.stop()
+            onInteractionEnded: root.revealChrome()
+            onItemRequested: (item, queueIndex) => {
+                close()
+                root.playQueueEntry(item, queueIndex)
+            }
+        }
+
+        Timer {
+            id: developmentQueuePreviewTimer
+            interval: 500
+            repeat: false
+            onTriggered: {
+                root.revealChrome()
+                queueMenu.open()
+            }
+        }
+
+        DanmakuMenu {
+            id: danmakuMenu
+            parent: danmakuButton
+            x: danmakuButton.width - width
+            y: -height - 14
+            height: Math.min(570, Math.max(320, root.height - 112))
+            animeSuggestion: root.danmakuSearchAnime
+            episodeSuggestion: root.danmakuSearchEpisode
+            working: app.danmaku.working
+            onOpened: {
+                subtitleMenu.close()
+                audioMenu.close()
+                qualityMenu.close()
+                queueMenu.close()
+                volumeControl.closePopup()
+                danmakuHoverClose.stop()
+                hideTimer.stop()
+            }
+            onClosed: root.revealChrome()
+            onPointerInsideChanged: {
+                if (pointerInside)
+                    danmakuHoverClose.stop()
+                else if (!danmakuButton.hovered)
+                    danmakuHoverClose.restart()
+            }
+            onSearchRequested: anime => {
+                if (root.currentItemId.length > 0)
+                    app.danmaku.search(root.currentItemId, anime)
+            }
+            onMatchRequested: (match, style) => {
+                if (root.currentItemId.length > 0)
+                    app.danmaku.applyMatch(root.currentItemId, match, style)
+            }
+            onStyleRequested: style => {
+                // Style properties are bound directly to DanmakuOverlay. No
+                // ASS file generation or libmpv subtitle command is involved.
+            }
+        }
+
         Behavior on opacity { NumberAnimation { duration: 180 } }
+    }
+
+    Timer {
+        id: danmakuHoverOpen
+        interval: 260
+        onTriggered: {
+            if (danmakuButton.hovered && !danmakuMenu.opened)
+                danmakuMenu.open()
+        }
+    }
+
+    Timer {
+        id: danmakuHoverClose
+        interval: 360
+        onTriggered: {
+            if (!danmakuButton.hovered && !danmakuMenu.pointerInside)
+                danmakuMenu.close()
+        }
+    }
+
+    Timer {
+        id: developmentDanmakuStylePreview
+        interval: 300
+        onTriggered: {
+            developmentDanmakuStyleStress.remaining =
+                Math.max(1, root.developmentDanmakuStyleStressCount)
+            developmentDanmakuStyleStress.restart()
+        }
+    }
+
+    Timer {
+        id: developmentDanmakuStyleStress
+        property int remaining: 0
+        interval: 25
+        repeat: true
+        onTriggered: {
+            if (remaining <= 0) {
+                stop()
+                if (root.developmentDisableDanmakuAfterLoad)
+                    developmentDanmakuDisable.restart()
+                return
+            }
+            const baseSize = root.developmentDanmakuPreviewFontSize > 0
+                ? root.developmentDanmakuPreviewFontSize : 42
+            danmakuMenu.previewDevelopmentStyle(
+                Math.max(18, Math.min(72, baseSize + (remaining % 5) * 2 - 4)))
+            --remaining
+            if (remaining <= 0 && root.developmentDisableDanmakuAfterLoad) {
+                stop()
+                root.danmakuEnabled = false
+                danmakuMenu.close()
+                if (root.developmentReenableDanmakuAfterDisable)
+                    developmentDanmakuReenable.restart()
+            }
+        }
+    }
+
+    Timer {
+        id: developmentDanmakuDisable
+        interval: root.developmentDanmakuPreviewFontSize > 0 ? 80 : 900
+        onTriggered: {
+            root.danmakuEnabled = false
+            danmakuMenu.close()
+            if (root.developmentReenableDanmakuAfterDisable)
+                developmentDanmakuReenable.restart()
+        }
+    }
+
+    Timer {
+        id: developmentDanmakuReenable
+        interval: 350
+        onTriggered: root.danmakuEnabled = true
+    }
+
+    Timer {
+        id: developmentDanmakuToggleStress
+        property int remaining: 0
+        interval: 45
+        repeat: true
+        onTriggered: {
+            if (remaining <= 0) {
+                stop()
+                root.danmakuEnabled = true
+                return
+            }
+            root.danmakuEnabled = !root.danmakuEnabled
+            --remaining
+        }
     }
 
     Timer {
         id: introActivationTimer
         interval: 700
         onTriggered: {
-            if (!root.reportingActive || root.mediaUrl.toString().length === 0)
+            if (!root.playbackActive || root.mediaUrl.toString().length === 0)
                 return
-            if (player.playbackState === "loading") {
+            if (player.playbackState === MpvVideoItem.Loading
+                    || player.playbackState === MpvVideoItem.Buffering) {
                 restart()
                 return
             }
@@ -526,17 +815,9 @@ Item {
         onActivated: root.adjustVolume(-5)
     }
 
-    Timer {
-        id: playbackReportTimer
-        interval: 10000
-        repeat: true
-        onTriggered: {
-            if (root.reportingActive)
-                backend.reportPlayback("progress", player.position, player.paused)
-        }
-    }
-
     onMediaUrlChanged: {
+        developmentDanmakuStylePreview.stop()
+        developmentDanmakuStyleTriggered = false
         if (mediaUrl.toString().length > 0) {
             switchingEpisode = false
             introOfferArmed = false
@@ -548,6 +829,14 @@ Item {
         }
     }
 
+    onDanmakuEnabledChanged: {
+        // The overlay is independent from libmpv. Toggling it must never
+        // mutate subtitle tracks or interrupt the video's demux/cache state.
+        if (developmentRenderDiagnostics)
+            console.info("danmaku-overlay visibility=" + danmakuEnabled
+                         + " comments=" + danmakuComments.length)
+    }
+
     onCanSkipIntroChanged: {
         if (canSkipIntro)
             introOfferTimeout.restart()
@@ -557,7 +846,7 @@ Item {
 
     onVisibleChanged: {
         if (!visible)
-            closePopups()
+            PopupCoordinator.closeScope(root, true)
     }
 
     onChromeInteractionActiveChanged: {
@@ -581,11 +870,61 @@ Item {
             hideTimer.restart()
     }
 
-    function closePopups() {
-        subtitleMenu.close()
-        audioMenu.close()
-        qualityMenu.close()
-        volumeControl.closePopup()
+    function requestAutomaticDanmaku() {
+        if (!app.danmaku.configured || currentItemId.length === 0)
+            return
+        danmakuMenu.loadStatus = "matching"
+        danmakuMenu.animeMatches = []
+        danmakuMenu.selectedAnime = ({})
+        // Matching/fetching returns one immutable structured timeline. Visual
+        // style lives entirely in the overlay and is never sent through ASS.
+        app.danmaku.loadAutomatically(currentItemId)
+    }
+
+    function handleDanmakuResult(result) {
+        if (!result)
+            return
+        danmakuMenu.loadStatus = String(result.status || "idle")
+        if (result.animeSuggestion || result.episodeSuggestion)
+            danmakuMenu.setSuggestions(result.animeSuggestion || danmakuSearchAnime,
+                                        result.episodeSuggestion || danmakuSearchEpisode)
+        if (result.matches)
+            danmakuMenu.matches = result.matches
+        if (result.animes) {
+            danmakuMenu.matches = []
+            danmakuMenu.showAnimeResults(result.animes)
+            if (root.developmentDanmakuSearchQuery.length > 0
+                    && result.animes.length > 0)
+                danmakuMenu.chooseAnime(result.animes[0])
+        }
+        if (result.status === "loaded" && result.comments) {
+            danmakuComments = result.comments
+            if (developmentRenderDiagnostics)
+                console.info("danmaku-overlay timeline-loaded comments="
+                             + result.comments.length)
+            danmakuMenu.loadedTitle = String(result.title || "")
+            danmakuMenu.commentCount = Number(result.commentCount || 0)
+            danmakuMenu.matches = []
+            danmakuMenu.animeMatches = []
+            danmakuMenu.selectedAnime = ({})
+            if (root.developmentDisableDanmakuAfterLoad
+                    && root.developmentDanmakuPreviewFontSize <= 0)
+                developmentDanmakuDisable.restart()
+            if (root.developmentDanmakuPreviewFontSize > 0
+                    && !root.developmentDanmakuStyleTriggered) {
+                root.developmentDanmakuStyleTriggered = true
+                developmentDanmakuStylePreview.restart()
+            }
+            if (root.developmentDanmakuToggleStressCount > 0
+                    && !developmentDanmakuToggleStress.running) {
+                developmentDanmakuToggleStress.remaining =
+                    root.developmentDanmakuToggleStressCount * 2
+                developmentDanmakuToggleStress.restart()
+            }
+        }
+        if ((result.status === "choice-required" || result.status === "no-match")
+                && !danmakuMenu.opened)
+            danmakuMenu.open()
     }
 
     function hideChrome() {
@@ -610,18 +949,26 @@ Item {
     }
 
     function closePlayback() {
-        if (reportingActive)
-            backend.reportPlayback("stopped", player.position, player.paused)
-        reportingActive = false
-        playbackReportTimer.stop()
+        if (playbackActive && !developmentSyntheticDanmaku)
+            app.playback.stopSession()
+        playbackActive = false
         introActivationTimer.stop()
         introOfferTimeout.stop()
         developmentSkipIntroTimer.stop()
         player.stop()
         mediaUrl = ""
         requestHeaders = ({})
-        danmakuFile = ""
+        danmakuComments = []
+        currentItemId = ""
+        danmakuSearchAnime = ""
+        danmakuSearchEpisode = ""
+        danmakuMenu.loadedTitle = ""
+        danmakuMenu.commentCount = 0
+        danmakuMenu.matches = []
+        danmakuMenu.loadStatus = "idle"
         externalSubtitles = []
+        reportSessionId = ""
+        embyTracks = []
         resumeTicks = 0
         introStartSeconds = -1
         introEndSeconds = -1
@@ -630,31 +977,99 @@ Item {
         initialPlaybackTargetSeconds = 0
         previousItem = ({})
         nextItem = ({})
+        playbackContext = ({})
+        playbackQueue = []
+        currentQueueIndex = -1
         switchingEpisode = false
+        preparingPlayback = false
+        errorLabel.text = ""
+    }
+
+    function beginPreparation(itemId, title) {
+        closePlayback()
+        currentItemId = String(itemId || "")
+        mediaTitle = String(title || "").trim()
+        if (mediaTitle.length === 0)
+            mediaTitle = qsTr("Preparing playback")
+        preparingPlayback = true
+        errorLabel.text = ""
+        revealChrome()
+    }
+
+    function failPreparation(message) {
+        if (!preparingPlayback)
+            return
+        preparingPlayback = false
+        errorLabel.text = String(message || qsTr("Playback could not be prepared."))
+        revealChrome()
     }
 
     function playAdjacent(item) {
+        const requestedIndex = Number((item || {}).queueIndex)
+        playQueueEntry(item, Number.isInteger(requestedIndex)
+                       ? requestedIndex : -1)
+    }
+
+    function queueEntryAt(queueIndex) {
+        if (!Number.isInteger(queueIndex) || queueIndex < 0 || !playbackQueue)
+            return ({})
+        for (let index = 0; index < playbackQueue.length; ++index) {
+            const item = playbackQueue[index] || ({})
+            const itemIndex = Number(item.queueIndex)
+            if ((Number.isInteger(itemIndex) ? itemIndex : index) === queueIndex)
+                return item
+        }
+        return ({})
+    }
+
+    function previousActionLabel() {
+        return String((playbackContext || {}).kind || "").toLowerCase() === "series"
+            ? qsTr("Previous episode") : qsTr("Previous item")
+    }
+
+    function nextActionLabel() {
+        return String((playbackContext || {}).kind || "").toLowerCase() === "series"
+            ? qsTr("Next episode") : qsTr("Next item")
+    }
+
+    function playQueueEntry(item, queueIndex) {
         const itemId = String(item && item.id ? item.id : "")
         if (itemId.length === 0 || switchingEpisode)
             return
+        const baseContext = (item && item.playbackContext)
+            ? item.playbackContext : (playbackContext || ({}))
+        const requestedContext = ({})
+        for (const key in baseContext)
+            requestedContext[key] = baseContext[key]
+        if (Number.isInteger(queueIndex) && queueIndex >= 0)
+            requestedContext.queueIndex = queueIndex
+        const entryId = String((item || {}).playlistEntryId
+            || (item || {}).queueEntryId || "")
+        if (entryId.length > 0)
+            requestedContext.playlistEntryId = entryId
         const lastPosition = player.position
         const wasPaused = player.paused
-        reportingActive = false
-        playbackReportTimer.stop()
+        playbackActive = false
         introActivationTimer.stop()
         introOfferTimeout.stop()
         switchingEpisode = true
         player.stop()
         mediaUrl = ""
-        episodeSwitchRequested(itemId, lastPosition, wasPaused)
+        episodeSwitchRequested(itemId, requestedContext, lastPosition, wasPaused)
+    }
+
+    function recoverFromPlaybackSwitchFailure(message) {
+        if (!switchingEpisode)
+            return
+        switchingEpisode = false
+        errorLabel.text = String(message || "")
+        revealChrome()
     }
 
     function skipIntro() {
         if (!canSkipIntro)
             return
         player.seek(introEndSeconds)
-        if (reportingActive)
-            backend.reportPlayback("progress", introEndSeconds, player.paused)
         revealChrome()
     }
 

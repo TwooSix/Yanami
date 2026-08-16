@@ -1,0 +1,50 @@
+set(installed_root "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
+set(installed_bundle "${installed_root}/Yanami.app")
+set(installed_bridge
+    "${installed_bundle}/Contents/MacOS/@YANAMI_RUST_BRIDGE_NAME@")
+
+if(NOT IS_DIRECTORY "${installed_bundle}")
+    message(FATAL_ERROR "Installed macOS bundle is missing: ${installed_bundle}")
+endif()
+if(NOT EXISTS "${installed_bridge}")
+    message(FATAL_ERROR "Installed Rust bridge is missing: ${installed_bridge}")
+endif()
+
+# macdeployqt handles Qt and QML. BundleUtilities then closes the dependency
+# graph for libmpv and the separately loaded Rust bridge, rewriting all copied
+# dylib references to paths inside the application bundle.
+include(BundleUtilities)
+set(runtime_search_directories
+    "@YANAMI_QT_PREFIX@/lib"
+    @MPV_LIBRARY_DIRS@
+)
+fixup_bundle(
+    "${installed_bundle}"
+    "${installed_bridge}"
+    "${runtime_search_directories}"
+)
+verify_app("${installed_bundle}")
+
+# Apple Silicon requires code objects to carry a signature. This ad-hoc
+# signature provides integrity only; release candidates remain unsigned by a
+# Developer ID and are intentionally not notarized.
+execute_process(
+    COMMAND /usr/bin/codesign --force --deep --sign - --timestamp=none
+        "${installed_bundle}"
+    RESULT_VARIABLE codesign_result
+    COMMAND_ECHO STDOUT
+)
+if(NOT codesign_result EQUAL 0)
+    message(FATAL_ERROR "Ad-hoc signing failed with exit code ${codesign_result}")
+endif()
+
+execute_process(
+    COMMAND "@CMAKE_COMMAND@"
+        "-DYANAMI_PACKAGE_ROOT=${installed_root}"
+        -P "@CMAKE_CURRENT_SOURCE_DIR@/cmake/WritePackageManifest.cmake"
+    RESULT_VARIABLE manifest_result
+)
+if(NOT manifest_result EQUAL 0)
+    message(FATAL_ERROR
+        "Writing the macOS package manifest failed with exit code ${manifest_result}")
+endif()

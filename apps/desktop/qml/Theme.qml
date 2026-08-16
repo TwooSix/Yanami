@@ -21,6 +21,8 @@ QtObject {
     readonly property real radius: 20
     readonly property real radiusLarge: 28
     readonly property real spacing: 16
+    readonly property real scrollBarGutter: 14
+    readonly property real scrollContentInset: 24
     readonly property string fontFamily: Qt.platform.os === "osx"
         ? ".AppleSystemUIFont"
         : (Qt.platform.os === "windows" ? "Segoe UI Variable Display" : "Inter")

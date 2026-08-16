@@ -1,0 +1,8 @@
+{
+  "version": "@YANAMI_BUILD_VERSION@",
+  "sourceVersion": "@YANAMI_SOURCE_VERSION@",
+  "commit": "@YANAMI_BUILD_COMMIT@",
+  "workflowRunId": "@YANAMI_BUILD_RUN_ID@",
+  "platform": "@YANAMI_PACKAGE_PLATFORM@",
+  "architecture": "@YANAMI_PACKAGE_ARCHITECTURE@"
+}

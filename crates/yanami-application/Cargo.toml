@@ -6,13 +6,23 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+chrono.workspace = true
+futures-util.workspace = true
 secrecy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+uuid.workspace = true
 yanami-core = { path = "../yanami-core" }
 yanami-danmaku = { path = "../yanami-danmaku" }
+yanami-emby = { path = "../yanami-emby" }
 yanami-storage = { path = "../yanami-storage" }
 
 [dev-dependencies]
+tempfile.workspace = true
 tokio.workspace = true
 
 [lints]

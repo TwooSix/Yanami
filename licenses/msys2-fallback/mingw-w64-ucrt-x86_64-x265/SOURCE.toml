@@ -1,0 +1,17 @@
+package = "mingw-w64-ucrt-x86_64-x265"
+package_version = "4.3-1"
+source_archive_url = "https://github.com/Multicorewareinc/x265/releases/download/4.3/x265_4.3.tar.gz"
+source_archive_sha256 = "83c53e4c8bbb8f1e33ed59e10a7d621d1d7801ca853910c3eb41f038b8ffb121"
+
+[[license_files]]
+path = "COPYING"
+sha256 = "d8afb1bcc7a2cfc603683b168d6987ef0a48e59e0da3693bf55c5d33b67e2b49"
+
+[[license_files]]
+path = "source/dynamicHDR10/LICENSE.txt"
+sha256 = "47f15d63e82eb8a4de6e46471d5f96cf6d052fd5355944a002c3157880248b69"
+
+[[license_files]]
+path = "source/dynamicHDR10/json11/LICENSE.txt"
+sha256 = "950e288a2548cb33f6a90d23958806b0803f510ab17c600d661619a73ae3a6c8"
+

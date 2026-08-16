@@ -1,0 +1,13 @@
+package = "mingw-w64-ucrt-x86_64-opencore-amr"
+package_version = "0.1.6-1"
+source_archive_url = "https://downloads.sourceforge.net/project/opencore-amr/opencore-amr/opencore-amr-0.1.6.tar.gz"
+source_archive_sha256 = "483eb4061088e2b34b358e47540b5d495a96cd468e361050fae615b1809dc4a1"
+
+[[license_files]]
+path = "LICENSE"
+sha256 = "8b3f1762349248d444ab9acbafe73941254e36e1064954da56bb9ddbd5873ddb"
+
+[[license_files]]
+path = "opencore/NOTICE"
+sha256 = "d106802b5e406073c1d10fbe9f638234c6973ebce37df71773179642085eb489"
+

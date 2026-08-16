@@ -1,21 +1,48 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
-import Yanami
+import Yanami.Ui
+import Yanami.Native
 
 Item {
     id: root
 
-    property var mediaItems: []
     property string query: ""
-    property var results: filterItems()
+    property string effectiveQuery: ""
+    property bool resetScrollAfterFilter: false
+    property bool developmentDiagnostics: false
     signal itemRequested(var item)
     signal playRequested(string itemId, string title)
+    signal mediaContextRequested(var item, var sourceItem, real x, real y,
+                                 bool keyboardInvocation)
+
+    onQueryChanged: {
+        if (searchField.text !== root.query)
+            searchField.text = root.query
+        root.resetScrollAfterFilter = true
+        scheduleSearch()
+    }
+    MediaQueryProxyModel {
+        id: animatedResultsModel
+        sourceModel: app.home.mediaStore.libraryModel
+        searchText: root.effectiveQuery
+        requireSearchText: true
+    }
+
+    function scheduleSearch() {
+        if (root.query.trim().length === 0) {
+            searchTimer.stop()
+            root.effectiveQuery = ""
+            Qt.callLater(resultsGrid.resetScrollPosition)
+            return
+        }
+        searchTimer.restart()
+    }
 
     function resetSearch() {
         root.query = ""
         searchField.text = ""
-        pageFlickable.contentY = 0
+        resultsGrid.resetScrollPosition()
         searchField.focusInput()
     }
 
@@ -23,30 +50,10 @@ Item {
         searchField.focusInput()
     }
 
-    function filterItems() {
-        const needle = root.query.trim().toLocaleLowerCase()
-        if (needle.length === 0)
-            return []
-        const matches = []
-        for (let index = 0; index < root.mediaItems.length; ++index) {
-            const item = root.mediaItems[index]
-            const title = String(item.title || "").toLocaleLowerCase()
-            const subtitle = LocaleText.mediaSubtitle(item).toLocaleLowerCase()
-            if (title.indexOf(needle) >= 0 || subtitle.indexOf(needle) >= 0)
-                matches.push(item)
-        }
-        return matches
-    }
-
-    SmoothFlickable {
-        id: pageFlickable
+    ColumnLayout {
         anchors.fill: parent
-        contentHeight: content.implicitHeight + 48
-
-        ColumnLayout {
-            id: content
-            width: parent.width - 14
-            spacing: 22
+        anchors.rightMargin: 14
+        spacing: 22
 
             RowLayout {
                 Layout.fillWidth: true
@@ -84,12 +91,16 @@ Item {
                 }
 
                 AppButton {
-                    visible: root.query.length > 0
+                    visible: true
+                    opacity: root.query.length > 0 ? 1 : 0
+                    enabled: root.query.length > 0
                     Layout.alignment: Qt.AlignBottom
                     Layout.bottomMargin: 1
                     kind: "ghost"
                     text: qsTr("Clear")
                     onClicked: root.resetSearch()
+
+                    Behavior on opacity { NumberAnimation { duration: 130 } }
                 }
                 Item { Layout.fillWidth: true }
             }
@@ -99,8 +110,8 @@ Item {
 
                 Text {
                     text: root.query.trim().length === 0 ? qsTr("Search results")
-                        : (root.results.length > 0
-                            ? qsTr("%1 results").arg(root.results.length)
+                        : (animatedResultsModel.count > 0
+                            ? qsTr("%1 results").arg(animatedResultsModel.count)
                             : qsTr("No matches"))
                     color: Theme.text
                     font.family: Theme.fontForText(text)
@@ -110,62 +121,103 @@ Item {
                 Item { Layout.fillWidth: true }
             }
 
-            GridView {
-                visible: root.results.length > 0
+            Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: visible
-                    ? Math.max(310, Math.ceil(root.results.length / Math.max(1, Math.floor(width / cellWidth))) * cellHeight)
-                    : 0
-                cellWidth: 202
-                cellHeight: 322
-                interactive: false
-                model: root.results
-                delegate: PosterCard {
-                    required property var modelData
-                    required property int index
-                    title: modelData.title
-                    subtitle: LocaleText.mediaSubtitle(modelData)
-                    itemType: modelData.itemType
-                    posterUrl: modelData.imageUrl || ""
-                    progress: modelData.progress || 0
-                    unplayedCount: Number(modelData.unplayedCount || 0)
-                    posterColor: ["#405E7B", "#6A536F", "#526B5D", "#755358", "#59647C"][index % 5]
-                    onActivated: root.itemRequested(modelData)
-                    onPlayRequested: root.playRequested(modelData.id, modelData.title)
-                }
-            }
+                Layout.fillHeight: true
 
-            GlassPanel {
-                visible: root.results.length === 0
-                Layout.fillWidth: true
-                Layout.preferredHeight: 150
-                radius: 24
-                color: "#80151920"
+                SmoothGridView {
+                    id: resultsGrid
+                    anchors.fill: parent
+                    visible: opacity > 0
+                    opacity: animatedResultsModel.count > 0 ? 1 : 0
+                    enabled: opacity > 0.5
+                    cellWidth: 202
+                    cellHeight: 322
+                    cacheBuffer: cellHeight
+                    model: animatedResultsModel
 
-                Column {
-                    anchors.centerIn: parent
-                    spacing: 8
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: root.query.trim().length === 0
-                            ? qsTr("Start searching your Emby library")
-                            : qsTr("Try another keyword")
-                        color: Theme.text
-                        font.family: Theme.fontForText(text)
-                        font.pixelSize: 16
-                        font.weight: Font.DemiBold
+                    Behavior on opacity { NumberAnimation { duration: 150 } }
+
+                    delegate: PosterCard {
+                        required property var modelData
+                        required property int index
+                        title: modelData.title
+                        subtitle: LocaleText.mediaSubtitle(modelData)
+                        itemType: modelData.itemType
+                        posterUrl: modelData.imageUrl || ""
+                        progress: modelData.progress || 0
+                        unplayedCount: Number(modelData.unplayedCount || 0)
+                        mediaItem: modelData
+                        posterColor: ["#405E7B", "#6A536F", "#526B5D", "#755358", "#59647C"][Math.max(0, index) % 5]
+                        onActivated: root.itemRequested(modelData)
+                        onPlayRequested: root.playRequested(modelData.id, modelData.title)
+                        onContextMenuRequested: (item, sourceItem, x, y,
+                                                 keyboardInvocation) =>
+                            root.mediaContextRequested(
+                                item, sourceItem, x, y, keyboardInvocation)
                     }
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: root.query.trim().length === 0
-                            ? qsTr("Matches titles and latest episode information instantly")
-                            : qsTr("Try a shorter title or episode name")
-                        color: Theme.textMuted
-                        font.family: Theme.fontForText(text)
-                        font.pixelSize: 12
+                }
+
+                GlassPanel {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    height: 150
+                    visible: opacity > 0
+                    opacity: animatedResultsModel.count === 0 ? 1 : 0
+                    radius: 24
+                    color: "#80151920"
+
+                    Behavior on opacity { NumberAnimation { duration: 150 } }
+
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: 8
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: root.query.trim().length === 0
+                                ? qsTr("Start searching your Emby library")
+                                : qsTr("Try another keyword")
+                            color: Theme.text
+                            font.family: Theme.fontForText(text)
+                            font.pixelSize: 16
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: root.query.trim().length === 0
+                                ? qsTr("Matches titles and latest episode information instantly")
+                                : qsTr("Try a shorter title or episode name")
+                            color: Theme.textMuted
+                            font.family: Theme.fontForText(text)
+                            font.pixelSize: 12
+                        }
                     }
                 }
             }
         }
+
+    Timer {
+        id: searchTimer
+        // Coalesce edits from the same event-loop turn without imposing a
+        // fixed delay on the small, locally cached library model.
+        interval: 90
+        onTriggered: {
+            const started = Date.now()
+            root.effectiveQuery = root.query.trim()
+            if (root.developmentDiagnostics)
+                console.info("search-filter items=", app.home.mediaStore.libraryModel.count,
+                    "matches=", animatedResultsModel.count,
+                    "elapsedMs=", Date.now() - started)
+            if (root.resetScrollAfterFilter) {
+                Qt.callLater(resultsGrid.resetScrollPosition)
+                root.resetScrollAfterFilter = false
+            }
+        }
+    }
+
+    Connections {
+        target: i18n
+        function onLanguageChanged() { root.scheduleSearch() }
     }
 }

@@ -1,31 +1,194 @@
-name: Rust core
+name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  rust:
+    name: Rust (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-24.04, windows-2022, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
       - name: Install Linux credential-vault dependency
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes libdbus-1-dev pkg-config
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable as of 2026-08-16
         with:
           components: clippy,rustfmt
+      - name: Validate development version source
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_version="$(tr -d '[:space:]' < VERSION)"
+          cargo_version="$(sed -n 's/^version = "\([^"]*\)"$/\1/p' Cargo.toml | head -n 1)"
+          [[ "$source_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-dev\.0$ ]]
+          test "$source_version" = "$cargo_version"
+          cargo metadata --locked --no-deps --format-version 1 >/dev/null
       - name: Formatting
         if: runner.os == 'Linux'
         run: cargo fmt --all -- --check
+      - name: Rust license inventory is complete and current
+        if: runner.os == 'Linux'
+        run: |
+          cargo install cargo-about --version 0.9.1 --locked --features cli
+          mkdir -p build/license-check
+          cargo about generate --workspace --locked \
+            --target x86_64-pc-windows-gnu --fail \
+            licenses/rust/about.hbs \
+            -o build/license-check/THIRD_PARTY_LICENSES.html
+          cmp --silent \
+            licenses/rust/THIRD_PARTY_LICENSES.html \
+            build/license-check/THIRD_PARTY_LICENSES.html
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Tests
-        run: cargo test --workspace --all-targets
+        run: cargo test --workspace --all-targets --locked
+
+  desktop-linux:
+    name: Desktop (Linux x86_64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential cmake ninja-build pkg-config \
+            libdbus-1-dev libgl1-mesa-dev libmpv-dev
+      - name: Install Qt 6.8.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/aqt-venv"
+          "$RUNNER_TEMP/aqt-venv/bin/python" -m pip install \
+            --disable-pip-version-check aqtinstall==3.3.0
+          "$RUNNER_TEMP/aqt-venv/bin/python" -m aqt install-qt \
+            linux desktop 6.8.3 linux_gcc_64 -O "$RUNNER_TEMP/Qt"
+          qt_root="$RUNNER_TEMP/Qt/6.8.3/gcc_64"
+          test -x "$qt_root/bin/qtpaths"
+          echo "QT_ROOT_DIR=$qt_root" >> "$GITHUB_ENV"
+          echo "$qt_root/bin" >> "$GITHUB_PATH"
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable as of 2026-08-16
+      - name: Configure, build, and test the desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S apps/desktop -B build/ci-linux -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DBUILD_TESTING=ON \
+            -DYANAMI_ENABLE_DEV_HOOKS=OFF
+          cmake --build build/ci-linux --parallel
+          ctest --test-dir build/ci-linux --output-on-failure
+
+  desktop-windows:
+    name: Desktop (Windows x86_64)
+    runs-on: windows-2022
+    steps:
+      - name: Keep repository line endings stable
+        shell: pwsh
+        run: git config --global core.autocrlf input
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Install the MSYS2 UCRT64 desktop toolchain
+        id: msys2
+        uses: msys2/setup-msys2@fb197b72ce45fb24f17bf3f807a388985654d1f2 # v2.29.0
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qt6-declarative
+            mingw-w64-ucrt-x86_64-qt6-tools
+            mingw-w64-ucrt-x86_64-mpv
+      - name: Install the matching Rust GNU toolchain
+        shell: pwsh
+        run: >-
+          rustup toolchain install stable-x86_64-pc-windows-gnu
+          --profile minimal
+      - name: Configure, build, and test the desktop
+        shell: pwsh
+        run: |
+          $msysRoot = "${{ steps.msys2.outputs.msys2-location }}"
+          $ucrtBin = Join-Path $msysRoot "ucrt64\bin"
+          $env:PATH = "$env:USERPROFILE\.cargo\bin;$ucrtBin;$env:PATH"
+          $env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-gnu"
+          & "$ucrtBin\cmake.exe" -S apps/desktop -B build/ci-windows -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            "-DCMAKE_PREFIX_PATH=$msysRoot\ucrt64" `
+            "-DCMAKE_CXX_COMPILER=$ucrtBin\g++.exe" `
+            -DBUILD_TESTING=ON `
+            -DYANAMI_ENABLE_DEV_HOOKS=OFF
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$ucrtBin\cmake.exe" --build build/ci-windows --parallel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$ucrtBin\ctest.exe" --test-dir build/ci-windows --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  desktop-macos:
+    name: Desktop (macOS ${{ matrix.architecture }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Install native dependencies
+        run: brew install jq mpv pkg-config
+      - name: Install Qt 6.8.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/aqt-venv"
+          "$RUNNER_TEMP/aqt-venv/bin/python" -m pip install \
+            --disable-pip-version-check aqtinstall==3.3.0
+          "$RUNNER_TEMP/aqt-venv/bin/python" -m aqt install-qt \
+            mac desktop 6.8.3 clang_64 -O "$RUNNER_TEMP/Qt"
+          qt_root="$RUNNER_TEMP/Qt/6.8.3/macos"
+          test -x "$qt_root/bin/qtpaths"
+          echo "QT_ROOT_DIR=$qt_root" >> "$GITHUB_ENV"
+          echo "$qt_root/bin" >> "$GITHUB_PATH"
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable as of 2026-08-16
+      - name: Configure, build, and test the desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S apps/desktop -B build/ci-macos -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.architecture }} \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+            -DBUILD_TESTING=ON \
+            -DYANAMI_ENABLE_DEV_HOOKS=OFF
+          cmake --build build/ci-macos --parallel
+          ctest --test-dir build/ci-macos --output-on-failure

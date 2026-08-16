@@ -1,5 +1,5 @@
 import QtQuick
-import Yanami
+import Yanami.Ui
 
 Item {
     id: root
@@ -8,7 +8,7 @@ Item {
     property bool playerMode: false
     property bool fullScreenMode: false
 
-    height: 42
+    height: PopupCoordinator.applicationChromeHeight
 
     MouseArea {
         id: dragArea
@@ -22,6 +22,7 @@ Item {
         property bool moveStarted: false
 
         onPressed: mouse => {
+            PopupCoordinator.noteApplicationChromePress()
             pressPosition = Qt.point(mouse.x, mouse.y)
             moveStarted = false
         }
@@ -41,6 +42,11 @@ Item {
             else
                 root.targetWindow.showMaximized()
         }
+
+        Component.onCompleted:
+            PopupCoordinator.registerApplicationChromeItem(dragArea)
+        Component.onDestruction:
+            PopupCoordinator.unregisterApplicationChromeItem(dragArea)
     }
 
     Row {
@@ -87,6 +93,7 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
+                    onPressed: PopupCoordinator.noteApplicationChromePress()
                     onClicked: {
                         if (!root.targetWindow)
                             return
@@ -100,6 +107,11 @@ Item {
                             root.targetWindow.showMaximized()
                         }
                     }
+
+                    Component.onCompleted:
+                        PopupCoordinator.registerApplicationChromeItem(controlMouse)
+                    Component.onDestruction:
+                        PopupCoordinator.unregisterApplicationChromeItem(controlMouse)
                 }
 
                 Behavior on color { ColorAnimation { duration: 120 } }

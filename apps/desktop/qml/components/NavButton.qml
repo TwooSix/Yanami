@@ -1,15 +1,20 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import Yanami
+import Yanami.Ui
 
 Button {
     id: root
     property string iconName
+    property string accessibleName
     property bool selected: false
 
     implicitWidth: 48
     implicitHeight: 48
     hoverEnabled: true
+    focusPolicy: Qt.StrongFocus
+    Accessible.role: Accessible.Button
+    Accessible.name: root.accessibleName.length > 0
+        ? root.accessibleName : root.iconName
 
     contentItem: Item {
         AppIcon {
@@ -27,8 +32,8 @@ Button {
             anchors.fill: parent
             radius: 15
             color: root.selected ? Theme.accentSoft : (root.hovered ? "#18FFFFFF" : "transparent")
-            border.width: root.selected ? 1 : 0
-            border.color: "#45FF8FA7"
+            border.width: root.visualFocus ? 2 : (root.selected ? 1 : 0)
+            border.color: root.visualFocus ? Theme.accent : "#45FF8FA7"
             scale: root.down ? 0.94 : 1
 
             Behavior on color { ColorAnimation { duration: 140 } }

@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import Yanami
+import Yanami.Ui
 
 ListView {
     id: root
@@ -9,12 +9,53 @@ ListView {
     property real wheelBoost: 1
     readonly property bool canScrollHorizontally: contentWidth > width + 1
 
+    onCountChanged: {
+        wheelAnimation.stop()
+        if (count === 0)
+            positionViewAtBeginning()
+        else
+            Qt.callLater(root.clampScrollPosition)
+    }
+    onContentWidthChanged: {
+        wheelAnimation.stop()
+        Qt.callLater(root.clampScrollPosition)
+    }
+    onWidthChanged: {
+        wheelAnimation.stop()
+        Qt.callLater(root.clampScrollPosition)
+    }
+    onOriginXChanged: {
+        wheelAnimation.stop()
+        Qt.callLater(root.clampScrollPosition)
+    }
+
+    function resetScrollPosition() {
+        wheelAnimation.stop()
+        root.positionViewAtBeginning()
+        Qt.callLater(root.clampScrollPosition)
+    }
+
+    function clampScrollPosition() {
+        const minimum = root.originX
+        const maximum = Math.max(minimum,
+            minimum + root.contentWidth - root.width)
+        if (root.contentX < minimum)
+            root.contentX = minimum
+        else if (root.contentX > maximum)
+            root.contentX = maximum
+    }
+
     orientation: ListView.Horizontal
     spacing: 14
     clip: true
     boundsBehavior: Flickable.StopAtBounds
     flickDeceleration: 1050
     maximumFlickVelocity: 6800
+
+    // ListView delegates are virtualized. Animating x/y across a sequence of
+    // ListModel moves can leave recycled delegates at stale coordinates and
+    // can also make contentX snap while the user is scrolling. Keep scrolling
+    // geometry deterministic; visual state changes animate inside each card.
 
     HoverHandler {
         id: rowHover
@@ -48,8 +89,10 @@ ListView {
                 : event.pixelDelta.y
             const rawDelta = pixelDelta !== 0 ? pixelDelta : event.angleDelta.y * 1.7
             const currentTarget = wheelAnimation.running ? wheelAnimation.to : root.contentX
-            const maximum = Math.max(0, root.contentWidth - root.width)
-            wheelAnimation.to = Math.max(0, Math.min(maximum,
+            const minimum = root.originX
+            const maximum = Math.max(minimum,
+                minimum + root.contentWidth - root.width)
+            wheelAnimation.to = Math.max(minimum, Math.min(maximum,
                 currentTarget - rawDelta * root.wheelBoost))
             wheelAnimation.restart()
             event.accepted = true

@@ -1,5 +1,5 @@
 import QtQuick
-import Yanami
+import Yanami.Ui
 
 Rectangle {
     id: root

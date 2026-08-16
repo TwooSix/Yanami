@@ -9,16 +9,15 @@ rust-version.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-chrono.workspace = true
-reqwest.workspace = true
 secrecy.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-url.workspace = true
-uuid.workspace = true
 zeroize.workspace = true
 yanami-application = { path = "../yanami-application" }
-yanami-core = { path = "../yanami-core" }
-yanami-danmaku = { path = "../yanami-danmaku" }
-yanami-emby = { path = "../yanami-emby" }
-yanami-storage = { path = "../yanami-storage" }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

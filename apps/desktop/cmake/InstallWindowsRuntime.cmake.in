@@ -1,0 +1,34 @@
+set(installed_root "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
+set(installed_executable
+    "${installed_root}/bin/yanami-desktop@CMAKE_EXECUTABLE_SUFFIX@")
+
+execute_process(
+    COMMAND "@CMAKE_COMMAND@"
+        "-DYANAMI_EXECUTABLE=${installed_executable}"
+        "-DYANAMI_QML_DIR=@CMAKE_CURRENT_SOURCE_DIR@/qml"
+        "-DYANAMI_QT_PREFIX=@YANAMI_QT_PREFIX@"
+        "-DYANAMI_WINDEPLOYQT=@WINDEPLOYQT_EXECUTABLE@"
+        "-DYANAMI_MPV_RUNTIME=@MPV_RUNTIME_DLL@"
+        "-DYANAMI_PACMAN=@PACMAN_EXECUTABLE@"
+        "-DYANAMI_PACKAGE_ROOT=${installed_root}"
+        "-DYANAMI_LICENSE_FALLBACK_ROOT=@YANAMI_WORKSPACE@/licenses/msys2-fallback"
+        "-DYANAMI_COLLECT_PACKAGE_LICENSES=ON"
+        -P "@CMAKE_CURRENT_SOURCE_DIR@/cmake/DeployWindowsRuntime.cmake"
+    RESULT_VARIABLE deploy_result
+    COMMAND_ECHO STDOUT)
+if(NOT deploy_result EQUAL 0)
+    message(FATAL_ERROR
+        "Deploying the installed Windows runtime failed with exit code ${deploy_result}")
+endif()
+
+# Ship an auditable manifest of the exact staging tree. CPack additionally
+# emits a checksum for the outer archive.
+execute_process(
+    COMMAND "@CMAKE_COMMAND@"
+        "-DYANAMI_PACKAGE_ROOT=${installed_root}"
+        -P "@CMAKE_CURRENT_SOURCE_DIR@/cmake/WritePackageManifest.cmake"
+    RESULT_VARIABLE manifest_result)
+if(NOT manifest_result EQUAL 0)
+    message(FATAL_ERROR
+        "Writing the Windows package manifest failed with exit code ${manifest_result}")
+endif()

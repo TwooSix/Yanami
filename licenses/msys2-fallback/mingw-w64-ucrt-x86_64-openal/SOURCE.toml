@@ -1,0 +1,17 @@
+package = "mingw-w64-ucrt-x86_64-openal"
+package_version = "1.25.2-1"
+source_archive_url = "https://github.com/kcat/openal-soft/archive/1.25.2/openal-1.25.2.tar.gz"
+source_archive_sha256 = "fb27e5839aa11f0e5b9d33756965291fad5d6909ab928ea1f796f4a1a6877894"
+
+[[license_files]]
+path = "COPYING"
+sha256 = "d808ce217e5b611854da622b57ec29fe545584c48bc5352fae72a4b6e5074a15"
+
+[[license_files]]
+path = "fmt-11.2.0/LICENSE"
+sha256 = "07580f2a3b35709ce703d523f447b242f6dfec7582a8c0df102c7fa2849375f8"
+
+[[license_files]]
+path = "gsl/LICENSE"
+sha256 = "4c21dc82a1c7186ea754fd59d504c00947953a3401fe8e24eaa44109ef8e2555"
+

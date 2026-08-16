@@ -1,21 +1,5 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DanmakuMode {
-    Scroll,
-    Bottom,
-    Top,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DanmakuComment {
-    pub time_seconds: f64,
-    pub mode: DanmakuMode,
-    pub color_rgb: u32,
-    pub text: String,
-    pub source_id: Option<i64>,
-    pub sender: Option<String>,
-}
+use serde::Deserialize;
+use yanami_core::{DanmakuComment, DanmakuMode};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MatchInput {
@@ -36,6 +20,20 @@ pub struct EpisodeSearchResult {
     pub anime_id: i64,
     pub anime_title: String,
     pub type_description: Option<String>,
+    pub episode_id: i64,
+    pub episode_title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimeSearchResult {
+    pub anime_id: i64,
+    pub anime_title: String,
+    pub type_description: Option<String>,
+    pub episodes: Vec<AnimeEpisodeSearchResult>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnimeEpisodeSearchResult {
     pub episode_id: i64,
     pub episode_title: String,
 }

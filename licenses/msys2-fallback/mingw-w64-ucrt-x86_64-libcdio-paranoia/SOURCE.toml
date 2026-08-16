@@ -1,0 +1,9 @@
+package = "mingw-w64-ucrt-x86_64-libcdio-paranoia"
+package_version = "10.2+2.0.2-1"
+source_archive_url = "https://ftp.gnu.org/gnu/libcdio/libcdio-paranoia-10.2+2.0.2.tar.bz2"
+source_archive_sha256 = "186892539dedd661276014d71318c8c8f97ecb1250a86625256abd4defbf0d0c"
+
+[[license_files]]
+path = "COPYING"
+sha256 = "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+

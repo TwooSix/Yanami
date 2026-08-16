@@ -1,24 +1,45 @@
 import QtQuick
-import Yanami
+import Yanami.Ui
 
 Item {
     id: root
 
     property bool active: false
     property int showDelay: 180
+    property int minimumVisibleTime: 250
     property bool shown: false
+    property double shownAt: 0
 
-    visible: shown || opacity > 0
-    enabled: false
+    visible: active || shown || opacity > 0
+    enabled: active
     opacity: shown ? 1 : 0
 
     onActiveChanged: {
         if (active) {
+            hideTimer.stop()
             showTimer.restart()
         } else {
             showTimer.stop()
-            shown = false
+            const remaining = root.minimumVisibleTime - (Date.now() - root.shownAt)
+            if (shown && remaining > 0) {
+                hideTimer.interval = remaining
+                hideTimer.restart()
+            } else {
+                shown = false
+            }
         }
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        enabled: root.active
+        acceptedButtons: Qt.AllButtons
+    }
+
+    WheelHandler {
+        enabled: root.active
+        blocking: true
+        onWheel: event => event.accepted = true
     }
 
     GlassPanel {
@@ -35,7 +56,7 @@ Item {
             anchors.centerIn: parent
             width: 28
             height: 28
-            running: root.active
+            running: root.shown || root.opacity > 0
         }
 
         Behavior on scale {
@@ -47,9 +68,16 @@ Item {
         id: showTimer
         interval: root.showDelay
         onTriggered: {
-            if (root.active)
+            if (root.active) {
+                root.shownAt = Date.now()
                 root.shown = true
+            }
         }
+    }
+
+    Timer {
+        id: hideTimer
+        onTriggered: root.shown = false
     }
 
     Behavior on opacity {

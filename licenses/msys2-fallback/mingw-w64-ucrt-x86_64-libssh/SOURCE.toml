@@ -1,0 +1,9 @@
+package = "mingw-w64-ucrt-x86_64-libssh"
+package_version = "0.12.2-1"
+source_archive_url = "https://www.libssh.org/files/0.12/libssh-0.12.2.tar.xz"
+source_archive_sha256 = "49560f677d96e3706a904ac2de1116e25f3680937d51e5c92198fcba4a1c1e9f"
+
+[[license_files]]
+path = "COPYING"
+sha256 = "1656186e951db1c010a8485481fa94587f7e53a26d24976bef97945ad0c4df5a"
+
