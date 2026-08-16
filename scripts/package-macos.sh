@@ -108,7 +108,10 @@ cmake -S "$workspace/apps/desktop" -B "$build_dir" -G Ninja \
 cmake --build "$build_dir" --parallel
 unset YANAMI_DANDANPLAY_APP_ID YANAMI_DANDANPLAY_APP_SECRET || true
 ctest --test-dir "$build_dir" --output-on-failure
-cmake --build "$build_dir" --target package
+if ! cmake --build "$build_dir" --target package; then
+    echo "DMG creation failed once; retrying without rebuilding the application" >&2
+    cmake --build "$build_dir" --target package
+fi
 
 asset_name="Yanami-${build_version}-macOS-${package_architecture}.dmg"
 archive="$build_dir/$asset_name"

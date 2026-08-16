@@ -901,6 +901,9 @@ set(CPACK_PACKAGE_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CPACK_PACKAGE_CHECKSUM SHA256)
 if(APPLE)
     set(CPACK_GENERATOR DragNDrop)
+    # LZFSE keeps the DMG compressed while reducing the compression work on
+    # hosted Intel macOS runners compared with CPack's zlib default.
+    set(CPACK_DMG_FORMAT ULFO)
 elseif(WIN32)
     set(CPACK_GENERATOR ZIP)
 else()

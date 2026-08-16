@@ -366,6 +366,8 @@ jobs:
           New-Item -ItemType Directory -Path $isolatedData | Out-Null
           $screenshot = Join-Path $extractRoot "forbidden-dev-hook.png"
           $devLog = Join-Path $extractRoot "forbidden-dev-hook.log"
+          $smokeStdout = Join-Path $extractRoot "runtime-smoke.stdout.log"
+          $smokeStderr = Join-Path $extractRoot "runtime-smoke.stderr.log"
           $process = $null
           try {
             $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
@@ -380,35 +382,19 @@ jobs:
             $env:YANAMI_DEV_SCREENSHOT_PATH = $screenshot
             $env:YANAMI_DEV_LOG_PATH = $devLog
             $process = Start-Process -FilePath $executable.FullName `
-              -WorkingDirectory $executable.DirectoryName -WindowStyle Hidden -PassThru
-            $requiredModules = @(
-              "Qt6Core.dll",
-              "qoffscreen.dll",
-              "yanami_desktop_bridge.dll",
-              "libmpv-2.dll",
-              # Loaded only after the application has created its QML engine.
-              "qquicklayoutsplugin.dll")
-            $moduleNames = @()
-            $missingModules = $requiredModules
-            $smokeDeadline = [DateTime]::UtcNow.AddSeconds(30)
-            do {
-              Start-Sleep -Milliseconds 250
-              $process.Refresh()
-              if ($process.HasExited) {
-                throw "Packaged application exited before completing its startup smoke test."
-              }
-              try {
-                $moduleNames = @($process.Modules | ForEach-Object ModuleName)
-              } catch {
-                $moduleNames = @()
-              }
-              $missingModules = @($requiredModules | Where-Object {
-                $moduleNames -notcontains $_
-              })
-            } while ($missingModules.Count -ne 0 -and
-              [DateTime]::UtcNow -lt $smokeDeadline)
-            if ($missingModules.Count -ne 0) {
-              throw "The package did not load its headless Qt/QML runtime within 30 seconds. Missing: $($missingModules -join ', ')"
+              -ArgumentList "--runtime-smoke-test" `
+              -WorkingDirectory $executable.DirectoryName -WindowStyle Hidden `
+              -RedirectStandardOutput $smokeStdout `
+              -RedirectStandardError $smokeStderr -PassThru
+            if (-not $process.WaitForExit(60000)) {
+              throw "The packaged runtime smoke test did not finish within 60 seconds."
+            }
+            if ($process.ExitCode -ne 0) {
+              Get-Content -LiteralPath $smokeStdout -ErrorAction SilentlyContinue |
+                Write-Host
+              Get-Content -LiteralPath $smokeStderr -ErrorAction SilentlyContinue |
+                Write-Host
+              throw "The packaged runtime smoke test failed with exit code $($process.ExitCode)."
             }
           } finally {
             if ($process -and -not $process.HasExited) {
