@@ -69,13 +69,15 @@ export QMAKE="$qt_root/bin/qmake"
 export QML_SOURCES_PATHS="$workspace/apps/desktop/qml"
 export EXTRA_PLATFORM_PLUGINS="libqminimal.so;libqoffscreen.so"
 export LD_LIBRARY_PATH="$qt_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+icon_file="$app_dir/usr/share/icons/hicolor/512x512/apps/io.github.TwooSix.Yanami.png"
+file "$icon_file" | grep -q 'PNG image data, 512 x 512'
 
 "$linuxdeploy" \
     --appdir "$app_dir" \
     --executable "$app_dir/usr/bin/yanami-desktop" \
     --library "$app_dir/usr/bin/libyanami_desktop_bridge.so" \
     --desktop-file "$app_dir/usr/share/applications/io.github.TwooSix.Yanami.desktop" \
-    --icon-file "$app_dir/usr/share/icons/hicolor/1024x1024/apps/io.github.TwooSix.Yanami.png" \
+    --icon-file "$icon_file" \
     --plugin qt
 
 bash "$script_dir/collect-linux-runtime-licenses.sh" "$app_dir" "$qt_root"
