@@ -673,6 +673,18 @@ TestCase {
     }
 
     function test_trackMenuFocusesADelegateAndHandlesBoundaryKeys() {
+        // Reopening in the same event-loop turn must not let the previous
+        // close's deferred focus restoration win over the preferred item.
+        keyboardTrackMenu.openPreferred(true)
+        tryCompare(keyboardTrackMenu, "opened", true)
+        keyboardTrackMenu.focusItem(2)
+        tryCompare(keyboardTrackMenu, "currentIndex", 2)
+        wait(20)
+        compare(keyboardTrackMenu.currentIndex, 2,
+                "deferred initial focus overwrote user navigation")
+        keyboardTrackMenu.forceDismiss()
+        tryCompare(keyboardTrackMenu, "opened", false)
+
         keyboardTrackMenu.openPreferred(true)
         tryCompare(keyboardTrackMenu, "opened", true)
         tryCompare(keyboardTrackMenu, "currentIndex", 0)

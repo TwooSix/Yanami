@@ -68,6 +68,8 @@ int main(int argc, char *argv[])
     QQuickWindow::setDefaultAlphaBuffer(false);
 
     QGuiApplication app(argc, argv);
+    const bool runtimeSmokeTest = app.arguments().contains(
+        QStringLiteral("--runtime-smoke-test"));
     const bool runtimeLoggerInstalled = RuntimeLogger::install();
     RuntimeLoggerGuard runtimeLoggerGuard(runtimeLoggerInstalled);
     if (runtimeLoggerInstalled) {
@@ -372,6 +374,20 @@ int main(int argc, char *argv[])
             root->setProperty("developmentDanmakuToggleStressCount",
                               danmakuToggleStressCount);
 #endif
+    }
+
+    // Release automation exercises the installed application through this
+    // production-safe path. Reaching the queued exit proves that the platform
+    // plugin, native bridge, and root QML object all loaded successfully.
+    if (runtimeSmokeTest) {
+        if (engine.rootObjects().isEmpty()) {
+            qCCritical(applicationLog) << "runtime_smoke_test_root_missing";
+            return EXIT_FAILURE;
+        }
+        QTimer::singleShot(0, &app, [&app] {
+            qCInfo(applicationLog) << "runtime_smoke_test_ready";
+            app.exit(EXIT_SUCCESS);
+        });
     }
 
 #ifdef YANAMI_ENABLE_DEV_HOOKS

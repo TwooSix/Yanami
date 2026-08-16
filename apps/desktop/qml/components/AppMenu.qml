@@ -30,6 +30,9 @@ Menu {
 
     property var _capturedFocus: null
     property var _overlayTapHandler: null
+    property int _openSequence: 0
+    property int _navigationSequence: 0
+    property bool _keyboardInvocation: false
 
     signal discardRequested(string reason)
     signal dismissedByUser(string reason)
@@ -58,7 +61,8 @@ Menu {
         // anchored track menu and can reset an overlay context menu to (0, 0).
         // Plain open() preserves the caller's x/y; focusPreferredItem() owns
         // the semantic current-item hand-off after the popup is visible.
-        if (Boolean(keyboardInvocation))
+        root._keyboardInvocation = Boolean(keyboardInvocation)
+        if (root._keyboardInvocation)
             InputModality.noteKeyboardNavigation()
         else
             InputModality.notePointerInput()
@@ -88,17 +92,42 @@ Menu {
         root.focusPreferredItem()
     }
 
+    function settlePreferredFocus(openSequence, navigationSequence,
+                                  indexAtOpen, remainingPasses) {
+        Qt.callLater(function() {
+            if (!root.opened || root._openSequence !== openSequence
+                    || root._navigationSequence !== navigationSequence)
+                return
+            // Pointer movement is allowed to choose a row. Keyboard openings
+            // instead reassert the semantic selection across two event turns,
+            // covering QQuickMenu's platform-specific focus restoration.
+            if (root._keyboardInvocation) {
+                if (!root.keyboardFocusVisible)
+                    return
+            } else if (root.currentIndex !== indexAtOpen) {
+                return
+            }
+            root.focusPreferredItem()
+            if (remainingPasses > 1) {
+                root.settlePreferredFocus(
+                            openSequence, navigationSequence,
+                            root.currentIndex, remainingPasses - 1)
+            }
+        })
+    }
+
     function focusItem(index) {
         if (!root.opened || index < 0 || index >= root.count)
             return
         const item = root.itemAt(index)
         if (item && item.enabled !== false) {
+            ++root._navigationSequence
             root.currentIndex = index
             item.forceActiveFocus(Qt.TabFocusReason)
         }
     }
 
-    function restorePreviousFocus() {
+    function restorePreviousFocus(target) {
         if (!root.restoreFocus)
             return
 
@@ -106,12 +135,9 @@ Menu {
         const activeItem = popupWindow ? popupWindow.activeFocusItem : null
         if (activeItem && !PopupCoordinator.isItemInside(
                 activeItem, root.contentItem)) {
-            root._capturedFocus = null
             return
         }
 
-        const target = root.focusReturnTarget || root._capturedFocus
-        root._capturedFocus = null
         const nextPopup = PopupCoordinator.topPopup()
         if (nextPopup) {
             if (target && PopupCoordinator.isItemInside(
@@ -201,6 +227,7 @@ Menu {
         target: root
 
         function onAboutToShow() {
+            ++root._openSequence
             const popupWindow = root.popupWindow
             root._capturedFocus = root.focusReturnTarget
                 || (popupWindow ? popupWindow.activeFocusItem : null)
@@ -212,19 +239,29 @@ Menu {
             // Re-apply the item focus after Menu has finished taking focus so
             // the final accessibility focus event belongs to the MenuItem,
             // rather than the popup container.
+            const openSequence = root._openSequence
+            const navigationSequence = root._navigationSequence
             const indexAtOpen = root.currentIndex
-            Qt.callLater(function() {
-                // Never overwrite navigation that happened before this
-                // queued accessibility/focus hand-off ran.
-                if (root.opened && root.currentIndex === indexAtOpen)
-                    root.focusPreferredItem()
-            })
+            root.settlePreferredFocus(
+                        openSequence, navigationSequence, indexAtOpen,
+                        root._keyboardInvocation ? 2 : 1)
         }
 
         function onClosed() {
+            // Freeze the return target for this close. A rapid reopen replaces
+            // _capturedFocus before the deferred callback runs on some Qt
+            // event dispatchers; that stale callback must not focus a delegate
+            // from the new menu instance.
+            const closedSequence = root._openSequence
+            const returnTarget = root.focusReturnTarget || root._capturedFocus
+            root._capturedFocus = null
+            root._keyboardInvocation = false
             root.removeOverlayTapHandler()
             PopupCoordinator.unregisterPopup(root)
-            Qt.callLater(root.restorePreviousFocus)
+            Qt.callLater(function() {
+                if (!root.opened && root._openSequence === closedSequence)
+                    root.restorePreviousFocus(returnTarget)
+            })
         }
     }
 
