@@ -471,9 +471,8 @@ if(UNIX AND NOT APPLE)
     install(FILES resources/linux/io.github.TwooSix.Yanami.desktop
         DESTINATION share/applications
     )
-    install(FILES qml/assets/yanami-logo.png
-        DESTINATION share/icons/hicolor/1024x1024/apps
-        RENAME io.github.TwooSix.Yanami.png
+    install(FILES resources/linux/io.github.TwooSix.Yanami.png
+        DESTINATION share/icons/hicolor/512x512/apps
     )
 endif()
 

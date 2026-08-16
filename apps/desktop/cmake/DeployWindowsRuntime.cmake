@@ -66,15 +66,16 @@ file(COPY_FILE
 # without making the built application depend on that developer PATH.
 set(ENV{PATH}
     "${YANAMI_QT_PREFIX}/share/qt6/bin;${YANAMI_QT_PREFIX}/bin;$ENV{PATH}")
-# Keep qwindows for end users and add qminimal for package smoke tests on
-# hosted Windows runners that do not expose an interactive desktop.
+# Keep qwindows for end users and add qoffscreen for package smoke tests on
+# hosted Windows runners. The same offscreen QPA is exercised by the desktop
+# test suite, so the release smoke uses a runner-proven headless path.
 execute_process(
     COMMAND "${YANAMI_WINDEPLOYQT}"
         --release
         --qmldir "${YANAMI_QML_DIR}"
         --compiler-runtime
         --no-translations
-        --include-plugins qminimal
+        --include-plugins qoffscreen
         --force
         "${YANAMI_EXECUTABLE}"
     RESULT_VARIABLE deploy_result
