@@ -23,6 +23,25 @@ extract_rpaths() {
     '
 }
 
+extract_dependencies() {
+    local binary="$1"
+    # `otool -L` also prints LC_ID_DYLIB. Read the actual load commands so a
+    # library's own install name can never be mistaken for a dependency.
+    otool -l "$binary" | awk '
+        $1 == "cmd" && $2 ~ /^(LC_LOAD_DYLIB|LC_LOAD_WEAK_DYLIB|LC_REEXPORT_DYLIB|LC_LOAD_UPWARD_DYLIB|LC_LAZY_LOAD_DYLIB)$/ {
+            waiting_for_name = 1
+            next
+        }
+        waiting_for_name && $1 == "name" {
+            dependency = $0
+            sub(/^[[:space:]]*name[[:space:]]+/, "", dependency)
+            sub(/[[:space:]]+\(offset[[:space:]][0-9]+\)$/, "", dependency)
+            print dependency
+            waiting_for_name = 0
+        }
+    '
+}
+
 expand_runtime_path() {
     local value="$1"
     local binary="$2"
@@ -107,15 +126,10 @@ mach_o_count=0
 while IFS= read -r binary; do
     file "$binary" | grep -q 'Mach-O' || continue
     mach_o_count=$((mach_o_count + 1))
-    dylib_id="$(otool -D "$binary" 2>/dev/null | tail -n +2 | head -n 1 || true)"
     while IFS= read -r dependency; do
-        dependency="${dependency%% (*}"
-        dependency="${dependency#${dependency%%[![:space:]]*}}"
         [[ -z "$dependency" ]] && continue
-        # LC_ID_DYLIB identifies the current library; it is not a load dependency.
-        [[ -n "$dylib_id" && "$dependency" == "$dylib_id" ]] && continue
         verify_dependency "$dependency" "$binary"
-    done < <(otool -L "$binary" | tail -n +2)
+    done < <(extract_dependencies "$binary")
 done < <(find "$app/Contents" -type f | sort)
 
 if [[ "$mach_o_count" -eq 0 ]]; then
