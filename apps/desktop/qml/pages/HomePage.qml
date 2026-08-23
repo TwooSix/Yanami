@@ -23,6 +23,7 @@ Item {
     property string containerType: ""
     property int detailReturnPage: -1
     property string pendingPlaylistRemovalId: ""
+    property string pendingLibraryScrollResetId: ""
     readonly property string routeCollectionId: root.depth === 1 ? root.libraryId
         : (root.depth === 2 ? root.seriesId
         : (root.depth === 3 ? root.seasonId : (root.depth === 4 ? root.containerId : "")))
@@ -68,6 +69,15 @@ Item {
         app.home.mediaStore.queryModel("collection", root.seasonId)
     readonly property var animatedContainerModel:
         app.home.mediaStore.queryModel("collection", root.containerId)
+
+    onCollectionReadyChanged: {
+        if (root.collectionReady)
+            Qt.callLater(root.completeLibraryScrollReset)
+    }
+    onSortModeChanged: {
+        if (root.depth === 1)
+            root.requestLibraryScrollReset(root.libraryId)
+    }
 
     signal externalReturnRequested(int page)
 
@@ -197,8 +207,29 @@ Item {
         return qsTr("Name")
     }
 
+    function requestLibraryScrollReset(targetId) {
+        const normalizedId = String(targetId || "")
+        if (normalizedId.length === 0)
+            return
+        root.pendingLibraryScrollResetId = normalizedId
+        libraryGrid.resetScrollPosition()
+        Qt.callLater(root.completeLibraryScrollReset)
+    }
+
+    function completeLibraryScrollReset() {
+        if (root.pendingLibraryScrollResetId.length === 0
+                || root.depth !== 1
+                || root.libraryId !== root.pendingLibraryScrollResetId) {
+            return
+        }
+        libraryGrid.resetScrollPosition()
+        if (root.collectionReady)
+            root.pendingLibraryScrollResetId = ""
+    }
+
     function goHome() {
         sortMenu.close()
+        root.pendingLibraryScrollResetId = ""
         root.depth = 0
         root.libraryId = ""
         root.libraryTitle = ""
@@ -226,7 +257,7 @@ Item {
         root.containerTitle = ""
         root.containerType = ""
         root.depth = 1
-        pageFlickable.contentY = 0
+        root.requestLibraryScrollReset(root.libraryId)
         app.home.loadCollection(item.id)
     }
 

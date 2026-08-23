@@ -32,8 +32,15 @@ GridView {
 
     function resetScrollPosition() {
         wheelAnimation.stop()
+        root.currentIndex = -1
         root.positionViewAtBeginning()
-        Qt.callLater(root.clampScrollPosition)
+        Qt.callLater(function() {
+            // A GridView can keep a numeric currentIndex across a proxy-model
+            // reset and reveal that stale item during its deferred layout.
+            root.currentIndex = -1
+            root.positionViewAtBeginning()
+            root.clampScrollPosition()
+        })
     }
 
     function clampScrollPosition() {

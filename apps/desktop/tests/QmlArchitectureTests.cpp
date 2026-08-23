@@ -310,6 +310,72 @@ private slots:
         }
     }
 
+    void homePageUsesExplicitLibraryScrollContexts()
+    {
+        const QString path = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))
+            .filePath(QStringLiteral("pages/HomePage.qml"));
+        const QString content = source(path);
+        QVERIFY2(!content.isEmpty(), qPrintable(path));
+
+        QVERIFY(content.contains(QStringLiteral(
+            "property string pendingLibraryScrollResetId")));
+        QVERIFY(content.contains(QStringLiteral(
+            "onCollectionReadyChanged:")));
+        QVERIFY(content.contains(QStringLiteral(
+            "onSortModeChanged:")));
+
+        const qsizetype requestStart = content.indexOf(
+            QStringLiteral("function requestLibraryScrollReset(targetId)"));
+        const qsizetype requestEnd = content.indexOf(
+            QStringLiteral("function completeLibraryScrollReset()"), requestStart);
+        QVERIFY(requestStart >= 0 && requestEnd > requestStart);
+        const QString requestReset = content.mid(
+            requestStart, requestEnd - requestStart);
+        QVERIFY(requestReset.contains(QStringLiteral(
+            "root.pendingLibraryScrollResetId = normalizedId")));
+        QVERIFY(requestReset.contains(QStringLiteral(
+            "libraryGrid.resetScrollPosition()")));
+        QVERIFY(requestReset.contains(QStringLiteral(
+            "Qt.callLater(root.completeLibraryScrollReset)")));
+
+        const qsizetype completeEnd = content.indexOf(
+            QStringLiteral("function goHome()"), requestEnd);
+        QVERIFY(completeEnd > requestEnd);
+        const QString completeReset = content.mid(
+            requestEnd, completeEnd - requestEnd);
+        QVERIFY(completeReset.contains(QStringLiteral(
+            "libraryGrid.resetScrollPosition()")));
+        QVERIFY(completeReset.contains(QStringLiteral(
+            "if (root.collectionReady)")));
+
+        const qsizetype openStart = content.indexOf(
+            QStringLiteral("function openLibraryView(item)"));
+        const qsizetype openEnd = content.indexOf(
+            QStringLiteral("function openLibraryItem(item)"), openStart);
+        QVERIFY(openStart >= 0 && openEnd > openStart);
+        const QString openLibrary = content.mid(openStart, openEnd - openStart);
+        QVERIFY2(openLibrary.contains(QStringLiteral(
+                     "root.requestLibraryScrollReset(root.libraryId)")),
+            "A fresh library route must reset the real GridView after its context changes");
+
+        const qsizetype backStart = content.indexOf(
+            QStringLiteral("function goBack()"));
+        const qsizetype backEnd = content.indexOf(
+            QStringLiteral("function localizedLibraryTitle(item)"), backStart);
+        QVERIFY(backStart >= 0 && backEnd > backStart);
+        const QString goBack = content.mid(backStart, backEnd - backStart);
+        const qsizetype detailReturnStart = goBack.indexOf(QStringLiteral(
+            "else if (root.depth === 2 && root.libraryId.length > 0)"));
+        const qsizetype detailReturnEnd = goBack.indexOf(QStringLiteral(
+            "else if (root.depth === 2 && root.detailReturnPage >= 0)"),
+            detailReturnStart);
+        QVERIFY(detailReturnStart >= 0 && detailReturnEnd > detailReturnStart);
+        const QString detailReturn = goBack.mid(
+            detailReturnStart, detailReturnEnd - detailReturnStart);
+        QVERIFY2(!detailReturn.contains(QStringLiteral("requestLibraryScrollReset")),
+            "Returning from details must preserve the parent library position");
+    }
+
     void asyncImageKeysStayInsideTheCacheRoot()
     {
         QTemporaryDir temporaryDirectory;
