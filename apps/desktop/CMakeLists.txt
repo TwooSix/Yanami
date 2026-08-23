@@ -918,6 +918,14 @@ if(BUILD_TESTING)
     )
 
     if(WIN32)
+        add_test(
+            NAME yanami-desktop-build-runtime-smoke
+            COMMAND $<TARGET_FILE:yanami-desktop> --runtime-smoke-test
+        )
+        set_tests_properties(yanami-desktop-build-runtime-smoke PROPERTIES
+            ENVIRONMENT
+                "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QML_IMPORT_PATH=;QML2_IMPORT_PATH="
+        )
         set_property(TEST yanami-input-modality-tests APPEND PROPERTY ENVIRONMENT
             "QT_PLUGIN_PATH=${YANAMI_QT_PREFIX}/share/qt6/plugins"
         )
