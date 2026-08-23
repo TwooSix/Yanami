@@ -15,6 +15,7 @@ QtObject {
     readonly property color accent: "#FF6687"
     readonly property color accentHover: "#FF7895"
     readonly property color accentSoft: "#2EFF6687"
+    readonly property color info: "#0A84FF"
     readonly property color success: "#74DBA4"
     readonly property color danger: "#FF879E"
     readonly property real radiusSmall: 12

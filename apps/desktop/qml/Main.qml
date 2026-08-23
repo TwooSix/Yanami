@@ -123,9 +123,9 @@ ApplicationWindow {
             errorDialog.show(app.status.message)
     }
 
-    function showActionToast(message) {
+    function showActionToast(message, tone) {
         if (message && message.length > 0)
-            actionToast.show(message)
+            actionToast.show(message, tone)
     }
 
     function playbackWarningMessage(warnings) {
@@ -147,7 +147,7 @@ ApplicationWindow {
 
     function reportMediaActionFailure(message, nonModal, handledInPlace) {
         if (nonModal && !handledInPlace)
-            window.showActionToast(message)
+            window.showActionToast(message, "error")
     }
 
     function deliverDanmakuResult(itemId, result) {
@@ -160,7 +160,7 @@ ApplicationWindow {
         const page = window.playerPage
         if (nonModal && window.currentPage === 2 && page
                 && page.currentItemId === itemId)
-            window.showActionToast(message)
+            window.showActionToast(message, "error")
     }
 
     function navigateBack() {
@@ -343,7 +343,9 @@ ApplicationWindow {
             return window.requestMediaTargets(item, null)
         }
         if (window.developmentMediaMenuPreview === "action-error-mock") {
-            window.showActionToast("The server could not complete this action. Please try again.")
+            window.showActionToast(
+                "The server could not complete this action. Please try again.",
+                "error")
             return true
         }
         return true
@@ -510,6 +512,8 @@ ApplicationWindow {
                     active: false
 
                     sourceComponent: PlayerPage {
+                        globalToastBottom: actionToast.visible
+                            ? actionToast.y + actionToast.height : 0
                         developmentSeekSeconds: window.developmentSeekSeconds
                         developmentAutoSkipIntro: window.developmentAutoSkipIntro
                         developmentRenderDiagnostics: window.developmentRenderDiagnostics
@@ -531,7 +535,6 @@ ApplicationWindow {
                         }
                         onCloseRequested: window.closePlayer()
                         onToggleFullScreenRequested: window.toggleFullScreen()
-                        onErrorOccurred: message => errorDialog.show(message)
                         onEpisodeSwitchRequested: (itemId, playbackContext,
                                                    positionSeconds, paused) => {
                             app.playback.switchToInContext(
@@ -714,7 +717,8 @@ ApplicationWindow {
             onActionFailure: (message, nonModal, handledInPlace) =>
                 window.reportMediaActionFailure(
                     message, nonModal, handledInPlace)
-            onAdded: itemId => window.showActionToast(qsTr("Added to playlist"))
+            onAdded: itemId => window.showActionToast(
+                qsTr("Added to playlist"), "success")
         }
 
         AppConfirmDialog {
@@ -728,65 +732,16 @@ ApplicationWindow {
             onRejected: window.pendingDeleteItem = ({})
         }
 
-        GlassPanel {
+        StatusToast {
             id: actionToast
             z: 540
-            property bool shown: false
-
-            function show(message) {
-                toastText.text = message
-                shown = true
-                dismissTimer.restart()
-            }
-
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: parent.top
-            anchors.topMargin: shown ? 86 : 68
-            width: Math.min(parent.width - 48,
-                            Math.max(300, toastText.implicitWidth + 62))
-            height: toastText.implicitHeight + 30
-            radius: 16
-            color: Theme.surfaceStrong
-            border.color: "#52FF879E"
-            opacity: shown ? 1 : 0
-            visible: opacity > 0.01
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 16
-                anchors.rightMargin: 16
-                spacing: 11
-
-                Rectangle {
-                    Layout.preferredWidth: 8
-                    Layout.preferredHeight: 8
-                    radius: 4
-                    color: Theme.danger
-                }
-
-                Text {
-                    id: toastText
-                    Layout.fillWidth: true
-                    color: Theme.text
-                    font.family: Theme.fontForText(text)
-                    font.pixelSize: 14
-                    font.weight: Font.DemiBold
-                    wrapMode: Text.Wrap
-                }
-            }
-
-            TapHandler {
-                onTapped: actionToast.shown = false
-            }
-
-            Timer {
-                id: dismissTimer
-                interval: 4200
-                onTriggered: actionToast.shown = false
-            }
-
-            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-            Behavior on anchors.topMargin { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+            anchors.topMargin: 86
+            minimumWidth: Math.min(300, maximumWidth)
+            maximumWidth: Math.max(260, Math.min(520, parent.width - 48))
+            defaultTone: "info"
+            timeout: 4200
         }
     }
 

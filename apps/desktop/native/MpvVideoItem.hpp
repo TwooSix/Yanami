@@ -1,10 +1,12 @@
 #pragma once
 
 #include "PlaybackCompletionGate.hpp"
+#include "PlaybackStallWatchdog.hpp"
 
 #include <QPointer>
 #include <QElapsedTimer>
 #include <QQuickFramebufferObject>
+#include <QTimer>
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
@@ -90,6 +92,10 @@ signals:
     void seekableChanged();
     void playbackStateChanged();
     void playbackError(const QString &message);
+    // A recoverable media-read timeout. libmpv keeps retrying, and
+    // playbackRecovered() is emitted once time-pos advances again.
+    void playbackTimedOut(const QString &message);
+    void playbackRecovered();
     void tracksChanged();
     void fileLoaded();
     void fileEnded();
@@ -110,12 +116,23 @@ private:
     void command(const QList<QByteArray> &arguments, quint64 replyUserdata = 0);
     void setHeaders(const QVariantMap &headers);
     void refreshTracks();
+    void refreshPlaybackState();
+    void updatePlaybackPauseMonitoring(bool paused);
+    void pollPlaybackStall();
+    void handlePlaybackStallEvent(YanamiPlayback::PlaybackStallEvent event);
+    void resetPlaybackStall();
+    qint64 playbackStallNow() const;
 
     std::shared_ptr<mpv_handle> m_mpvOwner;
     mpv_handle *m_mpv = nullptr;
     std::shared_ptr<MpvRenderState> m_renderState;
     bool m_paused = false;
+    bool m_pauseRequested = false;
+    // Native libmpv paused-for-cache and the synthetic no-progress watchdog
+    // remain separate so either source can hold the UI in Buffering.
     bool m_buffering = false;
+    bool m_watchdogBuffering = false;
+    bool m_timeoutReported = false;
     bool m_fileLoaded = false;
     quint64 m_loadGeneration = 0;
     YanamiPlayback::PlaybackCompletionGate m_completionGate;
@@ -123,6 +140,11 @@ private:
     qint64 m_totalBufferingMs = 0;
     QElapsedTimer m_loadTimer;
     QElapsedTimer m_bufferingTimer;
+    QElapsedTimer m_playbackStallClock;
+    QTimer m_playbackStallTimer;
+    YanamiPlayback::PlaybackStallWatchdog m_playbackStallWatchdog;
+    qint64 m_startupWatchStartedMs = 0;
+    qint64 m_lastPlaybackStallPollMs = 0;
     double m_position = 0.0;
     double m_duration = 0.0;
     double m_bufferedPosition = 0.0;

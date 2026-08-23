@@ -55,7 +55,7 @@ Item {
                 handledInPlayer = true
             }
             if (!handledInPlayer && app.status.ready)
-                host.hostWindow.showActionToast(app.status.message)
+                host.hostWindow.showActionToast(app.status.message, "error")
             else if (!app.status.ready)
                 host.hostWindow.showBackendError()
         }

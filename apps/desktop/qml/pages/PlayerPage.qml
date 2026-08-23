@@ -45,6 +45,8 @@ Item {
     property bool automaticAdvanceOpening: false
     property bool automaticQueueRefreshPending: false
     property bool naturalCompletionHandled: false
+    property bool playbackTimeoutActive: false
+    property real globalToastBottom: 0
     property var pendingAutomaticQueueItem: ({})
     property int pendingAutomaticQueueIndex: -1
     property bool developmentRenderDiagnostics: false
@@ -81,9 +83,17 @@ Item {
         && introEndSeconds > introStartSeconds
         && player.position >= Math.max(0, introStartSeconds - 2)
         && player.position < introEndSeconds
+    readonly property bool blockingPlaybackOperation: loadingPreview
+        || preparingPlayback || switchingEpisode || automaticAdvancePending
+    readonly property bool playbackBusy: blockingPlaybackOperation
+        || player.playbackState === MpvVideoItem.Loading
+        || player.playbackState === MpvVideoItem.Buffering
+    readonly property real restingStatusToastTopMargin:
+        Math.max(156, Math.min(200, height * 0.18))
+    readonly property real statusToastTopMargin: globalToastBottom > 0
+        ? globalToastBottom + 8 : restingStatusToastTopMargin
     signal closeRequested()
     signal toggleFullScreenRequested()
-    signal errorOccurred(string message)
     signal playbackLoaded()
     signal episodeSwitchRequested(string itemId, var context,
                                   double positionSeconds, bool paused)
@@ -110,14 +120,29 @@ Item {
             if (root.mediaUrl.toString().length === 0
                     || root.currentItemId.length === 0)
                 return
+            root.playbackTimeoutActive = false
             if (root.automaticAdvanceOpening) {
                 root.automaticAdvanceOpening = false
                 root.switchingEpisode = false
                 root.showPlaybackEndState(true, message)
                 return
             }
-            errorLabel.text = message
-            root.errorOccurred(message)
+            playerStatusToast.show(message, "error", 6500)
+        }
+        onPlaybackTimedOut: message => {
+            // A timeout is recoverable: libmpv keeps the same read alive while
+            // the UI makes the stalled state and its cause explicit.
+            if (root.mediaUrl.toString().length === 0
+                    || root.currentItemId.length === 0)
+                return
+            root.playbackTimeoutActive = true
+            playerStatusToast.show(message, "warning", 5200)
+        }
+        onPlaybackRecovered: {
+            if (!root.playbackTimeoutActive)
+                return
+            root.playbackTimeoutActive = false
+            playerStatusToast.dismiss()
         }
         onFileLoaded: {
             if (root.mediaUrl.toString().length === 0
@@ -300,22 +325,33 @@ Item {
         Behavior on opacity { NumberAnimation { duration: 180 } }
     }
 
-    Text {
-        id: errorLabel
-        anchors.centerIn: parent
-        color: Theme.danger
-        font.family: Theme.fontForText(text)
-        font.pixelSize: 14
-        z: 3
-    }
-
     LoadingOverlay {
         anchors.fill: parent
         z: 2
-        active: root.loadingPreview || root.preparingPlayback
-            || root.switchingEpisode || root.automaticAdvancePending
-            || player.playbackState === MpvVideoItem.Loading
-            || player.playbackState === MpvVideoItem.Buffering
+        active: root.playbackBusy
+        blocksInput: root.blockingPlaybackOperation
+        showPanel: false
+        indicatorOutlineColor: "#8A000000"
+        indicatorOutlineWidth: 0.45
+    }
+
+    StatusToast {
+        id: playerStatusToast
+        objectName: "playerStatusToast"
+        z: 4
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: root.statusToastTopMargin
+        minimumWidth: Math.min(300, maximumWidth)
+        maximumWidth: Math.max(260, Math.min(520, parent.width - 48))
+        autoDismiss: true
+        dismissible: true
+        timeout: 5200
+
+        Behavior on anchors.topMargin {
+            enabled: root.globalToastBottom <= 0
+            NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+        }
     }
 
     PlaybackEndOverlay {
@@ -882,7 +918,8 @@ Item {
             introOfferDismissed = false
             introActivationTimer.stop()
             introOfferTimeout.stop()
-            errorLabel.text = ""
+            playerStatusToast.dismiss()
+            playbackTimeoutActive = false
             player.open(mediaUrl, requestHeaders)
         }
     }
@@ -1043,7 +1080,8 @@ Item {
         preparingPlayback = false
         automaticAdvanceOpening = false
         resetPlaybackEndState()
-        errorLabel.text = ""
+        playbackTimeoutActive = false
+        playerStatusToast.dismiss()
     }
 
     function beginPreparation(itemId, title) {
@@ -1053,7 +1091,7 @@ Item {
         if (mediaTitle.length === 0)
             mediaTitle = qsTr("Preparing playback")
         preparingPlayback = true
-        errorLabel.text = ""
+        playerStatusToast.dismiss()
         revealChrome()
     }
 
@@ -1061,7 +1099,9 @@ Item {
         if (!preparingPlayback)
             return
         preparingPlayback = false
-        errorLabel.text = String(message || qsTr("Playback could not be prepared."))
+        playerStatusToast.show(
+            String(message || qsTr("Playback could not be prepared.")),
+            "error", 5200)
         revealChrome()
     }
 
@@ -1103,6 +1143,7 @@ Item {
     function showPlaybackEndState(retryMode, message, retryAction) {
         playbackActive = false
         preparingPlayback = false
+        playbackTimeoutActive = false
         automaticAdvancePending = false
         automaticAdvanceOpening = false
         automaticQueueRefreshPending = false
@@ -1115,7 +1156,7 @@ Item {
             pendingAutomaticQueueItem = ({})
             pendingAutomaticQueueIndex = -1
         }
-        errorLabel.text = ""
+        playerStatusToast.dismiss()
         introActivationTimer.stop()
         introOfferTimeout.stop()
         PopupCoordinator.closeScope(root, true)
@@ -1310,6 +1351,8 @@ Item {
         playbackEndVisible = false
         playbackEndRetryMode = false
         playbackEndMessage = ""
+        playbackTimeoutActive = false
+        playerStatusToast.dismiss()
         const baseContext = (item && item.playbackContext)
             ? item.playbackContext : (playbackContext || ({}))
         const requestedContext = ({})
@@ -1351,7 +1394,7 @@ Item {
                 String(message || qsTr("The next item could not be played.")),
                 "open-next")
         } else {
-            errorLabel.text = String(message || "")
+            playerStatusToast.show(String(message || ""), "error", 5200)
             revealChrome()
         }
     }

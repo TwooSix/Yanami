@@ -176,6 +176,96 @@ private slots:
             "Natural completion must reject a closed load");
     }
 
+    void playbackStallFeedbackRemainsRecoverableAndInteractive()
+    {
+        const QDir qmlRoot(QStringLiteral(YANAMI_QML_SOURCE_DIR));
+        const QString player = source(
+            qmlRoot.filePath(QStringLiteral("pages/PlayerPage.qml")));
+        const QString loadingOverlay = source(
+            qmlRoot.filePath(QStringLiteral("components/LoadingOverlay.qml")));
+        const QString statusToast = source(
+            qmlRoot.filePath(QStringLiteral("components/StatusToast.qml")));
+        const QString mainWindow = source(
+            qmlRoot.filePath(QStringLiteral("Main.qml")));
+
+        QVERIFY2(player.contains(QStringLiteral("onPlaybackTimedOut:"))
+                && player.contains(QStringLiteral("onPlaybackRecovered:")),
+            "PlayerPage must present and clear recoverable media-read timeouts");
+        const qsizetype timeoutStart = player.indexOf(
+            QStringLiteral("onPlaybackTimedOut:"));
+        const qsizetype recoveryStart = player.indexOf(
+            QStringLiteral("onPlaybackRecovered:"), timeoutStart);
+        QVERIFY(timeoutStart >= 0 && recoveryStart > timeoutStart);
+        const QString timeoutHandler = player.mid(
+            timeoutStart, recoveryStart - timeoutStart);
+        QVERIFY2(timeoutHandler.contains(QStringLiteral(
+                     "playerStatusToast.show(message, \"warning\", 5200)"))
+                && !timeoutHandler.contains(QStringLiteral("errorOccurred")),
+            "Recoverable timeouts must stay in-player and must not leave a stale modal");
+        const qsizetype playbackErrorStart = player.indexOf(
+            QStringLiteral("onPlaybackError:"));
+        QVERIFY(playbackErrorStart >= 0 && timeoutStart > playbackErrorStart);
+        const QString playbackErrorHandler = player.mid(
+            playbackErrorStart, timeoutStart - playbackErrorStart);
+        QVERIFY2(playbackErrorHandler.contains(QStringLiteral(
+                     "playerStatusToast.show(message, \"error\", 6500)"))
+                && !playbackErrorHandler.contains(QStringLiteral("errorOccurred")),
+            "Ordinary playback errors must use the in-player error toast");
+        QVERIFY2(player.contains(QStringLiteral(
+                     "active: root.playbackBusy"))
+                && player.contains(QStringLiteral(
+                    "blocksInput: root.blockingPlaybackOperation"))
+                && player.contains(QStringLiteral("showPanel: false")),
+            "Player loading must keep the centered indicator while hiding its panel");
+        const qsizetype overlayStart = player.indexOf(
+            QStringLiteral("LoadingOverlay {"));
+        const qsizetype toastStart = player.indexOf(
+            QStringLiteral("StatusToast {"), overlayStart);
+        QVERIFY(overlayStart >= 0 && toastStart > overlayStart);
+        const QString playerLoading = player.mid(
+            overlayStart, toastStart - overlayStart);
+        QVERIFY2(playerLoading.contains(QStringLiteral(
+                     "blocksInput: root.blockingPlaybackOperation")),
+            "Only preparation and item switching may block player input");
+        QVERIFY2(loadingOverlay.contains(QStringLiteral(
+                     "property bool blocksInput: true"))
+                && loadingOverlay.contains(QStringLiteral(
+                    "property bool showPanel: true"))
+                && loadingOverlay.contains(QStringLiteral(
+                    "enabled: root.active && root.blocksInput")),
+            "LoadingOverlay must separate its panel from input blocking");
+        QVERIFY2(player.contains(QStringLiteral("dismissible: true"))
+                && player.contains(QStringLiteral(
+                    "anchors.horizontalCenter: parent.horizontalCenter"))
+                && player.contains(QStringLiteral(
+                    "globalToastBottom + 8"))
+                && mainWindow.contains(QStringLiteral(
+                    "globalToastBottom: actionToast.visible"))
+                && statusToast.contains(QStringLiteral("Theme.surfaceStrong"))
+                && statusToast.contains(QStringLiteral("Theme.info"))
+                && statusToast.contains(QStringLiteral("color: Theme.text"))
+                && statusToast.contains(QStringLiteral(
+                    "objectName: \"statusToastCloseButton\""))
+                && statusToast.contains(QStringLiteral("controlSize: 28"))
+                && statusToast.contains(QStringLiteral(
+                    "objectName: \"statusToastCloseHighlight\""))
+                && statusToast.contains(QStringLiteral("width: 20"))
+                && statusToast.contains(QStringLiteral(
+                    "? \"#18FFFFFF\" : \"transparent\""))
+                && statusToast.contains(QStringLiteral(
+                    "accessibleName: qsTr(\"Close notification\")"))
+                && player.contains(QStringLiteral(
+                    "enabled: root.globalToastBottom <= 0"))
+                && statusToast.contains(QStringLiteral("Behavior on opacity"))
+                && statusToast.contains(QStringLiteral("Behavior on scale")),
+            "Player status toast must be readable, animated, stacked, and dismissible");
+        QVERIFY2(mainWindow.contains(QStringLiteral("StatusToast {"))
+                && mainWindow.contains(QStringLiteral("id: actionToast"))
+                && mainWindow.contains(QStringLiteral(
+                    "function showActionToast(message, tone)")),
+            "Main and player feedback must share the same typed toast presentation");
+    }
+
     void queueRefreshDescriptorIsConsumedBeforeOpeningMedia()
     {
         const QString path = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))

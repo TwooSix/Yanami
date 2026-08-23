@@ -33,6 +33,10 @@ namespace {
 
 Q_LOGGING_CATEGORY(playbackLog, "yanami.playback.mpv")
 
+constexpr int playbackStallPollIntervalMs = 250;
+constexpr qint64 playbackStartupTimeoutMs = 30'000;
+constexpr qint64 playbackMaximumPollGapMs = 2'000;
+
 mpv_handle *createMpvHandle()
 {
     // libmpv requires a locale-independent decimal separator before
@@ -362,6 +366,15 @@ MpvVideoItem::MpvVideoItem(QQuickItem *parent)
     mpv_observe_property(m_mpv, 11, "eof-reached", MPV_FORMAT_FLAG);
     mpv_set_wakeup_callback(m_mpv, &MpvVideoItem::wakeup, this);
 
+    m_playbackStallClock.start();
+    m_playbackStallTimer.setInterval(playbackStallPollIntervalMs);
+    m_playbackStallTimer.setTimerType(Qt::CoarseTimer);
+    connect(
+        &m_playbackStallTimer,
+        &QTimer::timeout,
+        this,
+        &MpvVideoItem::pollPlaybackStall);
+
 #ifdef YANAMI_ENABLE_DEV_HOOKS
     if (DevelopmentHooks::isSet(DevelopmentHooks::Variable::RenderDiagnostics)) {
         auto *diagnosticTimer = new QTimer(this);
@@ -403,11 +416,13 @@ QQuickFramebufferObject::Renderer *MpvVideoItem::createRenderer() const
 
 void MpvVideoItem::open(const QUrl &url, const QVariantMap &headers)
 {
+    resetPlaybackStall();
     ++m_loadGeneration;
     m_loadTimer.restart();
     m_bufferingTimer.invalidate();
     m_bufferingTransitions = 0;
     m_totalBufferingMs = 0;
+    m_pauseRequested = m_paused;
     qCInfo(playbackLog).noquote()
         << "playback_mpv_open"
         << "generation=" << m_loadGeneration
@@ -432,6 +447,9 @@ void MpvVideoItem::open(const QUrl &url, const QVariantMap &headers)
     emit tracksChanged();
     setHeaders(headers);
     setPlaybackState(PlaybackState::Loading);
+    m_startupWatchStartedMs = playbackStallNow();
+    m_lastPlaybackStallPollMs = m_startupWatchStartedMs;
+    m_playbackStallTimer.start();
     command({"loadfile", url.toString(QUrl::FullyEncoded).toUtf8(), "replace"});
 }
 
@@ -451,6 +469,7 @@ void MpvVideoItem::stop()
         << "totalBufferingMs=" << m_totalBufferingMs;
     command({"stop"});
     setHeaders({});
+    resetPlaybackStall();
     m_buffering = false;
     m_fileLoaded = false;
     m_completionGate.reset();
@@ -472,6 +491,10 @@ void MpvVideoItem::seek(double seconds)
         << "fromSeconds=" << m_position
         << "targetSeconds=" << target
         << "fileLoaded=" << m_fileLoaded;
+    if (m_fileLoaded) {
+        m_playbackStallWatchdog.beginSeek(playbackStallNow(), m_position);
+        m_playbackStallTimer.start();
+    }
     command({"seek", QByteArray::number(target, 'f', 3), "absolute+exact"});
     emit seekRequested(target);
 }
@@ -540,8 +563,22 @@ void MpvVideoItem::disableSubtitles()
 
 void MpvVideoItem::setPaused(bool paused)
 {
+    m_pauseRequested = paused;
+    updatePlaybackPauseMonitoring(paused);
     int flag = paused ? 1 : 0;
-    mpv_set_property_async(m_mpv, 0, "pause", MPV_FORMAT_FLAG, &flag);
+    const int status =
+        mpv_set_property_async(m_mpv, 0, "pause", MPV_FORMAT_FLAG, &flag);
+    if (status >= 0)
+        return;
+
+    m_pauseRequested = m_paused;
+    updatePlaybackPauseMonitoring(m_paused);
+    qCWarning(playbackLog).noquote()
+        << "playback_mpv_pause_failed"
+        << "generation=" << m_loadGeneration
+        << "requested=" << paused
+        << "errorCode=" << status;
+    emit playbackError(tr("libmpv rejected a playback command."));
 }
 
 bool MpvVideoItem::event(QEvent *event)
@@ -566,9 +603,15 @@ void MpvVideoItem::drainEvents()
         if (event->event_id == MPV_EVENT_FILE_LOADED) {
             m_fileLoaded = true;
             m_completionGate.reset();
-            setPlaybackState(m_buffering ? PlaybackState::Buffering
-                                         : (m_paused ? PlaybackState::Paused
-                                                     : PlaybackState::Playing));
+            const qint64 nowMs = playbackStallNow();
+            m_playbackStallWatchdog.arm(nowMs, m_position);
+            if (m_pauseRequested)
+                m_playbackStallWatchdog.setPaused(true, nowMs, m_position);
+            m_watchdogBuffering = m_timeoutReported && !m_pauseRequested;
+            if (m_watchdogBuffering)
+                m_playbackStallWatchdog.markStalled(nowMs, m_position);
+            m_playbackStallTimer.start();
+            refreshPlaybackState();
             refreshTracks();
             logPlaybackDiagnostics(m_mpv);
             qCInfo(playbackLog).noquote()
@@ -581,6 +624,15 @@ void MpvVideoItem::drainEvents()
                 << "audioTracks=" << m_audioTracks.size()
                 << "subtitleTracks=" << m_subtitleTracks.size();
             emit fileLoaded();
+        } else if (event->event_id == MPV_EVENT_SEEK) {
+            if (m_fileLoaded) {
+                m_playbackStallWatchdog.observeSeekStarted(
+                    playbackStallNow(), m_position);
+            }
+        } else if (event->event_id == MPV_EVENT_PLAYBACK_RESTART) {
+            if (m_fileLoaded)
+                m_playbackStallWatchdog.observePlaybackRestart(
+                    playbackStallNow(), m_position);
         } else if (event->event_id == MPV_EVENT_END_FILE) {
             if (m_buffering && m_bufferingTimer.isValid()) {
                 m_totalBufferingMs += m_bufferingTimer.elapsed();
@@ -588,6 +640,7 @@ void MpvVideoItem::drainEvents()
             }
             m_fileLoaded = false;
             m_buffering = false;
+            resetPlaybackStall();
             setPlaybackState(PlaybackState::Ended);
             auto *endFile = static_cast<mpv_event_end_file *>(event->data);
             qCInfo(playbackLog).noquote()
@@ -625,12 +678,9 @@ void MpvVideoItem::drainEvents()
                 if (m_paused != value) {
                     m_paused = value;
                     emit pausedChanged();
-                    if (m_fileLoaded && !m_buffering
-                        && !m_completionGate.handled()) {
-                        setPlaybackState(value ? PlaybackState::Paused
-                                               : PlaybackState::Playing);
-                    }
                 }
+                m_pauseRequested = value;
+                updatePlaybackPauseMonitoring(value);
             } else if (name == "paused-for-cache" && property->format == MPV_FORMAT_FLAG) {
                 const bool buffering = *static_cast<int *>(property->data) != 0;
                 if (m_buffering != buffering) {
@@ -654,15 +704,15 @@ void MpvVideoItem::drainEvents()
                         << "bufferedPositionSeconds=" << m_bufferedPosition;
                     m_buffering = buffering;
                 }
-                if (m_fileLoaded && !m_completionGate.handled()) {
-                    setPlaybackState(m_buffering
-                                         ? PlaybackState::Buffering
-                                         : (m_paused ? PlaybackState::Paused
-                                                     : PlaybackState::Playing));
-                }
+                refreshPlaybackState();
             } else if (name == "time-pos" && property->format == MPV_FORMAT_DOUBLE) {
                 m_position = *static_cast<double *>(property->data);
                 emit positionChanged();
+                if (m_fileLoaded) {
+                    handlePlaybackStallEvent(
+                        m_playbackStallWatchdog.observePosition(
+                            playbackStallNow(), m_position));
+                }
             } else if (name == "duration" && property->format == MPV_FORMAT_DOUBLE) {
                 m_duration = *static_cast<double *>(property->data);
                 emit durationChanged();
@@ -707,6 +757,7 @@ void MpvVideoItem::drainEvents()
                         m_bufferingTimer.invalidate();
                     }
                     m_buffering = false;
+                    resetPlaybackStall();
                     setPlaybackState(PlaybackState::Ended);
                     qCInfo(playbackLog).noquote()
                         << "playback_mpv_eof"
@@ -824,6 +875,155 @@ void MpvVideoItem::refreshTracks()
     m_selectedAudioTrack = selectedAudio;
     m_selectedSubtitleTrack = selectedSubtitle;
     emit tracksChanged();
+}
+
+void MpvVideoItem::refreshPlaybackState()
+{
+    if (!m_fileLoaded || m_completionGate.handled())
+        return;
+    const bool effectivelyBuffering = m_buffering || m_watchdogBuffering;
+    setPlaybackState(m_pauseRequested
+            ? PlaybackState::Paused
+            : (effectivelyBuffering ? PlaybackState::Buffering
+                                    : PlaybackState::Playing));
+}
+
+void MpvVideoItem::updatePlaybackPauseMonitoring(bool paused)
+{
+    if (!m_fileLoaded || m_completionGate.handled())
+        return;
+
+    const qint64 nowMs = playbackStallNow();
+    const YanamiPlayback::PlaybackStallEvent event =
+        m_playbackStallWatchdog.setPaused(paused, nowMs, m_position);
+    if (paused) {
+        if (event == YanamiPlayback::PlaybackStallEvent::StallCleared)
+            m_watchdogBuffering = false;
+    } else {
+        handlePlaybackStallEvent(event);
+        if (m_timeoutReported) {
+            m_playbackStallWatchdog.markStalled(nowMs, m_position);
+            m_watchdogBuffering = true;
+        }
+    }
+    refreshPlaybackState();
+}
+
+void MpvVideoItem::pollPlaybackStall()
+{
+    if (!m_loadTimer.isValid())
+        return;
+
+    const qint64 nowMs = playbackStallNow();
+    if (!m_fileLoaded) {
+        const qint64 pollGapMs = nowMs - m_lastPlaybackStallPollMs;
+        m_lastPlaybackStallPollMs = nowMs;
+        if (pollGapMs < 0 || pollGapMs > playbackMaximumPollGapMs) {
+            // Suspending Windows or blocking the UI event loop must not turn
+            // into an apparent media startup timeout on the first wake tick.
+            m_startupWatchStartedMs = nowMs;
+            return;
+        }
+        if (m_playbackState != PlaybackState::Loading || m_timeoutReported
+            || nowMs - m_startupWatchStartedMs < playbackStartupTimeoutMs) {
+            return;
+        }
+        m_timeoutReported = true;
+        qCWarning(playbackLog).noquote()
+            << "playback_mpv_startup_timeout"
+            << "generation=" << m_loadGeneration
+            << "elapsedMs=" << m_loadTimer.elapsed()
+            << "positionSeconds=" << m_position
+            << "durationSeconds=" << m_duration
+            << "bufferedPositionSeconds=" << m_bufferedPosition;
+        emit playbackTimedOut(tr(
+            "The connection is slow. Playback will resume automatically."));
+        return;
+    }
+
+    handlePlaybackStallEvent(
+        m_playbackStallWatchdog.poll(nowMs));
+}
+
+void MpvVideoItem::handlePlaybackStallEvent(
+    YanamiPlayback::PlaybackStallEvent event)
+{
+    if (event == YanamiPlayback::PlaybackStallEvent::None)
+        return;
+
+    const qint64 nowMs = playbackStallNow();
+    const qint64 noProgressMs =
+        m_playbackStallWatchdog.noProgressForMs(nowMs);
+    if (event == YanamiPlayback::PlaybackStallEvent::EnteredStall) {
+        m_watchdogBuffering = true;
+        qCInfo(playbackLog).noquote()
+            << "playback_mpv_stall_detected"
+            << "generation=" << m_loadGeneration
+            << "noProgressMs=" << noProgressMs
+            << "positionSeconds=" << m_position
+            << "durationSeconds=" << m_duration
+            << "bufferedPositionSeconds=" << m_bufferedPosition
+            << "rate=" << m_rate
+            << "pausedForCache=" << m_buffering
+            << "seeking=" << m_playbackStallWatchdog.seeking();
+        refreshPlaybackState();
+        return;
+    }
+
+    if (event == YanamiPlayback::PlaybackStallEvent::TimedOut) {
+        m_watchdogBuffering = true;
+        const bool shouldNotify = !m_timeoutReported;
+        qCWarning(playbackLog).noquote()
+            << "playback_mpv_stall_timeout"
+            << "generation=" << m_loadGeneration
+            << "noProgressMs=" << noProgressMs
+            << "positionSeconds=" << m_position
+            << "durationSeconds=" << m_duration
+            << "bufferedPositionSeconds=" << m_bufferedPosition
+            << "rate=" << m_rate
+            << "pausedForCache=" << m_buffering
+            << "seeking=" << m_playbackStallWatchdog.seeking()
+            << "timeoutReported=" << m_timeoutReported;
+        refreshPlaybackState();
+        if (shouldNotify) {
+            m_timeoutReported = true;
+            emit playbackTimedOut(tr(
+                "The connection is slow. Playback will resume automatically."));
+        }
+        return;
+    }
+
+    const bool recoveredFromTimeout = m_timeoutReported;
+    const bool recoveredFromStall = m_watchdogBuffering;
+    m_watchdogBuffering = false;
+    m_timeoutReported = false;
+    if (recoveredFromStall || recoveredFromTimeout) {
+        qCInfo(playbackLog).noquote()
+            << "playback_mpv_stall_recovered"
+            << "generation=" << m_loadGeneration
+            << "positionSeconds=" << m_position
+            << "durationSeconds=" << m_duration
+            << "bufferedPositionSeconds=" << m_bufferedPosition
+            << "pausedForCache=" << m_buffering;
+    }
+    refreshPlaybackState();
+    if (recoveredFromTimeout)
+        emit playbackRecovered();
+}
+
+void MpvVideoItem::resetPlaybackStall()
+{
+    m_playbackStallTimer.stop();
+    m_playbackStallWatchdog.reset();
+    m_watchdogBuffering = false;
+    m_timeoutReported = false;
+    m_startupWatchStartedMs = 0;
+    m_lastPlaybackStallPollMs = 0;
+}
+
+qint64 MpvVideoItem::playbackStallNow() const
+{
+    return m_playbackStallClock.isValid() ? m_playbackStallClock.elapsed() : 0;
 }
 
 void MpvVideoItem::setPlaybackState(PlaybackState state)

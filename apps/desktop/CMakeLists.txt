@@ -222,6 +222,7 @@ qt_add_executable(yanami-desktop
     native/MpvVideoItem.cpp
     native/MpvVideoItem.hpp
     native/PlaybackCompletionGate.hpp
+    native/PlaybackStallWatchdog.hpp
     native/PlaybackTrackMapper.cpp
     native/PlaybackTrackMapper.hpp
     native/PlaybackDescriptor.cpp
@@ -330,6 +331,7 @@ qt_add_qml_module(yanami-ui
         qml/components/PosterCard.qml
         qml/components/PlaybackAdvancePolicy.qml
         qml/components/PlaybackEndOverlay.qml
+        qml/components/StatusToast.qml
         qml/components/PlaybackQueueMenu.qml
         qml/components/PlaybackHost.qml
         qml/components/RecentEpisodeCard.qml
@@ -537,6 +539,33 @@ include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.8 REQUIRED COMPONENTS QuickTest Test)
 
+    set_source_files_properties(
+        tests/manual/StatusFeedbackShowcase.qml
+        PROPERTIES QT_RESOURCE_ALIAS StatusFeedbackShowcase.qml
+    )
+    qt_add_executable(yanami-status-feedback-showcase EXCLUDE_FROM_ALL
+        tests/manual/StatusFeedbackShowcaseMain.cpp
+    )
+    qt_add_qml_module(yanami-status-feedback-showcase
+        URI Yanami.StatusFeedbackShowcase
+        VERSION 1.0
+        IMPORTS
+            TARGET yanami-ui
+        QML_FILES
+            tests/manual/StatusFeedbackShowcase.qml
+    )
+    target_link_libraries(yanami-status-feedback-showcase PRIVATE
+        Qt6::Gui
+        Qt6::Quick
+        Qt6::QuickControls2
+        yanami-uiplugin
+    )
+    if(WIN32)
+        set_target_properties(yanami-status-feedback-showcase PROPERTIES
+            WIN32_EXECUTABLE TRUE
+        )
+    endif()
+
     add_executable(yanami-runtime-logger-tests
         tests/RuntimeLoggerTests.cpp
         native/DevelopmentHooks.cpp
@@ -632,6 +661,20 @@ if(BUILD_TESTING)
         NAME yanami-playback-track-mapper-tests
         COMMAND $<TARGET_FILE:yanami-playback-track-mapper-tests>
     )
+    add_executable(yanami-playback-stall-watchdog-tests
+        tests/PlaybackStallWatchdogTests.cpp
+        native/PlaybackStallWatchdog.hpp
+    )
+    target_include_directories(
+        yanami-playback-stall-watchdog-tests PRIVATE native)
+    target_link_libraries(yanami-playback-stall-watchdog-tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+    )
+    add_test(
+        NAME yanami-playback-stall-watchdog-tests
+        COMMAND $<TARGET_FILE:yanami-playback-stall-watchdog-tests>
+    )
     add_executable(yanami-playback-reporter-tests
         tests/PlaybackReporterTests.cpp
         native/BackendPorts.hpp
@@ -642,6 +685,7 @@ if(BUILD_TESTING)
         native/MpvVideoItem.cpp
         native/MpvVideoItem.hpp
         native/PlaybackCompletionGate.hpp
+        native/PlaybackStallWatchdog.hpp
         native/DevelopmentHooks.cpp
         native/DevelopmentHooks.hpp
     )
@@ -887,6 +931,7 @@ if(BUILD_TESTING)
             yanami-input-modality-tests
             yanami-media-store-tests
             yanami-playback-track-mapper-tests
+            yanami-playback-stall-watchdog-tests
             yanami-playback-reporter-tests
             yanami-playback-telemetry-tests
             yanami-playback-report-queue-tests

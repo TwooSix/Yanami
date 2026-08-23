@@ -1749,6 +1749,12 @@
         <translation>字幕 %1</translation>
     </message>
     <message>
+        <location filename="../native/MpvVideoItem.cpp" line="940"/>
+        <location filename="../native/MpvVideoItem.cpp" line="991"/>
+        <source>The connection is slow. Playback will resume automatically.</source>
+        <translation>连接较慢，恢复后将自动继续播放。</translation>
+    </message>
+    <message>
         <location filename="../native/MpvVideoItem.cpp" line="859"/>
         <source>libmpv rejected a playback command.</source>
         <translation>libmpv 拒绝了播放命令。</translation>
@@ -2500,6 +2506,14 @@
         <location filename="../qml/components/TrackMenu.qml" line="97"/>
         <source>Unnamed track</source>
         <translation>未命名轨道</translation>
+    </message>
+</context>
+<context>
+    <name>StatusToast</name>
+    <message>
+        <location filename="../qml/components/StatusToast.qml" line="132"/>
+        <source>Close notification</source>
+        <translation>关闭通知</translation>
     </message>
 </context>
 <context>
