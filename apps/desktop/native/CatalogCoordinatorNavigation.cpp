@@ -1,6 +1,7 @@
 #include "CatalogCoordinator.hpp"
 
 #include "BackendInfrastructure.hpp"
+#include "CatalogFreshnessPolicy.hpp"
 #include "DevelopmentHooks.hpp"
 
 #include <QDateTime>
@@ -18,6 +19,8 @@
 namespace {
 
 constexpr int desktopSchemaVersion = 8;
+constexpr qint64 activityAutomaticRetryBaseMs = 5 * 1000;
+constexpr qint64 activityAutomaticRetryMaxMs = 60 * 1000;
 const QString libraryRequestKey = QStringLiteral("library");
 const QString activityRequestKey = QStringLiteral("activity");
 const QString favoritesRequestKey = QStringLiteral("favorites");
@@ -429,7 +432,7 @@ void CatalogCoordinator::applyNavigationResult(
             }
             return;
         }
-        if (!applyLibraryObject(object)) {
+        if (!applyLibraryObject(object, request.activityRevision)) {
             if (presentationCurrent) {
                 m_libraryLoadFailed = true;
                 emit stateChanged();
@@ -512,8 +515,18 @@ void CatalogCoordinator::finishActivityRefresh()
     m_activityTimer.invalidate();
     const bool currentSession = acceptsSession(m_activitySessionGeneration);
     const char *outcome = "success";
+    bool requestSucceeded = false;
+    bool requestSuperseded = false;
     if (currentSession) {
-        if (operationResult.status != 0) {
+        if (!CatalogFreshnessPolicy::activityResultMayAffectState(
+                m_requests.accepts(
+                    m_activityRequest, m_committedSession.generation),
+                m_activityRequestRevision,
+                m_activityRevisionCommitted)) {
+            outcome = "stale_revision";
+            requestSuperseded = true;
+            m_activityRefreshQueued = true;
+        } else if (operationResult.status != 0) {
             outcome = "backend_error";
             qWarning().noquote()
                 << "activity_refresh_failed"
@@ -532,15 +545,12 @@ void CatalogCoordinator::finishActivityRefresh()
                 const QJsonObject object = document.object();
                 if (!validateResponseSchema(object, "activity", false)) {
                     outcome = "incompatible_schema";
-                } else if (!m_requests.accepts(
-                               m_activityRequest,
-                               m_committedSession.generation)) {
-                    outcome = "stale_revision";
-                    m_activityRefreshQueued = true;
-                } else if (!applyActivityObject(object)) {
+                } else if (!applyActivityObject(
+                               object, m_activityRequestRevision)) {
                     outcome = "invalid_shape";
                     qWarning() << "activity_refresh_invalid_shape";
                 } else {
+                    requestSucceeded = true;
                     saveLibraryCache();
                 }
             }
@@ -555,6 +565,25 @@ void CatalogCoordinator::finishActivityRefresh()
         << "status=" << operationResult.status
         << "outcome=" << outcome
         << "sessionGeneration=" << m_activitySessionGeneration;
+    if (currentSession && requestSucceeded) {
+        m_activityLoadFailed = false;
+        m_activityConsecutiveFailures = 0;
+        m_activityRetryAfterMs = 0;
+    } else if (currentSession && !requestSuperseded) {
+        m_activityLoadFailed = true;
+        m_activityConsecutiveFailures = qMin(
+            m_activityConsecutiveFailures + 1, 5);
+        const qint64 retryDelay = qMin(
+            activityAutomaticRetryMaxMs,
+            activityAutomaticRetryBaseMs
+                * (qint64 {1} << (m_activityConsecutiveFailures - 1)));
+        m_activityRetryAfterMs = QDateTime::currentMSecsSinceEpoch()
+            + retryDelay;
+        qWarning().noquote()
+            << "activity_refresh_backoff"
+            << "failures=" << m_activityConsecutiveFailures
+            << "retryDelayMs=" << retryDelay;
+    }
     if (activeSession() && m_activityRefreshQueued) {
         m_activityRefreshQueued = false;
         QTimer::singleShot(0, this,
@@ -663,7 +692,9 @@ bool CatalogCoordinator::validateResponseSchema(
     return false;
 }
 
-bool CatalogCoordinator::applyLibraryObject(const QJsonObject &object)
+bool CatalogCoordinator::applyLibraryObject(
+    const QJsonObject &object,
+    quint64 activityRevision)
 {
     if (!hasNormalizedQuery(object, QStringLiteral("library"))
         || !hasNormalizedQuery(object, QStringLiteral("views"))
@@ -688,10 +719,6 @@ bool CatalogCoordinator::applyLibraryObject(const QJsonObject &object)
         }
         libraryViews.push_back(view);
     }
-    const QVariantList resumeItems = normalizedQueryItems(
-        object, QStringLiteral("resume"));
-    const QVariantList recentItems = normalizedQueryItems(
-        object, QStringLiteral("recent"));
     const QJsonObject capabilityObject = object.value(
         QStringLiteral("userCapabilities")).toObject();
     const CatalogUserCapabilities capabilities {
@@ -705,10 +732,8 @@ bool CatalogCoordinator::applyLibraryObject(const QJsonObject &object)
         QStringLiteral("library"), {}, mediaItems, {}, fetchedAt);
     m_mediaStore->setQuery(
         QStringLiteral("views"), {}, libraryViews, {}, fetchedAt);
-    m_mediaStore->setQuery(
-        QStringLiteral("resume"), {}, resumeItems, {}, fetchedAt);
-    m_mediaStore->setQuery(
-        QStringLiteral("recent"), {}, recentItems, {}, fetchedAt);
+    if (!applyActivityQueries(object, activityRevision))
+        return false;
     if (m_capabilities != capabilities) {
         m_capabilities = capabilities;
         publishCapabilities();
@@ -721,11 +746,29 @@ bool CatalogCoordinator::applyLibraryObject(const QJsonObject &object)
     return true;
 }
 
-bool CatalogCoordinator::applyActivityObject(const QJsonObject &object)
+bool CatalogCoordinator::applyActivityObject(
+    const QJsonObject &object,
+    quint64 activityRevision)
 {
     if (!hasNormalizedQuery(object, QStringLiteral("resume"))
         || !hasNormalizedQuery(object, QStringLiteral("recent"))) {
         return false;
+    }
+    return applyActivityQueries(object, activityRevision);
+}
+
+bool CatalogCoordinator::applyActivityQueries(
+    const QJsonObject &object,
+    quint64 activityRevision)
+{
+    if (!CatalogFreshnessPolicy::activitySnapshotMayCommit(
+            activityRevision, m_activityRevisionCommitted)) {
+        qInfo().noquote()
+            << "activity_snapshot"
+            << "phase=drop"
+            << "revision=" << activityRevision
+            << "committedRevision=" << m_activityRevisionCommitted;
+        return true;
     }
     const QVariantList resumeItems = normalizedQueryItems(
         object, QStringLiteral("resume"));
@@ -736,5 +779,12 @@ bool CatalogCoordinator::applyActivityObject(const QJsonObject &object)
         QStringLiteral("resume"), {}, resumeItems, {}, fetchedAt);
     m_mediaStore->setQuery(
         QStringLiteral("recent"), {}, recentItems, {}, fetchedAt);
+    m_activityRevisionCommitted = activityRevision;
+    // Library and targeted Activity are both legitimate producers. Any
+    // committed snapshot repairs the shared activity resource state; a
+    // dropped older snapshot must not clear a newer failure.
+    m_activityLoadFailed = false;
+    m_activityConsecutiveFailures = 0;
+    m_activityRetryAfterMs = 0;
     return true;
 }

@@ -72,6 +72,7 @@ public:
     virtual bool collectionLoading() const = 0;
     virtual bool collectionFetching() const = 0;
     virtual bool libraryLoadFailed() const = 0;
+    virtual bool activityLoadFailed() const = 0;
     virtual bool favoritesRefreshing() const = 0;
     virtual bool favoritesLoadFailed() const = 0;
     virtual QString collectionDisplayedId() const = 0;
@@ -80,6 +81,8 @@ public:
     virtual QVariantMap collectionParent() const = 0;
 
     virtual RequestDisposition loadLibrary() = 0;
+    virtual void invalidateActivity() = 0;
+    virtual RequestDisposition ensureActivityFresh() = 0;
     virtual RequestDisposition refreshActivity() = 0;
     virtual RequestDisposition loadFavorites() = 0;
     virtual RequestDisposition refreshFavorites() = 0;

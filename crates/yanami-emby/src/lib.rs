@@ -4,6 +4,7 @@ mod catalog;
 mod client;
 #[cfg(test)]
 mod client_tests;
+mod continue_watching;
 mod images;
 mod media;
 mod models;

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::playback::ChapterInfo;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ItemsResult {
     #[serde(default)]

@@ -107,6 +107,7 @@ public:
     bool collectionLoading() const override;
     bool collectionFetching() const override;
     bool libraryLoadFailed() const override { return m_libraryLoadFailed; }
+    bool activityLoadFailed() const override { return m_activityLoadFailed; }
     bool favoritesRefreshing() const override { return m_favoritesRefreshing; }
     bool favoritesLoadFailed() const override { return m_favoritesLoadFailed; }
     QString collectionDisplayedId() const override
@@ -116,6 +117,8 @@ public:
     QVariantMap collectionParent() const override;
 
     RequestDisposition loadLibrary() override;
+    void invalidateActivity() override;
+    RequestDisposition ensureActivityFresh() override;
     RequestDisposition refreshActivity() override;
     RequestDisposition loadFavorites() override;
     RequestDisposition refreshFavorites() override;
@@ -160,6 +163,7 @@ private:
         RequestCommitToken resourceToken;
         LatestRequestToken presentationToken;
         quint64 sessionGeneration = 0;
+        quint64 activityRevision = 0;
         qint64 enqueuedAtMs = 0;
         bool hadCachedData = false;
     };
@@ -178,6 +182,7 @@ private:
     void resetCommittedState(bool removeDiskCache);
 
     void beginActivityRefresh();
+    RequestDisposition requestActivityRefresh(bool force);
     RequestDisposition startFavoritesRefresh(bool force);
     void beginFavoritesRefresh(bool force);
     void finishActivityRefresh();
@@ -212,8 +217,15 @@ private:
         const QJsonObject &object,
         const char *responseName,
         bool reportStatus);
-    bool applyLibraryObject(const QJsonObject &object);
-    bool applyActivityObject(const QJsonObject &object);
+    bool applyLibraryObject(
+        const QJsonObject &object,
+        quint64 activityRevision);
+    bool applyActivityObject(
+        const QJsonObject &object,
+        quint64 activityRevision);
+    bool applyActivityQueries(
+        const QJsonObject &object,
+        quint64 activityRevision);
 
     bool loadLibraryCache();
     void saveLibraryCache() const;
@@ -237,6 +249,9 @@ private:
     RequestCommitToken m_activityRequest;
     RequestCommitToken m_favoritesRequest;
     quint64 m_activitySessionGeneration = 0;
+    quint64 m_activityRequestRevision = 0;
+    quint64 m_activityRevisionIssued = 0;
+    quint64 m_activityRevisionCommitted = 0;
     quint64 m_favoritesSessionGeneration = 0;
 
     CatalogSessionState m_committedSession;
@@ -249,9 +264,12 @@ private:
     QString m_collectionErrorId;
     qint64 m_lastFullLibraryRefreshMs = 0;
     qint64 m_lastFavoritesRefreshMs = 0;
+    qint64 m_activityRetryAfterMs = 0;
+    int m_activityConsecutiveFailures = 0;
     bool m_activityRefreshQueued = false;
     bool m_favoritesRefreshQueued = false;
     bool m_activityRefreshing = false;
+    bool m_activityLoadFailed = false;
     bool m_favoritesRefreshing = false;
     bool m_favoritesLoadFailed = false;
     bool m_libraryLoadFailed = false;

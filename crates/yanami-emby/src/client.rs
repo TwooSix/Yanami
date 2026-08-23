@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
@@ -7,6 +7,7 @@ use thiserror::Error;
 use yanami_core::{ProfileError, ServerProfile, TlsPolicy, same_origin};
 
 use crate::{
+    continue_watching::EmbyCompatibilityState,
     models::{AuthenticationResult, RefreshProgress},
     transport::decode,
 };
@@ -107,6 +108,8 @@ pub enum EmbyError {
     InvalidProfile(#[from] ProfileError),
     #[error("Emby returned malformed JSON: {0}")]
     InvalidJson(#[from] serde_json::Error),
+    #[error("Emby returned an unsupported response: {0}")]
+    InvalidResponse(String),
     #[error("Emby response exceeded the {limit_bytes}-byte safety limit")]
     ResponseTooLarge { limit_bytes: usize },
 }
@@ -119,6 +122,7 @@ pub struct EmbyClient {
     pub(crate) identity: ClientIdentity,
     pub(crate) user_id: Option<String>,
     pub(crate) token: Option<SecretString>,
+    pub(crate) compatibility: Arc<EmbyCompatibilityState>,
 }
 
 impl EmbyClient {
@@ -146,6 +150,7 @@ impl EmbyClient {
             identity,
             user_id: None,
             token: None,
+            compatibility: Arc::new(EmbyCompatibilityState::default()),
         })
     }
 

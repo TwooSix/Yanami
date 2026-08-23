@@ -1,6 +1,7 @@
 #include "CatalogCoordinator.hpp"
 
 #include "BackendInfrastructure.hpp"
+#include "CatalogFreshnessPolicy.hpp"
 
 #include <QDateTime>
 #include <QDebug>
@@ -237,6 +238,7 @@ CatalogPort::RequestDisposition CatalogCoordinator::loadLibrary()
         libraryRequestKey,
         m_committedSession.generation);
     request.sessionGeneration = m_committedSession.generation;
+    request.activityRevision = ++m_activityRevisionIssued;
     request.enqueuedAtMs = QDateTime::currentMSecsSinceEpoch();
     request.hadCachedData = !m_mediaStore->queryItems(
         QStringLiteral("views")).isEmpty()
@@ -247,16 +249,57 @@ CatalogPort::RequestDisposition CatalogCoordinator::loadLibrary()
 
 CatalogPort::RequestDisposition CatalogCoordinator::refreshActivity()
 {
+    return requestActivityRefresh(true);
+}
+
+void CatalogCoordinator::invalidateActivity()
+{
+    if (!activeSession())
+        return;
+    m_mediaStore->markQueryStale(QStringLiteral("resume"));
+    m_mediaStore->markQueryStale(QStringLiteral("recent"));
+    m_requests.invalidate({activityRequestKey});
+    m_activityRetryAfterMs = 0;
+    emit stateChanged();
+}
+
+CatalogPort::RequestDisposition CatalogCoordinator::ensureActivityFresh()
+{
+    return requestActivityRefresh(false);
+}
+
+CatalogPort::RequestDisposition CatalogCoordinator::requestActivityRefresh(
+    bool force)
+{
     if (!activeSession())
         return RequestDisposition::Rejected;
     if (m_activityRefreshing || m_activityWatcher.isRunning()) {
-        m_activityRefreshQueued = true;
-        qInfo().noquote()
-            << "backend_queue"
-            << "action=enqueue"
-            << "kind=activity_refresh"
-            << "reason=in_flight";
+        if (force) {
+            m_activityRefreshQueued = true;
+            qInfo().noquote()
+                << "backend_queue"
+                << "action=enqueue"
+                << "kind=activity_refresh"
+                << "reason=forced_while_in_flight";
+        }
         return RequestDisposition::Accepted;
+    }
+    if (!force) {
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (now < m_activityRetryAfterMs)
+            return RequestDisposition::AlreadyCurrent;
+        const auto freshness = [this](const QString &kind) {
+            return CatalogQueryFreshness {
+                .available = m_mediaStore->hasQuery(kind),
+                .stale = m_mediaStore->queryStale(kind),
+                .fetchedAtMs = m_mediaStore->queryFetchedAtMs(kind),
+            };
+        };
+        if (CatalogFreshnessPolicy::activityIsFresh(
+                freshness(QStringLiteral("resume")),
+                freshness(QStringLiteral("recent")), now)) {
+            return RequestDisposition::AlreadyCurrent;
+        }
     }
     m_activityRefreshing = true;
     beginActivityRefresh();
@@ -278,6 +321,7 @@ void CatalogCoordinator::beginActivityRefresh()
     m_activitySessionGeneration = m_committedSession.generation;
     m_activityRequest = m_requests.begin(
         activityRequestKey, m_committedSession.generation);
+    m_activityRequestRevision = ++m_activityRevisionIssued;
     m_activityTimer.start();
     qInfo().noquote()
         << "activity_refresh"
@@ -490,9 +534,15 @@ void CatalogCoordinator::resetCommittedState(bool removeDiskCache)
     m_capabilities = {};
     m_lastFullLibraryRefreshMs = 0;
     m_lastFavoritesRefreshMs = 0;
+    m_activityRetryAfterMs = 0;
+    m_activityConsecutiveFailures = 0;
+    m_activityRequestRevision = 0;
+    m_activityRevisionIssued = 0;
+    m_activityRevisionCommitted = 0;
     m_activityRefreshQueued = false;
     m_favoritesRefreshQueued = false;
     m_activityRefreshing = false;
+    m_activityLoadFailed = false;
     m_favoritesRefreshing = false;
     m_favoritesLoadFailed = false;
     m_libraryLoadFailed = false;

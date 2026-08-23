@@ -88,6 +88,7 @@ class HomeViewModel final : public QObject
     Q_PROPERTY(bool collectionLoading READ collectionLoading NOTIFY stateChanged)
     Q_PROPERTY(bool collectionFetching READ collectionFetching NOTIFY stateChanged)
     Q_PROPERTY(bool libraryLoadFailed READ libraryLoadFailed NOTIFY stateChanged)
+    Q_PROPERTY(bool activityLoadFailed READ activityLoadFailed NOTIFY stateChanged)
     Q_PROPERTY(QString collectionDisplayedId READ collectionDisplayedId NOTIFY stateChanged)
     Q_PROPERTY(QString collectionTargetId READ collectionTargetId NOTIFY stateChanged)
     Q_PROPERTY(QString collectionErrorId READ collectionErrorId NOTIFY stateChanged)
@@ -107,6 +108,7 @@ public:
     bool collectionLoading() const;
     bool collectionFetching() const;
     bool libraryLoadFailed() const;
+    bool activityLoadFailed() const;
     QString collectionDisplayedId() const;
     QString collectionTargetId() const;
     QString collectionErrorId() const;
@@ -116,6 +118,7 @@ public:
     AsyncResourceState *collectionState() const { return m_collectionState; }
 
     Q_INVOKABLE void loadLibrary();
+    Q_INVOKABLE void ensureActivityFresh();
     Q_INVOKABLE void refreshActivity();
     Q_INVOKABLE void loadCollection(const QString &parentId);
     Q_INVOKABLE void refreshCollection(const QString &parentId);
@@ -489,4 +492,5 @@ private:
     ApplicationStatusViewModel *m_status = nullptr;
     UpdateChecker *m_updates = nullptr;
     quint64 m_sessionGeneration = 0;
+    quint64 m_playbackActivityReconcileRevision = 0;
 };

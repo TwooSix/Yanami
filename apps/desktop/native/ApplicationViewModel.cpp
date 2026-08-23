@@ -142,6 +142,7 @@ bool HomeViewModel::activityRefreshing() const { return m_port && m_port->activi
 bool HomeViewModel::collectionLoading() const { return m_port && m_port->collectionLoading(); }
 bool HomeViewModel::collectionFetching() const { return m_port && m_port->collectionFetching(); }
 bool HomeViewModel::libraryLoadFailed() const { return m_port && m_port->libraryLoadFailed(); }
+bool HomeViewModel::activityLoadFailed() const { return m_port && m_port->activityLoadFailed(); }
 QString HomeViewModel::collectionDisplayedId() const { return m_port ? m_port->collectionDisplayedId() : QString(); }
 QString HomeViewModel::collectionTargetId() const { return m_port ? m_port->collectionTargetId() : QString(); }
 QString HomeViewModel::collectionErrorId() const { return m_port ? m_port->collectionErrorId() : QString(); }
@@ -162,6 +163,23 @@ void HomeViewModel::refreshActivity()
     m_activityState->begin(QStringLiteral("activity"), 0, 0, true);
     const CatalogPort::RequestDisposition disposition = m_port
         ? m_port->refreshActivity() : CatalogPort::RequestDisposition::Rejected;
+    settleCatalogDisposition(m_activityState, disposition, true,
+        tr("Activity is unavailable without an active server session."));
+}
+
+void HomeViewModel::ensureActivityFresh()
+{
+    m_activityState->begin(QStringLiteral("activity"), 0, 0, true);
+    const CatalogPort::RequestDisposition disposition = m_port
+        ? m_port->ensureActivityFresh()
+        : CatalogPort::RequestDisposition::Rejected;
+    if (disposition == CatalogPort::RequestDisposition::AlreadyCurrent
+        && m_port && m_port->activityLoadFailed()) {
+        m_activityState->reject(m_activityState->requestId(),
+            m_activityState->resourceKey(), 0, 0,
+            tr("Activity could not be refreshed."));
+        return;
+    }
     settleCatalogDisposition(m_activityState, disposition, true,
         tr("Activity is unavailable without an active server session."));
 }
@@ -208,8 +226,14 @@ void HomeViewModel::settleResources()
     if ((m_activityState->phase() == AsyncResourceState::Phase::Loading
             || m_activityState->phase() == AsyncResourceState::Phase::Refreshing)
         && !m_port->activityRefreshing()) {
-        m_activityState->resolve(m_activityState->requestId(),
-            m_activityState->resourceKey(), 0, 0, true);
+        if (m_port->activityLoadFailed()) {
+            m_activityState->reject(m_activityState->requestId(),
+                m_activityState->resourceKey(), 0, 0,
+                tr("Activity could not be refreshed."));
+        } else {
+            m_activityState->resolve(m_activityState->requestId(),
+                m_activityState->resourceKey(), 0, 0, true);
+        }
     }
     if ((m_collectionState->phase() == AsyncResourceState::Phase::Loading
             || m_collectionState->phase() == AsyncResourceState::Phase::Refreshing)
@@ -947,6 +971,7 @@ void ApplicationViewModel::initialize(const BackendPortSet &ports)
                 if (!session || session->generation() == m_sessionGeneration)
                     return;
                 m_sessionGeneration = session->generation();
+                ++m_playbackActivityReconcileRevision;
                 m_imageEditor->setSessionGeneration(m_sessionGeneration);
                 m_metadataEditor->invalidateSession();
                 m_mediaTarget->cancel();
@@ -960,14 +985,23 @@ void ApplicationViewModel::initialize(const BackendPortSet &ports)
         connect(ports.playback, &PlaybackPort::stoppedReported, this,
             [this, catalog, session] {
                 const quint64 generation = session ? session->generation() : 0;
-                QTimer::singleShot(800, this, [catalog, session, generation] {
+                const quint64 reconcileRevision =
+                    ++m_playbackActivityReconcileRevision;
+                catalog->invalidateActivity();
+                QTimer::singleShot(800, this,
+                    [this, catalog, session, generation, reconcileRevision] {
                     if (catalog
+                        && reconcileRevision
+                            == m_playbackActivityReconcileRevision
                         && (!session || session->generation() == generation)) {
-                        catalog->refreshActivity();
+                        catalog->ensureActivityFresh();
                     }
                 });
-                QTimer::singleShot(3200, this, [catalog, session, generation] {
+                QTimer::singleShot(3200, this,
+                    [this, catalog, session, generation, reconcileRevision] {
                     if (catalog
+                        && reconcileRevision
+                            == m_playbackActivityReconcileRevision
                         && (!session || session->generation() == generation)) {
                         catalog->refreshActivity();
                     }

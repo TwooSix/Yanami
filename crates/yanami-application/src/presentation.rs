@@ -187,34 +187,6 @@ pub(super) fn user_state_json(item_id: &str, user_data: &UserItemData) -> Value 
     Value::Object(state)
 }
 
-pub(super) fn merge_continue_watching(
-    resumable: Vec<BaseItem>,
-    next_up: Vec<BaseItem>,
-    limit: usize,
-) -> Vec<BaseItem> {
-    if limit == 0 {
-        return Vec::new();
-    }
-    let mut merged = Vec::with_capacity(limit);
-    let mut series_ids = std::collections::HashSet::new();
-    let mut item_ids = std::collections::HashSet::new();
-    for item in resumable.into_iter().chain(next_up) {
-        if !is_playable_item(&item) || !item_ids.insert(item.id.clone()) {
-            continue;
-        }
-        if let Some(series_id) = item.series_id.as_ref() {
-            if !series_ids.insert(series_id.clone()) {
-                continue;
-            }
-        }
-        merged.push(item);
-        if merged.len() >= limit {
-            break;
-        }
-    }
-    merged
-}
-
 pub(super) fn library_view_json(item: &BaseItem, image_url: Option<&str>) -> Value {
     json!({
         "id": item.id,
@@ -526,52 +498,6 @@ mod tests {
                 .id,
             "current"
         );
-    }
-
-    #[test]
-    fn continue_watching_prefers_resumable_then_deduplicates_series() {
-        let resumable = BaseItem {
-            id: "series-a-current".to_owned(),
-            series_id: Some("series-a".to_owned()),
-            user_data: Some(yanami_emby::UserItemData {
-                playback_position_ticks: 10,
-                ..yanami_emby::UserItemData::default()
-            }),
-            ..BaseItem::default()
-        };
-        let same_series_next = BaseItem {
-            id: "series-a-next".to_owned(),
-            series_id: Some("series-a".to_owned()),
-            ..BaseItem::default()
-        };
-        let other_series_next = BaseItem {
-            id: "series-b-next".to_owned(),
-            series_id: Some("series-b".to_owned()),
-            ..BaseItem::default()
-        };
-
-        let result = merge_continue_watching(
-            vec![resumable],
-            vec![same_series_next, other_series_next],
-            20,
-        );
-        assert_eq!(
-            result.into_iter().map(|item| item.id).collect::<Vec<_>>(),
-            vec!["series-a-current", "series-b-next"]
-        );
-    }
-
-    #[test]
-    fn continue_watching_honors_zero_limit() {
-        let episode = BaseItem {
-            id: "episode-1".to_owned(),
-            name: "Episode 1".to_owned(),
-            item_type: Some("Episode".to_owned()),
-            series_id: Some("series-1".to_owned()),
-            ..BaseItem::default()
-        };
-
-        assert!(merge_continue_watching(vec![episode], Vec::new(), 0).is_empty());
     }
 
     #[test]

@@ -177,6 +177,7 @@ impl From<yanami_emby::EmbyError> for ApplicationError {
             EmbyError::Api { .. }
             | EmbyError::InvalidUrl(_)
             | EmbyError::InvalidJson(_)
+            | EmbyError::InvalidResponse(_)
             | EmbyError::ResponseTooLarge { .. }
             | EmbyError::CertificatePinningUnavailable
             | EmbyError::InvalidProfile(_) => ApplicationErrorCode::Unsupported,

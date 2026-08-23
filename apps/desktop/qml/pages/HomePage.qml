@@ -651,8 +651,11 @@ Item {
                         opacity: animatedResumeModel.count === 0
                             && !app.home.libraryRefreshing && !app.home.activityRefreshing
                             && !resumeRemovalDelay.running ? 1 : 0
-                        text: qsTr("Nothing to continue yet")
-                        color: Theme.textMuted
+                        text: app.home.activityLoadFailed
+                            ? qsTr("Could not refresh Continue Watching")
+                            : qsTr("Nothing to continue yet")
+                        color: app.home.activityLoadFailed
+                            ? Theme.danger : Theme.textMuted
                         font.family: Theme.fontForText(text)
                         font.pixelSize: 13
                         Behavior on opacity { NumberAnimation { duration: 150 } }
@@ -718,8 +721,11 @@ Item {
                         opacity: animatedRecentModel.count === 0
                             && !app.home.libraryRefreshing && !app.home.activityRefreshing
                             && !recentRemovalDelay.running ? 1 : 0
-                        text: qsTr("No recent updates")
-                        color: Theme.textMuted
+                        text: app.home.activityLoadFailed
+                            ? qsTr("Could not refresh recent updates")
+                            : qsTr("No recent updates")
+                        color: app.home.activityLoadFailed
+                            ? Theme.danger : Theme.textMuted
                         font.family: Theme.fontForText(text)
                         font.pixelSize: 13
                         Behavior on opacity { NumberAnimation { duration: 150 } }

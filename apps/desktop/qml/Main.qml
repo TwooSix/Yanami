@@ -60,7 +60,10 @@ ApplicationWindow {
     property var pendingDeleteItem: ({})
 
     onCurrentPageChanged: {
-        if (currentPage === 1)
+        if (currentPage === 0) {
+            if (app.session.connected)
+                app.home.ensureActivityFresh()
+        } else if (currentPage === 1)
             searchLoaded = true
         else if (currentPage === 3)
             settingsLoaded = true

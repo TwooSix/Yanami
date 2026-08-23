@@ -1,4 +1,5 @@
 #include "ApplicationViewModel.hpp"
+#include "CatalogFreshnessPolicy.hpp"
 
 #include <QCoreApplication>
 #include <QSettings>
@@ -70,6 +71,7 @@ public:
     bool collectionLoading() const override { return collectionLoadBusy; }
     bool collectionFetching() const override { return collectionFetchBusy; }
     bool libraryLoadFailed() const override { return libraryFailed; }
+    bool activityLoadFailed() const override { return activityFailed; }
     bool favoritesRefreshing() const override { return favoritesBusy; }
     bool favoritesLoadFailed() const override { return favoritesFailed; }
     QString collectionDisplayedId() const override { return displayedId; }
@@ -77,6 +79,8 @@ public:
     QString collectionErrorId() const override { return errorId; }
     QVariantMap collectionParent() const override { return parentItem; }
     RequestDisposition loadLibrary() override { ++loadLibraryCalls; return libraryDisposition; }
+    void invalidateActivity() override { ++invalidateActivityCalls; }
+    RequestDisposition ensureActivityFresh() override { ++ensureActivityFreshCalls; return activityDisposition; }
     RequestDisposition refreshActivity() override { ++refreshActivityCalls; return activityDisposition; }
     RequestDisposition loadFavorites() override { ++loadFavoritesCalls; return favoritesDisposition; }
     RequestDisposition refreshFavorites() override { ++refreshFavoritesCalls; return favoritesDisposition; }
@@ -88,6 +92,7 @@ public:
     bool collectionLoadBusy = false;
     bool collectionFetchBusy = false;
     bool libraryFailed = false;
+    bool activityFailed = false;
     bool favoritesBusy = false;
     bool favoritesFailed = false;
     QString displayedId;
@@ -95,6 +100,8 @@ public:
     QString errorId;
     QVariantMap parentItem;
     int loadLibraryCalls = 0;
+    int invalidateActivityCalls = 0;
+    int ensureActivityFreshCalls = 0;
     int refreshActivityCalls = 0;
     int loadFavoritesCalls = 0;
     int refreshFavoritesCalls = 0;
@@ -481,6 +488,75 @@ private slots:
         home.refreshActivity();
         QCOMPARE(home.activityState()->phase(),
             AsyncResourceState::Phase::Error);
+
+        port.activityDisposition =
+            CatalogPort::RequestDisposition::AlreadyCurrent;
+        home.ensureActivityFresh();
+        QCOMPARE(port.ensureActivityFreshCalls, 1);
+        QCOMPARE(home.activityState()->phase(),
+            AsyncResourceState::Phase::Ready);
+
+        port.activityFailed = true;
+        home.ensureActivityFresh();
+        QCOMPARE(home.activityState()->phase(),
+            AsyncResourceState::Phase::Ready);
+        QVERIFY(home.activityState()->stale());
+        QVERIFY(!home.activityState()->errorMessage().isEmpty());
+
+        FakeCatalogPort coldPort;
+        coldPort.activityFailed = true;
+        coldPort.activityDisposition =
+            CatalogPort::RequestDisposition::AlreadyCurrent;
+        HomeViewModel coldHome(&coldPort);
+        coldHome.ensureActivityFresh();
+        QCOMPARE(coldHome.activityState()->phase(),
+            AsyncResourceState::Phase::Error);
+    }
+
+    void activityFreshnessPolicyRequiresTwoCurrentQueries()
+    {
+        constexpr qint64 now = 100000;
+        const CatalogQueryFreshness fresh {
+            .available = true,
+            .stale = false,
+            .fetchedAtMs = now - 1000,
+        };
+        QVERIFY(CatalogFreshnessPolicy::activityIsFresh(
+            fresh, fresh, now));
+
+        CatalogQueryFreshness old = fresh;
+        old.fetchedAtMs = now
+            - CatalogFreshnessPolicy::activityRefreshAdmissionMs;
+        QVERIFY(!CatalogFreshnessPolicy::activityIsFresh(
+            old, fresh, now));
+
+        CatalogQueryFreshness stale = fresh;
+        stale.stale = true;
+        QVERIFY(!CatalogFreshnessPolicy::activityIsFresh(
+            fresh, stale, now));
+
+        CatalogQueryFreshness future = fresh;
+        future.fetchedAtMs = now + 1;
+        QVERIFY(!CatalogFreshnessPolicy::activityIsFresh(
+            future, fresh, now));
+
+        CatalogQueryFreshness missing = fresh;
+        missing.available = false;
+        QVERIFY(!CatalogFreshnessPolicy::activityIsFresh(
+            fresh, missing, now));
+    }
+
+    void activitySnapshotPolicyRejectsLateOlderLibraryResponse()
+    {
+        QVERIFY(CatalogFreshnessPolicy::activitySnapshotMayCommit(2, 1));
+        QVERIFY(CatalogFreshnessPolicy::activitySnapshotMayCommit(2, 2));
+        QVERIFY(!CatalogFreshnessPolicy::activitySnapshotMayCommit(1, 2));
+        QVERIFY(CatalogFreshnessPolicy::activityResultMayAffectState(
+            true, 2, 1));
+        QVERIFY(!CatalogFreshnessPolicy::activityResultMayAffectState(
+            false, 2, 1));
+        QVERIFY(!CatalogFreshnessPolicy::activityResultMayAffectState(
+            true, 1, 2));
     }
 
     void playbackUsesTypedPortAndTypedResultSignal()
@@ -1079,6 +1155,7 @@ private slots:
         ApplicationViewModel viewModel(fixture.ports());
 
         emit fixture.playback.stoppedReported();
+        QCOMPARE(fixture.catalog.invalidateActivityCalls, 1);
         viewModel.mediaActions()->setPlayed(QStringLiteral("item-old"), true);
         const MediaCall mutation = fixture.media.calls.constLast();
         emit fixture.media.operationCompleted(mutation.requestId,
@@ -1093,6 +1170,25 @@ private slots:
         QCOMPARE(fixture.catalog.refreshActivityCalls, 0);
         QCOMPARE(fixture.catalog.loadLibraryCalls, 0);
         QVERIFY(fixture.catalog.refreshedCollection.isEmpty());
+    }
+
+    void playbackActivityReconciliationIsDebouncedAndTwoPhase()
+    {
+        Fixture fixture;
+        ApplicationViewModel viewModel(fixture.ports());
+
+        emit fixture.playback.stoppedReported();
+        QTest::qWait(100);
+        emit fixture.playback.stoppedReported();
+        QCOMPARE(fixture.catalog.invalidateActivityCalls, 2);
+
+        QTest::qWait(850);
+        QCOMPARE(fixture.catalog.ensureActivityFreshCalls, 1);
+        QCOMPARE(fixture.catalog.refreshActivityCalls, 0);
+
+        QTest::qWait(2400);
+        QCOMPARE(fixture.catalog.ensureActivityFreshCalls, 1);
+        QCOMPARE(fixture.catalog.refreshActivityCalls, 1);
     }
 };
 

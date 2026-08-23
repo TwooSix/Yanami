@@ -8,7 +8,7 @@ use crate::{
     Application, ApplicationError, presentation,
     presentation::{
         ImagePurpose, card_subtitle, is_playable_item, is_supported_view, library_view_json,
-        media_card_json, merge_continue_watching, select_episode,
+        media_card_json, select_episode,
     },
 };
 
@@ -202,17 +202,7 @@ impl Application {
             let library_request = client.items(&library_query);
             let views_request = client.user_views();
             let recent_request = client.latest_items(&["Episode"], 20, false);
-            let resume_query = ItemQuery {
-                include_item_types: vec!["Episode".to_owned()],
-                recursive: true,
-                limit: 20,
-                sort_by: vec!["DatePlayed".to_owned()],
-                sort_order: Some("Descending".to_owned()),
-                filters: vec!["IsResumable".to_owned()],
-                ..ItemQuery::default()
-            };
-            let resume_request = client.items(&resume_query);
-            let next_up_request = client.next_up(None, 40);
+            let resume_request = client.continue_watching(16);
             // Emby returns parent Series DTOs on some server versions when
             // GroupItems=true. Fetch a broad, newest-first episode window
             // instead so every card can show an actual SxxExx + episode name.
@@ -224,7 +214,6 @@ impl Application {
                 views_request,
                 recent_request,
                 resume_request,
-                next_up_request,
                 latest_request,
                 user_request,
                 playlists_request,
@@ -235,7 +224,6 @@ impl Application {
             views_result,
             recent_items,
             resume_result,
-            next_up_result,
             latest_per_series,
             user,
             playlists_result,
@@ -244,7 +232,6 @@ impl Application {
         let views_result = views_result.map_err(ApplicationError::from)?;
         let recent_items = recent_items.map_err(ApplicationError::from)?;
         let resume_result = resume_result.map_err(ApplicationError::from)?;
-        let next_up_result = next_up_result.map_err(ApplicationError::from)?;
         let latest_per_series = latest_per_series.map_err(ApplicationError::from)?;
         let user = user.map_err(ApplicationError::from)?;
         let playlists = playlists_result.map_or_else(
@@ -283,12 +270,9 @@ impl Application {
                 playlists.len(),
             ));
         }
-        let resumable_items: Vec<_> = resume_result
-            .items
-            .into_iter()
-            .filter(is_playable_item)
-            .collect();
-        let resume_items = merge_continue_watching(resumable_items, next_up_result.items, 20);
+        // Membership, ordering and de-duplication are server-owned. The Emby
+        // adapter selects the version-compatible official home endpoint.
+        let resume_items = resume_result.items;
         let recent_images =
             self.cache_images(&client, &recent_items, ImagePurpose::EpisodeStill)?;
         let resume_images =
@@ -415,27 +399,12 @@ impl Application {
     #[allow(clippy::too_many_lines)]
     pub fn activity(&self) -> Result<ActivityOutcome, ApplicationError> {
         let client = self.active_client()?;
-        let (recent_items, resume_result, next_up_result) = self.block_on_emby(async {
+        let (recent_items, resume_result) = self.block_on_emby(async {
             let recent_request = client.latest_items(&["Episode"], 20, false);
-            let resume_query = ItemQuery {
-                include_item_types: vec!["Episode".to_owned()],
-                recursive: true,
-                limit: 20,
-                sort_by: vec!["DatePlayed".to_owned()],
-                sort_order: Some("Descending".to_owned()),
-                filters: vec!["IsResumable".to_owned()],
-                ..ItemQuery::default()
-            };
-            let resume_request = client.items(&resume_query);
-            let next_up_request = client.next_up(None, 40);
-            tokio::try_join!(recent_request, resume_request, next_up_request)
+            let resume_request = client.continue_watching(16);
+            tokio::try_join!(recent_request, resume_request)
         })?;
-        let resumable_items: Vec<_> = resume_result
-            .items
-            .into_iter()
-            .filter(is_playable_item)
-            .collect();
-        let resume_items = merge_continue_watching(resumable_items, next_up_result.items, 20);
+        let resume_items = resume_result.items;
         let recent_images =
             self.cache_images(&client, &recent_items, ImagePurpose::EpisodeStill)?;
         let resume_images =
@@ -866,6 +835,43 @@ mod tests {
         )
         .unwrap();
         let _: ActivityOutcome = round_trip(&raw);
+    }
+
+    #[test]
+    fn activity_contract_preserves_server_continue_watching_order() {
+        let mut movie = media_item();
+        movie.id = "movie-b".to_owned();
+        movie.name = "Movie B".to_owned();
+        movie.item_type = Some("Movie".to_owned());
+        movie.series_id = None;
+
+        let mut episode_a2 = media_item();
+        episode_a2.id = "episode-a2".to_owned();
+        episode_a2.name = "A2".to_owned();
+        episode_a2.series_id = Some("series-a".to_owned());
+
+        let mut episode_a3 = episode_a2.clone();
+        episode_a3.id = "episode-a3".to_owned();
+        episode_a3.name = "A3".to_owned();
+
+        let cards = [&movie, &episode_a2, &episode_a3]
+            .into_iter()
+            .map(|item| media_card_json(item, None, true, None))
+            .collect();
+        let raw = normalized_query_payload(vec![("resume", String::new(), cards, None)], json!({}))
+            .unwrap();
+        let typed: ActivityOutcome = round_trip(&raw);
+        assert_eq!(
+            typed
+                .queries
+                .resume
+                .unwrap()
+                .rows
+                .iter()
+                .map(|row| row.entity_id.as_str())
+                .collect::<Vec<_>>(),
+            ["movie-b", "episode-a2", "episode-a3"]
+        );
     }
 
     #[test]

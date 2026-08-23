@@ -218,11 +218,604 @@ async fn read_http_request(stream: &mut TcpStream) -> Vec<u8> {
     request
 }
 
+async fn write_json_response(stream: &mut TcpStream, status: &str, body: &str) {
+    stream
+        .write_all(
+            format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    stream.write_all(body.as_bytes()).await.unwrap();
+}
+
+fn request_url(request_line: &str) -> Url {
+    let target = request_line.split_whitespace().nth(1).unwrap();
+    Url::parse(&format!("http://localhost{target}")).unwrap()
+}
+
 fn empty_items_query() -> super::ItemQuery {
     super::ItemQuery {
         limit: 1,
         ..super::ItemQuery::default()
     }
+}
+
+#[tokio::test]
+async fn stable_continue_watching_uses_resume_and_preserves_server_order() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut info, _) = listener.accept().await.unwrap();
+        let info_url = request_url(&read_http_request_line(&mut info).await);
+        assert_eq!(info_url.path(), "/System/Info/Public");
+        write_json_response(&mut info, "200 OK", r#"{"Version":"4.9.5.0"}"#).await;
+
+        let (mut settings, _) = listener.accept().await.unwrap();
+        let settings_url = request_url(&read_http_request_line(&mut settings).await);
+        assert_eq!(settings_url.path(), "/usersettings/fake-user");
+        write_json_response(&mut settings, "200 OK", r#"{"homesection4":"nextup"}"#).await;
+
+        let (mut resume, _) = listener.accept().await.unwrap();
+        let resume_url = request_url(&read_http_request_line(&mut resume).await);
+        assert_eq!(resume_url.path(), "/Users/fake-user/Items/Resume");
+        let query: BTreeMap<_, _> = resume_url.query_pairs().into_owned().collect();
+        assert_eq!(query.get("Recursive").map(String::as_str), Some("true"));
+        assert_eq!(query.get("MediaTypes").map(String::as_str), Some("Video"));
+        assert_eq!(
+            query.get("IncludeNextUp").map(String::as_str),
+            Some("false")
+        );
+        assert_eq!(query.get("Limit").map(String::as_str), Some("16"));
+        for forbidden in ["Filters", "SortBy", "SortOrder", "IncludeItemTypes"] {
+            assert!(
+                !query.contains_key(forbidden),
+                "unexpected {forbidden} query"
+            );
+        }
+        write_json_response(
+            &mut resume,
+            "200 OK",
+            r#"{"Items":[{"Id":"movie-b","Name":"Movie B","Type":"Movie"},{"Id":"episode-a2","Name":"A2","Type":"Episode","SeriesId":"series-a"},{"Id":"episode-a3","Name":"A3","Type":"Episode","SeriesId":"series-a"}],"TotalRecordCount":3}"#,
+        )
+        .await;
+    });
+
+    let profile = local_http_profile(
+        "Continue Watching stable test",
+        Url::parse(&format!("http://{address}")).unwrap(),
+    );
+    let client = EmbyClient::with_session(
+        profile,
+        ClientIdentity::yanami("fake-device"),
+        "fake-user",
+        SecretString::from("fake-token"),
+    )
+    .unwrap();
+    let result = client.continue_watching(16).await.unwrap();
+    assert_eq!(
+        result
+            .items
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        ["movie-b", "episode-a2", "episode-a3"]
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn stable_continue_watching_omits_include_next_up_for_default_web_layout() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut info, _) = listener.accept().await.unwrap();
+        let _request = read_http_request_line(&mut info).await;
+        write_json_response(&mut info, "200 OK", r#"{"Version":"4.9.5.0"}"#).await;
+
+        let (mut settings, _) = listener.accept().await.unwrap();
+        let _request = read_http_request_line(&mut settings).await;
+        write_json_response(&mut settings, "200 OK", "{}").await;
+
+        let (mut resume, _) = listener.accept().await.unwrap();
+        let resume_url = request_url(&read_http_request_line(&mut resume).await);
+        let query: BTreeMap<_, _> = resume_url.query_pairs().into_owned().collect();
+        assert!(!query.contains_key("IncludeNextUp"));
+        write_json_response(
+            &mut resume,
+            "200 OK",
+            r#"{"Items":[],"TotalRecordCount":0}"#,
+        )
+        .await;
+    });
+
+    let profile = local_http_profile(
+        "Continue Watching defaults test",
+        Url::parse(&format!("http://{address}")).unwrap(),
+    );
+    let client = EmbyClient::with_session(
+        profile,
+        ClientIdentity::yanami("fake-device"),
+        "fake-user",
+        SecretString::from("fake-token"),
+    )
+    .unwrap();
+    assert!(client.continue_watching(16).await.unwrap().items.is_empty());
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn stable_web_layout_without_resume_is_authoritatively_empty() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut info, _) = listener.accept().await.unwrap();
+        let _request = read_http_request_line(&mut info).await;
+        write_json_response(&mut info, "200 OK", r#"{"Version":"4.9.5.0"}"#).await;
+
+        let (mut settings, _) = listener.accept().await.unwrap();
+        let settings_url = request_url(&read_http_request_line(&mut settings).await);
+        assert_eq!(settings_url.path(), "/usersettings/fake-user");
+        write_json_response(&mut settings, "200 OK", r#"{"homesection1":"none"}"#).await;
+    });
+
+    let profile = local_http_profile(
+        "Continue Watching hidden stable section test",
+        Url::parse(&format!("http://{address}")).unwrap(),
+    );
+    let client = EmbyClient::with_session(
+        profile,
+        ClientIdentity::yanami("fake-device"),
+        "fake-user",
+        SecretString::from("fake-token"),
+    )
+    .unwrap();
+    assert!(client.continue_watching(16).await.unwrap().items.is_empty());
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn server_home_sections_drive_continue_watching_on_emby_4_10() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut info, _) = listener.accept().await.unwrap();
+        let _request = read_http_request_line(&mut info).await;
+        write_json_response(&mut info, "200 OK", r#"{"Version":"4.10.0.4"}"#).await;
+
+        let (mut sections, _) = listener.accept().await.unwrap();
+        let sections_url = request_url(&read_http_request_line(&mut sections).await);
+        assert_eq!(sections_url.path(), "/Users/fake-user/HomeSections");
+        assert_eq!(
+            sections_url
+                .query_pairs()
+                .find(|(key, _)| key == "displayMode")
+                .map(|(_, value)| value.into_owned()),
+            Some("mobile,desktop".to_owned())
+        );
+        write_json_response(
+            &mut sections,
+            "200 OK",
+            r#"[{"Id":"resume-custom","SectionType":"resume","FutureField":true}]"#,
+        )
+        .await;
+
+        let (mut items, _) = listener.accept().await.unwrap();
+        let items_url = request_url(&read_http_request_line(&mut items).await);
+        assert_eq!(
+            items_url.path(),
+            "/Users/fake-user/Sections/resume-custom/Items"
+        );
+        assert_eq!(
+            items_url
+                .query_pairs()
+                .find(|(key, _)| key == "Limit")
+                .map(|(_, value)| value.into_owned()),
+            Some("16".to_owned())
+        );
+        write_json_response(
+            &mut items,
+            "200 OK",
+            r#"{"Items":[{"Id":"server-first","Name":"First"},{"Id":"server-second","Name":"Second"}],"TotalRecordCount":2}"#,
+        )
+        .await;
+    });
+
+    let profile = local_http_profile(
+        "Continue Watching 4.10 test",
+        Url::parse(&format!("http://{address}")).unwrap(),
+    );
+    let client = EmbyClient::with_session(
+        profile,
+        ClientIdentity::yanami("fake-device"),
+        "fake-user",
+        SecretString::from("fake-token"),
+    )
+    .unwrap();
+    let result = client.continue_watching(16).await.unwrap();
+    assert_eq!(
+        result
+            .items
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        ["server-first", "server-second"]
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn server_home_layout_without_resume_is_authoritatively_empty() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut info, _) = listener.accept().await.unwrap();
+        let _request = read_http_request_line(&mut info).await;
+        write_json_response(&mut info, "200 OK", r#"{"Version":"4.10.0.27"}"#).await;
+
+        let (mut sections, _) = listener.accept().await.unwrap();
+        let sections_url = request_url(&read_http_request_line(&mut sections).await);
+        assert_eq!(sections_url.path(), "/Users/fake-user/HomeSections");
+        write_json_response(
+            &mut sections,
+            "200 OK",
+            r#"[{"Id":"latest","SectionType":"latestmedia"}]"#,
+        )
+        .await;
+
+        let (mut changed_sections, _) = listener.accept().await.unwrap();
+        let changed_url = request_url(&read_http_request_line(&mut changed_sections).await);
+        assert_eq!(changed_url.path(), "/Users/fake-user/HomeSections");
+        write_json_response(
+            &mut changed_sections,
+            "200 OK",
+            r#"[{"Id":"resume-now-visible","SectionType":"resume"}]"#,
+        )
+        .await;
+
+        let (mut items, _) = listener.accept().await.unwrap();
+        let items_url = request_url(&read_http_request_line(&mut items).await);
+        assert_eq!(
+            items_url.path(),
+            "/Users/fake-user/Sections/resume-now-visible/Items"
+        );
+        write_json_response(
+            &mut items,
+            "200 OK",
+            r#"{"Items":[{"Id":"visible","Name":"Visible"}],"TotalRecordCount":1}"#,
+        )
+        .await;
+    });
+
+    let profile = local_http_profile(
+        "Continue Watching hidden 4.10 section test",
+        Url::parse(&format!("http://{address}")).unwrap(),
+    );
+    let client = EmbyClient::with_session(
+        profile,
+        ClientIdentity::yanami("fake-device"),
+        "fake-user",
+        SecretString::from("fake-token"),
+    )
+    .unwrap();
+    assert!(client.continue_watching(16).await.unwrap().items.is_empty());
+    assert_eq!(
+        client.continue_watching(16).await.unwrap().items[0].id,
+        "visible"
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn missing_server_home_endpoint_downgrades_once_per_session() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut info, _) = listener.accept().await.unwrap();
+        let _request = read_http_request_line(&mut info).await;
+        write_json_response(&mut info, "200 OK", r#"{"Version":"4.10.0.4"}"#).await;
+
+        let (mut sections, _) = listener.accept().await.unwrap();
+        let sections_url = request_url(&read_http_request_line(&mut sections).await);
+        assert_eq!(sections_url.path(), "/Users/fake-user/HomeSections");
+        write_json_response(&mut sections, "404 Not Found", "missing").await;
+
+        for _ in 0..2 {
+            let (mut settings, _) = listener.accept().await.unwrap();
+            let settings_url = request_url(&read_http_request_line(&mut settings).await);
+            assert_eq!(settings_url.path(), "/usersettings/fake-user");
+            write_json_response(&mut settings, "200 OK", "{}").await;
+
+            let (mut resume, _) = listener.accept().await.unwrap();
+            let resume_url = request_url(&read_http_request_line(&mut resume).await);
+            assert_eq!(resume_url.path(), "/Users/fake-user/Items/Resume");
+            write_json_response(
+                &mut resume,
+                "200 OK",
+                r#"{"Items":[],"TotalRecordCount":0}"#,
+            )
+            .await;
+        }
+    });
+
+    let profile = local_http_profile(
+        "Continue Watching downgrade test",
+        Url::parse(&format!("http://{address}")).unwrap(),
+    );
+    let client = EmbyClient::with_session(
+        profile,
+        ClientIdentity::yanami("fake-device"),
+        "fake-user",
+        SecretString::from("fake-token"),
+    )
+    .unwrap();
+    assert!(client.continue_watching(16).await.unwrap().items.is_empty());
+    assert!(
+        client
+            .clone()
+            .continue_watching(16)
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn server_home_failures_other_than_unavailable_are_not_hidden() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut info, _) = listener.accept().await.unwrap();
+        let _request = read_http_request_line(&mut info).await;
+        write_json_response(&mut info, "200 OK", r#"{"Version":"4.10.0.4"}"#).await;
+
+        let (mut sections, _) = listener.accept().await.unwrap();
+        let _request = read_http_request_line(&mut sections).await;
+        write_json_response(&mut sections, "500 Internal Server Error", "server failed").await;
+
+        let (mut retry_sections, _) = listener.accept().await.unwrap();
+        let retry_url = request_url(&read_http_request_line(&mut retry_sections).await);
+        assert_eq!(retry_url.path(), "/Users/fake-user/HomeSections");
+        write_json_response(
+            &mut retry_sections,
+            "200 OK",
+            r#"[{"Id":"resume-retry","SectionType":"resume"}]"#,
+        )
+        .await;
+
+        let (mut retry_items, _) = listener.accept().await.unwrap();
+        let retry_items_url = request_url(&read_http_request_line(&mut retry_items).await);
+        assert_eq!(
+            retry_items_url.path(),
+            "/Users/fake-user/Sections/resume-retry/Items"
+        );
+        write_json_response(
+            &mut retry_items,
+            "200 OK",
+            r#"{"Items":[],"TotalRecordCount":0}"#,
+        )
+        .await;
+    });
+
+    let profile = local_http_profile(
+        "Continue Watching error boundary test",
+        Url::parse(&format!("http://{address}")).unwrap(),
+    );
+    let client = EmbyClient::with_session(
+        profile,
+        ClientIdentity::yanami("fake-device"),
+        "fake-user",
+        SecretString::from("fake-token"),
+    )
+    .unwrap();
+    assert!(matches!(
+        client.continue_watching(16).await,
+        Err(super::EmbyError::Api { status: 500, .. })
+    ));
+    assert!(client.continue_watching(16).await.unwrap().items.is_empty());
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn section_items_not_found_does_not_disable_server_home_sections() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut info, _) = listener.accept().await.unwrap();
+        let _request = read_http_request_line(&mut info).await;
+        write_json_response(&mut info, "200 OK", r#"{"Version":"4.10.0.4"}"#).await;
+
+        let (mut sections, _) = listener.accept().await.unwrap();
+        let _request = read_http_request_line(&mut sections).await;
+        write_json_response(
+            &mut sections,
+            "200 OK",
+            r#"[{"Id":"stale-resume","SectionType":"resume"}]"#,
+        )
+        .await;
+
+        let (mut items, _) = listener.accept().await.unwrap();
+        let items_url = request_url(&read_http_request_line(&mut items).await);
+        assert_eq!(
+            items_url.path(),
+            "/Users/fake-user/Sections/stale-resume/Items"
+        );
+        write_json_response(&mut items, "404 Not Found", "section changed").await;
+
+        let (mut retry_sections, _) = listener.accept().await.unwrap();
+        let retry_url = request_url(&read_http_request_line(&mut retry_sections).await);
+        assert_eq!(retry_url.path(), "/Users/fake-user/HomeSections");
+        write_json_response(
+            &mut retry_sections,
+            "200 OK",
+            r#"[{"Id":"current-resume","SectionType":"resume"}]"#,
+        )
+        .await;
+
+        let (mut retry_items, _) = listener.accept().await.unwrap();
+        let retry_items_url = request_url(&read_http_request_line(&mut retry_items).await);
+        assert_eq!(
+            retry_items_url.path(),
+            "/Users/fake-user/Sections/current-resume/Items"
+        );
+        write_json_response(
+            &mut retry_items,
+            "200 OK",
+            r#"{"Items":[{"Id":"recovered","Name":"Recovered"}],"TotalRecordCount":1}"#,
+        )
+        .await;
+    });
+
+    let profile = local_http_profile(
+        "Continue Watching section error boundary test",
+        Url::parse(&format!("http://{address}")).unwrap(),
+    );
+    let client = EmbyClient::with_session(
+        profile,
+        ClientIdentity::yanami("fake-device"),
+        "fake-user",
+        SecretString::from("fake-token"),
+    )
+    .unwrap();
+    assert!(matches!(
+        client.continue_watching(16).await,
+        Err(super::EmbyError::Api { status: 404, .. })
+    ));
+    assert_eq!(
+        client.continue_watching(16).await.unwrap().items[0].id,
+        "recovered"
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn legacy_display_preferences_control_continue_watching_visibility() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut info, _) = listener.accept().await.unwrap();
+        let _request = read_http_request_line(&mut info).await;
+        write_json_response(&mut info, "200 OK", r#"{"Version":"4.8.11.0"}"#).await;
+
+        let (mut settings, _) = listener.accept().await.unwrap();
+        let settings_url = request_url(&read_http_request_line(&mut settings).await);
+        assert_eq!(settings_url.path(), "/DisplayPreferences/usersettings");
+        let query: BTreeMap<_, _> = settings_url.query_pairs().into_owned().collect();
+        assert_eq!(query.get("userId").map(String::as_str), Some("fake-user"));
+        assert_eq!(query.get("client").map(String::as_str), Some("emby"));
+        write_json_response(
+            &mut settings,
+            "200 OK",
+            r#"{"CustomPrefs":{"homesection1":"none"}}"#,
+        )
+        .await;
+    });
+
+    let profile = local_http_profile(
+        "Continue Watching legacy preferences test",
+        Url::parse(&format!("http://{address}")).unwrap(),
+    );
+    let client = EmbyClient::with_session(
+        profile,
+        ClientIdentity::yanami("fake-device"),
+        "fake-user",
+        SecretString::from("fake-token"),
+    )
+    .unwrap();
+    assert!(client.continue_watching(16).await.unwrap().items.is_empty());
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn settings_server_failure_is_not_replaced_with_default_layout() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut info, _) = listener.accept().await.unwrap();
+        let _request = read_http_request_line(&mut info).await;
+        write_json_response(&mut info, "200 OK", r#"{"Version":"4.9.5.0"}"#).await;
+
+        let (mut settings, _) = listener.accept().await.unwrap();
+        let settings_url = request_url(&read_http_request_line(&mut settings).await);
+        assert_eq!(settings_url.path(), "/usersettings/fake-user");
+        write_json_response(&mut settings, "500 Internal Server Error", "failed").await;
+    });
+
+    let profile = local_http_profile(
+        "Continue Watching settings error test",
+        Url::parse(&format!("http://{address}")).unwrap(),
+    );
+    let client = EmbyClient::with_session(
+        profile,
+        ClientIdentity::yanami("fake-device"),
+        "fake-user",
+        SecretString::from("fake-token"),
+    )
+    .unwrap();
+    assert!(matches!(
+        client.continue_watching(16).await,
+        Err(super::EmbyError::Api { status: 500, .. })
+    ));
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn unknown_capabilities_and_settings_dialect_are_cached_for_the_session() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut info, _) = listener.accept().await.unwrap();
+        let info_url = request_url(&read_http_request_line(&mut info).await);
+        assert_eq!(info_url.path(), "/System/Info/Public");
+        write_json_response(&mut info, "500 Internal Server Error", "failed").await;
+
+        let (mut sections, _) = listener.accept().await.unwrap();
+        let sections_url = request_url(&read_http_request_line(&mut sections).await);
+        assert_eq!(sections_url.path(), "/Users/fake-user/HomeSections");
+        write_json_response(&mut sections, "404 Not Found", "missing").await;
+
+        let (mut flat_settings, _) = listener.accept().await.unwrap();
+        let flat_url = request_url(&read_http_request_line(&mut flat_settings).await);
+        assert_eq!(flat_url.path(), "/usersettings/fake-user");
+        write_json_response(&mut flat_settings, "404 Not Found", "missing").await;
+
+        for _ in 0..2 {
+            let (mut legacy_settings, _) = listener.accept().await.unwrap();
+            let legacy_url = request_url(&read_http_request_line(&mut legacy_settings).await);
+            assert_eq!(legacy_url.path(), "/DisplayPreferences/usersettings");
+            write_json_response(&mut legacy_settings, "200 OK", r#"{"CustomPrefs":{}}"#).await;
+
+            let (mut resume, _) = listener.accept().await.unwrap();
+            let resume_url = request_url(&read_http_request_line(&mut resume).await);
+            assert_eq!(resume_url.path(), "/Users/fake-user/Items/Resume");
+            write_json_response(
+                &mut resume,
+                "200 OK",
+                r#"{"Items":[],"TotalRecordCount":0}"#,
+            )
+            .await;
+        }
+    });
+
+    let profile = local_http_profile(
+        "Continue Watching unknown capabilities test",
+        Url::parse(&format!("http://{address}")).unwrap(),
+    );
+    let client = EmbyClient::with_session(
+        profile,
+        ClientIdentity::yanami("fake-device"),
+        "fake-user",
+        SecretString::from("fake-token"),
+    )
+    .unwrap();
+    assert!(client.continue_watching(16).await.unwrap().items.is_empty());
+    assert!(client.continue_watching(16).await.unwrap().items.is_empty());
+    server.await.unwrap();
 }
 
 #[tokio::test]
