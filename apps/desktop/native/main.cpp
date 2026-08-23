@@ -3,6 +3,7 @@
 #include <QElapsedTimer>
 #include <QIcon>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QJsonParseError>
 #include <QLoggingCategory>
 #include <QQmlApplicationEngine>

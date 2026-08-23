@@ -11,6 +11,10 @@ QVariantMap descriptorFromResponse(
 {
     const QJsonValue introStart = response.value(QStringLiteral("introStartTicks"));
     const QJsonValue introEnd = response.value(QStringLiteral("introEndTicks"));
+    const QJsonValue queueResolution = response
+        .value(QStringLiteral("preparationDiagnostics"))
+        .toObject()
+        .value(QStringLiteral("neighborsSucceeded"));
     return {
         {QStringLiteral("mediaUrl"),
             QUrl(response.value(QStringLiteral("url")).toString())},
@@ -28,6 +32,8 @@ QVariantMap descriptorFromResponse(
             response.value(QStringLiteral("playbackQueue")).toArray().toVariantList()},
         {QStringLiteral("currentQueueIndex"),
             response.value(QStringLiteral("currentQueueIndex")).toInt(-1)},
+        {QStringLiteral("queueResolutionSucceeded"),
+            queueResolution.isBool() && queueResolution.toBool()},
         {QStringLiteral("externalSubtitles"),
             response.value(QStringLiteral("externalSubtitles")).toArray().toVariantList()},
         {QStringLiteral("playbackWarnings"),

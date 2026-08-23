@@ -129,6 +129,74 @@ private slots:
         }
     }
 
+    void framelessMainWindowRetainsPlatformWindowCapabilities()
+    {
+        const QString path = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))
+            .filePath(QStringLiteral("Main.qml"));
+        const QString content = source(path);
+        QVERIFY2(!content.isEmpty(), qPrintable(path));
+
+        const QRegularExpression flagsDeclaration(
+            QStringLiteral(
+                R"(\bflags\s*:\s*Qt\.Window(?:\s*\|\s*Qt\.[A-Za-z0-9_]+)+)"));
+        const QRegularExpressionMatch match = flagsDeclaration.match(content);
+        QVERIFY2(match.hasMatch(),
+            "Main window flags must be one cross-platform capability declaration");
+
+        const QString flags = match.captured(0);
+        const QStringList requiredFlags {
+            QStringLiteral("Qt.FramelessWindowHint"),
+            QStringLiteral("Qt.WindowSystemMenuHint"),
+            QStringLiteral("Qt.WindowMinimizeButtonHint"),
+            QStringLiteral("Qt.WindowMaximizeButtonHint"),
+            QStringLiteral("Qt.WindowCloseButtonHint"),
+        };
+        for (const QString &requiredFlag : requiredFlags) {
+            QVERIFY2(flags.contains(requiredFlag),
+                qPrintable(QStringLiteral(
+                    "Frameless main window must retain platform capability %1")
+                    .arg(requiredFlag)));
+        }
+    }
+
+    void playerPageFencesLateMpvEventsAfterClose()
+    {
+        const QString path = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))
+            .filePath(QStringLiteral("pages/PlayerPage.qml"));
+        const QString content = source(path);
+        QVERIFY2(!content.isEmpty(), qPrintable(path));
+
+        const QString closedLoadGuard = QStringLiteral(
+            "root.mediaUrl.toString().length === 0\n"
+            "                    || root.currentItemId.length === 0");
+        QVERIFY2(content.count(closedLoadGuard) >= 2,
+            "Both FILE_LOADED and playbackError must reject closed loads");
+        QVERIFY2(content.contains(QStringLiteral(
+            "mediaUrl.toString().length === 0 || currentItemId.length === 0")),
+            "Natural completion must reject a closed load");
+    }
+
+    void queueRefreshDescriptorIsConsumedBeforeOpeningMedia()
+    {
+        const QString path = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))
+            .filePath(QStringLiteral("components/PlaybackHost.qml"));
+        const QString content = source(path);
+        QVERIFY2(!content.isEmpty(), qPrintable(path));
+
+        const qsizetype refreshBranch = content.indexOf(QStringLiteral(
+            "if (page.automaticQueueRefreshPending)"));
+        const qsizetype mediaAssignment = content.indexOf(QStringLiteral(
+            "page.mediaUrl = descriptor.mediaUrl"));
+        QVERIFY2(refreshBranch >= 0 && mediaAssignment > refreshBranch,
+            "Queue refresh must branch before normal media assignment");
+        const QString branch = content.mid(
+            refreshBranch, mediaAssignment - refreshBranch);
+        QVERIFY2(branch.contains(QStringLiteral(
+                     "page.consumeQueueRefresh(descriptor)"))
+                && branch.contains(QStringLiteral("return")),
+            "Queue refresh descriptors must be consumed without replaying media");
+    }
+
     void sessionLifecycleDoesNotCloseLoginOnBusyState()
     {
         const QString path = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))

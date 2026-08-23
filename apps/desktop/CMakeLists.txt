@@ -221,6 +221,7 @@ qt_add_executable(yanami-desktop
     native/LocaleController.hpp
     native/MpvVideoItem.cpp
     native/MpvVideoItem.hpp
+    native/PlaybackCompletionGate.hpp
     native/PlaybackTrackMapper.cpp
     native/PlaybackTrackMapper.hpp
     native/PlaybackDescriptor.cpp
@@ -309,6 +310,7 @@ qt_add_qml_module(yanami-ui
         qml/components/AppTextField.qml
         qml/components/AppToolTip.qml
         qml/components/BrandMark.qml
+        qml/components/CardProgressStrip.qml
         qml/components/DanmakuMenu.qml
         qml/components/DanmakuOverlay.qml
         qml/components/DetailHero.qml
@@ -326,6 +328,8 @@ qt_add_qml_module(yanami-ui
         qml/components/ImageEditorDialog.qml
         qml/components/NavButton.qml
         qml/components/PosterCard.qml
+        qml/components/PlaybackAdvancePolicy.qml
+        qml/components/PlaybackEndOverlay.qml
         qml/components/PlaybackQueueMenu.qml
         qml/components/PlaybackHost.qml
         qml/components/RecentEpisodeCard.qml
@@ -637,6 +641,7 @@ if(BUILD_TESTING)
         native/PlaybackTrackMapper.hpp
         native/MpvVideoItem.cpp
         native/MpvVideoItem.hpp
+        native/PlaybackCompletionGate.hpp
         native/DevelopmentHooks.cpp
         native/DevelopmentHooks.hpp
     )

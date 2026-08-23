@@ -13,7 +13,12 @@ ApplicationWindow {
     visible: true
     title: "Yanami"
     color: Theme.background
-    flags: Qt.Window | Qt.FramelessWindowHint
+    flags: Qt.Window
+        | Qt.FramelessWindowHint
+        | Qt.WindowSystemMenuHint
+        | Qt.WindowMinimizeButtonHint
+        | Qt.WindowMaximizeButtonHint
+        | Qt.WindowCloseButtonHint
 
     readonly property bool fullScreenMode: windowShell.fullScreen
     readonly property bool roundedFrame: !fullScreenMode
@@ -157,7 +162,9 @@ ApplicationWindow {
 
     function navigateBack() {
         if (window.currentPage === 2) {
-            if (window.fullScreenMode)
+            if (window.playerPage && window.playerPage.playbackEndVisible)
+                window.closePlayer()
+            else if (window.fullScreenMode)
                 window.exitFullScreen()
             else
                 window.closePlayer()
@@ -527,6 +534,14 @@ ApplicationWindow {
                             app.playback.switchToInContext(
                                 itemId, playbackContext, positionSeconds, paused)
                         }
+                        onReplayRequested: (itemId, playbackContext, title) => {
+                            window.requestPlayback(
+                                itemId, true, playbackContext, title)
+                        }
+                        onQueueRefreshRequested: (itemId, playbackContext) => {
+                            app.playback.prepareInContext(
+                                itemId, playbackContext || ({}))
+                        }
                     }
                 }
                 Item {
@@ -784,6 +799,7 @@ ApplicationWindow {
         sequence: "F11"
         context: Qt.ApplicationShortcut
         enabled: window.currentPage === 2
+            && (!window.playerPage || !window.playerPage.playbackEndVisible)
         onActivated: window.toggleFullScreen()
     }
 

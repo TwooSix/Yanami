@@ -37,6 +37,34 @@ private slots:
             .value(QStringLiteral("requestedItemId")).toString(),
             QStringLiteral("series-1"));
     }
+
+    void queueResolutionStatusIsProjectedConservatively()
+    {
+        const auto descriptorFor = [](const QByteArray &diagnostics) {
+            const QByteArray response = QByteArrayLiteral(
+                "{\"schemaVersion\":8,"
+                "\"url\":\"https://media.example/episode.mkv\","
+                "\"preparationDiagnostics\":")
+                + diagnostics + QByteArrayLiteral("}");
+            const QJsonDocument document = QJsonDocument::fromJson(response);
+            return YanamiPlayback::descriptorFromResponse(document.object(), {});
+        };
+
+        QCOMPARE(descriptorFor(QByteArrayLiteral(
+                     "{\"neighborsSucceeded\":true}"))
+                     .value(QStringLiteral("queueResolutionSucceeded"))
+                     .toBool(),
+            true);
+        QCOMPARE(descriptorFor(QByteArrayLiteral(
+                     "{\"neighborsSucceeded\":false}"))
+                     .value(QStringLiteral("queueResolutionSucceeded"))
+                     .toBool(),
+            false);
+        QCOMPARE(descriptorFor(QByteArrayLiteral("{}"))
+                     .value(QStringLiteral("queueResolutionSucceeded"))
+                     .toBool(),
+            false);
+    }
 };
 
 QTEST_MAIN(PlaybackDescriptorTests)

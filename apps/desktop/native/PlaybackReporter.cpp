@@ -78,6 +78,9 @@ bool PlaybackReporter::attachPlayer(QObject *player)
         &MpvVideoItem::fileEnded, this,
         [this]() { stopSession(); }));
     m_playerConnections.append(connect(mpvPlayer,
+        &MpvVideoItem::playbackCompleted, this,
+        [this]() { stopSession(); }));
+    m_playerConnections.append(connect(mpvPlayer,
         &QObject::destroyed, this,
         [this]() {
             m_player = nullptr;

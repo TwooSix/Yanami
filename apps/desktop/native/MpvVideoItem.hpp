@@ -1,5 +1,7 @@
 #pragma once
 
+#include "PlaybackCompletionGate.hpp"
+
 #include <QPointer>
 #include <QElapsedTimer>
 #include <QQuickFramebufferObject>
@@ -91,6 +93,10 @@ signals:
     void tracksChanged();
     void fileLoaded();
     void fileEnded();
+    // Emitted once per load generation when libmpv reaches natural EOF.
+    // With keep-open enabled this can happen without fileEnded(), because the
+    // file remains loaded so the final frame can stay visible.
+    void playbackCompleted();
     void seekRequested(double positionSeconds);
 
 private slots:
@@ -112,6 +118,7 @@ private:
     bool m_buffering = false;
     bool m_fileLoaded = false;
     quint64 m_loadGeneration = 0;
+    YanamiPlayback::PlaybackCompletionGate m_completionGate;
     quint64 m_bufferingTransitions = 0;
     qint64 m_totalBufferingMs = 0;
     QElapsedTimer m_loadTimer;

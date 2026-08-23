@@ -307,6 +307,10 @@ MpvVideoItem::MpvVideoItem(QQuickItem *parent)
         {"video-timing-offset", "0"},
         {"terminal", "no"},
         {"keep-open", "yes"},
+        // The UI owns the completed state. Preserve the final frame without
+        // letting keep-open turn natural EOF into a sticky pause that carries
+        // into the automatically loaded queue entry.
+        {"keep-open-pause", "no"},
         // libmpv defaults to not verifying HTTPS certificates. Playback must
         // honor the same strict TLS boundary as the Rust API client.
         {"tls-verify", "yes"},
@@ -353,6 +357,9 @@ MpvVideoItem::MpvVideoItem(QQuickItem *parent)
     mpv_observe_property(m_mpv, 8, "mute", MPV_FORMAT_FLAG);
     mpv_observe_property(m_mpv, 9, "speed", MPV_FORMAT_DOUBLE);
     mpv_observe_property(m_mpv, 10, "seekable", MPV_FORMAT_FLAG);
+    // MPV_EVENT_END_FILE is not emitted at natural EOF while keep-open keeps
+    // the file loaded. eof-reached is the authoritative completion boundary.
+    mpv_observe_property(m_mpv, 11, "eof-reached", MPV_FORMAT_FLAG);
     mpv_set_wakeup_callback(m_mpv, &MpvVideoItem::wakeup, this);
 
 #ifdef YANAMI_ENABLE_DEV_HOOKS
@@ -409,6 +416,7 @@ void MpvVideoItem::open(const QUrl &url, const QVariantMap &headers)
         << "headerCount=" << headers.size();
     m_buffering = false;
     m_fileLoaded = false;
+    m_completionGate.reset();
     m_position = 0.0;
     m_duration = 0.0;
     m_bufferedPosition = 0.0;
@@ -445,6 +453,7 @@ void MpvVideoItem::stop()
     setHeaders({});
     m_buffering = false;
     m_fileLoaded = false;
+    m_completionGate.reset();
     m_bufferedPosition = 0.0;
     if (m_seekable) {
         m_seekable = false;
@@ -556,6 +565,7 @@ void MpvVideoItem::drainEvents()
             break;
         if (event->event_id == MPV_EVENT_FILE_LOADED) {
             m_fileLoaded = true;
+            m_completionGate.reset();
             setPlaybackState(m_buffering ? PlaybackState::Buffering
                                          : (m_paused ? PlaybackState::Paused
                                                      : PlaybackState::Playing));
@@ -615,9 +625,11 @@ void MpvVideoItem::drainEvents()
                 if (m_paused != value) {
                     m_paused = value;
                     emit pausedChanged();
-                    if (m_fileLoaded && !m_buffering)
+                    if (m_fileLoaded && !m_buffering
+                        && !m_completionGate.handled()) {
                         setPlaybackState(value ? PlaybackState::Paused
                                                : PlaybackState::Playing);
+                    }
                 }
             } else if (name == "paused-for-cache" && property->format == MPV_FORMAT_FLAG) {
                 const bool buffering = *static_cast<int *>(property->data) != 0;
@@ -642,7 +654,7 @@ void MpvVideoItem::drainEvents()
                         << "bufferedPositionSeconds=" << m_bufferedPosition;
                     m_buffering = buffering;
                 }
-                if (m_fileLoaded) {
+                if (m_fileLoaded && !m_completionGate.handled()) {
                     setPlaybackState(m_buffering
                                          ? PlaybackState::Buffering
                                          : (m_paused ? PlaybackState::Paused
@@ -683,6 +695,43 @@ void MpvVideoItem::drainEvents()
                 if (m_seekable != value) {
                     m_seekable = value;
                     emit seekableChanged();
+                }
+            } else if (name == "eof-reached" && property->format == MPV_FORMAT_FLAG) {
+                const bool value = *static_cast<int *>(property->data) != 0;
+                const std::optional<YanamiPlayback::CompletionBoundary> boundary =
+                    m_completionGate.observe(
+                        value, m_fileLoaded, m_position, m_duration);
+                if (boundary.has_value()) {
+                    if (m_buffering && m_bufferingTimer.isValid()) {
+                        m_totalBufferingMs += m_bufferingTimer.elapsed();
+                        m_bufferingTimer.invalidate();
+                    }
+                    m_buffering = false;
+                    setPlaybackState(PlaybackState::Ended);
+                    qCInfo(playbackLog).noquote()
+                        << "playback_mpv_eof"
+                        << "generation=" << m_loadGeneration
+                        << "classification="
+                        << (*boundary == YanamiPlayback::CompletionBoundary::Natural
+                                ? "natural" : "premature")
+                        << "elapsedMs="
+                        << (m_loadTimer.isValid() ? m_loadTimer.elapsed() : -1)
+                        << "positionSeconds=" << m_position
+                        << "durationSeconds=" << m_duration
+                        << "bufferingTransitions=" << m_bufferingTransitions
+                        << "totalBufferingMs=" << m_totalBufferingMs;
+                    if (*boundary == YanamiPlayback::CompletionBoundary::Natural) {
+                        emit playbackCompleted();
+                    } else {
+                        qCWarning(playbackLog).noquote()
+                            << "playback_mpv_premature_eof"
+                            << "generation=" << m_loadGeneration
+                            << "positionSeconds=" << m_position
+                            << "durationSeconds=" << m_duration;
+                        emit playbackError(tr(
+                            "Playback ended before the media was complete."));
+                        emit fileEnded();
+                    }
                 }
             }
         } else if (event->event_id == MPV_EVENT_LOG_MESSAGE) {

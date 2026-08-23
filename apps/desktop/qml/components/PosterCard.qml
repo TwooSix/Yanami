@@ -13,6 +13,15 @@ Item {
     property var mediaItem: ({})
     property color posterColor: "#33405B"
     property bool playable: true
+    readonly property bool pointerMode:
+        InputModality.modality === InputModality.Pointer
+    readonly property bool pointerHovered:
+        root.pointerMode && (mouse.containsMouse || playButton.hovered)
+    readonly property bool pointerPressed:
+        root.pointerMode && mouse.pressed
+            && Boolean(mouse.pressedButtons & Qt.LeftButton)
+    readonly property bool navigationFocusVisible:
+        root.activeFocus && InputModality.focusNavigationActive
     signal activated()
     signal playRequested()
     signal contextMenuRequested(var item, var sourceItem, real x, real y,
@@ -48,15 +57,37 @@ Item {
     implicitWidth: 178
     implicitHeight: 302
 
+    // The visual surface can scale without shrinking the pointer hit target.
+    MouseArea {
+        id: mouse
+        objectName: "media-card-hit-area"
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: 246
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onPressed: root.forceActiveFocus(Qt.MouseFocusReason)
+        onClicked: event => {
+            if (event.button === Qt.RightButton)
+                root.contextMenuRequested(root.mediaItem, root,
+                                          event.x, event.y, false)
+            else
+                root.activated()
+        }
+    }
+
     Rectangle {
         id: poster
+        objectName: "media-card-surface"
         anchors.left: parent.left
         anchors.right: parent.right
         height: 246
         radius: Theme.radius
         color: root.posterColor
-        border.width: root.activeFocus ? 2 : 1
-        border.color: root.activeFocus ? Theme.accent : "#24FFFFFF"
+        border.width: 1
+        border.color: "#24FFFFFF"
         clip: true
 
         gradient: Gradient {
@@ -75,26 +106,11 @@ Item {
         }
 
         Rectangle {
+            objectName: "media-card-pointer-scrim"
             anchors.fill: parent
             radius: poster.radius
-            color: mouse.containsMouse ? "#18FFFFFF" : "transparent"
-            Behavior on color { ColorAnimation { duration: 130 } }
-        }
-
-        MouseArea {
-            id: mouse
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            acceptedButtons: Qt.LeftButton | Qt.RightButton
-            onPressed: root.forceActiveFocus(Qt.MouseFocusReason)
-            onClicked: event => {
-                if (event.button === Qt.RightButton)
-                    root.contextMenuRequested(root.mediaItem, root,
-                                              event.x, event.y, false)
-                else
-                    root.activated()
-            }
+            color: root.pointerPressed ? "#22000000" : "transparent"
+            Behavior on color { ColorAnimation { duration: 110 } }
         }
 
         AppButton {
@@ -108,8 +124,9 @@ Item {
             iconSize: 23
             controlSize: 44
             focusPolicy: Qt.NoFocus
+            hoverEnabled: root.pointerMode
             visible: root.playable
-            opacity: mouse.containsMouse || hovered || root.activeFocus ? 1 : 0
+            opacity: root.pointerHovered || root.navigationFocusVisible ? 1 : 0
             scale: opacity > 0 ? 1 : 0.86
             onClicked: root.playRequested()
 
@@ -158,27 +175,32 @@ Item {
             }
         }
 
+        CardProgressStrip {
+            anchors.fill: parent
+            z: 4
+            progress: root.progress
+            radius: poster.radius
+        }
+
         Rectangle {
-            visible: opacity > 0
-            opacity: root.progress > 0 && root.progress < 100 ? 1 : 0
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            anchors.leftMargin: 3
-            anchors.rightMargin: 3
-            anchors.bottomMargin: 3
-            height: 4
-            radius: 2
-            color: "#70FFFFFF"
+            objectName: "media-card-focus-frame"
+            anchors.fill: parent
+            z: 10
+            radius: poster.radius
+            color: "transparent"
+            visible: root.navigationFocusVisible
+            border.width: 2
+            border.color: Theme.accent
+        }
 
-            Behavior on opacity { NumberAnimation { duration: 150 } }
-
-            Rectangle {
-                width: parent.width * Math.min(1, Math.max(0, root.progress / 100))
-                height: parent.height
-                radius: parent.radius
-                color: Theme.accent
-                Behavior on width { NumberAnimation { duration: 210; easing.type: Easing.OutCubic } }
+        scale: root.pointerPressed ? 0.985
+            : (root.pointerHovered ? 1.012 : 1)
+        Behavior on scale {
+            NumberAnimation {
+                duration: root.pointerPressed ? 75 : 155
+                easing.type: root.pointerPressed
+                    ? Easing.OutCubic : Easing.OutBack
+                easing.overshoot: 0.55
             }
         }
     }

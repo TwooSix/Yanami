@@ -250,6 +250,8 @@ TestCase {
     LibraryCard {
         id: keyboardLibraryCard
         parent: surface
+        width: implicitWidth
+        height: implicitHeight
         visible: false
         title: "Library"
         subtitle: "3 items"
@@ -259,6 +261,8 @@ TestCase {
     PosterCard {
         id: keyboardPosterCard
         parent: surface
+        width: implicitWidth
+        height: implicitHeight
         visible: false
         title: "Series"
         subtitle: "2026"
@@ -268,6 +272,8 @@ TestCase {
     EpisodeCard {
         id: keyboardEpisodeCard
         parent: surface
+        width: implicitWidth
+        height: implicitHeight
         visible: false
         title: "Episode"
         subtitle: "S01 E01"
@@ -277,6 +283,8 @@ TestCase {
     RecentEpisodeCard {
         id: keyboardRecentCard
         parent: surface
+        width: implicitWidth
+        height: implicitHeight
         visible: false
         title: "Recent"
         subtitle: "S01 E02"
@@ -446,6 +454,114 @@ TestCase {
                "menu did not render after the input transition")
         compareMenuVisuals(menu, visualIndex, showFocusFrame)
         menu.contentItem.opacity = originalOpacity
+    }
+
+    function verifyMediaCardInputPresentation(card, activationSpy) {
+        card.visible = true
+        InputModality.noteKeyboardNavigation()
+        card.forceActiveFocus(Qt.TabFocusReason)
+        tryCompare(card, "activeFocus", true)
+        tryCompare(card, "navigationFocusVisible", true)
+
+        const cardSurface = findChild(card, "media-card-surface")
+        const hitArea = findChild(card, "media-card-hit-area")
+        const pointerScrim = findChild(card, "media-card-pointer-scrim")
+        const focusFrame = findChild(card, "media-card-focus-frame")
+        verify(cardSurface !== null, "missing media card surface")
+        verify(hitArea !== null, "missing stable media card hit area")
+        verify(pointerScrim !== null, "missing media card pointer scrim")
+        verify(focusFrame !== null, "missing media card focus frame")
+        compare(hitArea.parent, card,
+                "press animation must not transform the pointer hit area")
+        compare(cardSurface.border.width, 1,
+                "the original surface outline must remain below artwork")
+        compare(focusFrame.visible, true)
+        compare(focusFrame.border.width, 2)
+        verify(focusFrame.z > pointerScrim.z,
+               "focus frame must render above card content")
+        const restingScrimColor = pointerScrim.color.toString()
+        const restingScrimAlpha = pointerScrim.color.a
+
+        // Two distinct global positions avoid the platform service filtering
+        // a synthetic move that happens to match the existing cursor point.
+        mouseMove(card, card.width - 3, cardSurface.height - 3)
+        mouseMove(card, 18, 18)
+        tryCompare(InputModality, "modality", InputModality.Pointer)
+        tryCompare(card, "pointerHovered", true)
+        compare(card.navigationFocusVisible, false)
+        compare(focusFrame.visible, false)
+        compare(pointerScrim.color.toString(), restingScrimColor,
+                "pointer hover must not add a mismatched fill layer")
+
+        mousePress(card, 18, 18, Qt.LeftButton)
+        tryCompare(card, "pointerPressed", true)
+        compare(card.activeFocus, true)
+        compare(card.navigationFocusVisible, false)
+        compare(focusFrame.visible, false)
+        tryVerify(function() {
+            return cardSurface.scale < 1
+        })
+        tryVerify(function() {
+            return pointerScrim.color.a > restingScrimAlpha
+        }, 500, "pointer press must still provide shade feedback")
+        verify(Math.abs(pointerScrim.color.r - pointerScrim.color.g) < 0.001
+               && Math.abs(pointerScrim.color.g - pointerScrim.color.b) < 0.001,
+               "pointer press scrim must remain neutral")
+
+        mouseRelease(card, 18, 18, Qt.LeftButton)
+        tryCompare(card, "pointerPressed", false)
+        tryCompare(activationSpy, "count", 1)
+
+        // Hold at the very edge until the visual press scale has settled.
+        // The release must still activate through the unscaled hit target.
+        const edgeX = hitArea.x + 1
+        const edgeY = hitArea.y + hitArea.height / 2
+        mousePress(card, edgeX, edgeY, Qt.LeftButton)
+        tryCompare(card, "pointerPressed", true)
+        tryVerify(function() { return cardSurface.scale < 1 })
+        mouseRelease(card, edgeX, edgeY, Qt.LeftButton)
+        tryCompare(card, "pointerPressed", false)
+        tryCompare(activationSpy, "count", 2)
+
+        // The semantic focus acquired by the pointer remains useful for the
+        // next navigation input, but pointer hover itself must disappear.
+        InputModality.noteKeyboardNavigation()
+        compare(card.activeFocus, true)
+        tryCompare(card, "navigationFocusVisible", true)
+        compare(focusFrame.visible, true)
+        compare(card.pointerHovered, false)
+        compare(focusFrame.border.width, 2)
+
+        mouseMove(surface, surface.width - 4, surface.height - 4)
+        tryCompare(InputModality, "modality", InputModality.Pointer)
+        tryCompare(card, "navigationFocusVisible", false)
+        compare(focusFrame.visible, false)
+        card.visible = false
+    }
+
+    function verifyMediaCardProgressAlignment(card) {
+        card.visible = true
+        card.progress = 42
+
+        const cardSurface = findChild(card, "media-card-surface")
+        const progressStrip = findChild(card, "media-card-progress-strip")
+        const progressTrack = findChild(card, "media-card-progress-track")
+        verify(cardSurface !== null, "missing media card surface")
+        verify(progressStrip !== null, "missing shared media card progress strip")
+        verify(progressTrack !== null, "missing media card progress track")
+        compare(progressStrip.x, 0)
+        compare(progressStrip.y, 0)
+        compare(progressStrip.width, cardSurface.width)
+        compare(progressStrip.height, cardSurface.height)
+        compare(progressTrack.x, 0)
+        compare(progressTrack.width, cardSurface.width)
+        compare(progressTrack.y + progressTrack.height, cardSurface.height,
+                "progress track must sit exactly on the card bottom edge")
+        compare(progressTrack.height, 4,
+                "media card progress tracks must share one thickness")
+
+        card.progress = 0
+        card.visible = false
     }
 
     function init() {
@@ -670,6 +786,21 @@ TestCase {
         compare(recentPlaySpy.count, 1)
         keyClick(Qt.Key_F10, Qt.ShiftModifier)
         compare(recentContextSpy.count, 1)
+    }
+
+    function test_mediaCardsSeparatePointerPressFromNavigationFocus() {
+        const cards = [keyboardLibraryCard, keyboardPosterCard,
+                       keyboardEpisodeCard, keyboardRecentCard]
+        const activationSpies = [libraryActivatedSpy, posterActivatedSpy,
+                                 episodePlaySpy, recentPlaySpy]
+        for (let index = 0; index < cards.length; ++index)
+            verifyMediaCardInputPresentation(cards[index], activationSpies[index])
+    }
+
+    function test_mediaCardProgressTracksAlignWithArtworkBottomEdge() {
+        verifyMediaCardProgressAlignment(keyboardPosterCard)
+        verifyMediaCardProgressAlignment(keyboardEpisodeCard)
+        verifyMediaCardProgressAlignment(keyboardRecentCard)
     }
 
     function test_trackMenuFocusesADelegateAndHandlesBoundaryKeys() {

@@ -22,6 +22,7 @@ Item {
     property var playbackContext: ({})
     property var playbackQueue: []
     property int currentQueueIndex: -1
+    property bool queueResolutionSucceeded: false
     readonly property var previousQueueItem: queueEntryAt(currentQueueIndex - 1)
     readonly property var nextQueueItem: queueEntryAt(currentQueueIndex + 1)
     property double resumeTicks: 0
@@ -36,6 +37,16 @@ Item {
     property bool introOfferDismissed: false
     property bool switchingEpisode: false
     property bool preparingPlayback: false
+    property bool playbackEndVisible: false
+    property bool playbackEndRetryMode: false
+    property string playbackEndMessage: ""
+    property string playbackEndRetryAction: ""
+    property bool automaticAdvancePending: false
+    property bool automaticAdvanceOpening: false
+    property bool automaticQueueRefreshPending: false
+    property bool naturalCompletionHandled: false
+    property var pendingAutomaticQueueItem: ({})
+    property int pendingAutomaticQueueIndex: -1
     property bool developmentRenderDiagnostics: false
     property bool developmentDanmakuPreview: false
     property bool developmentPlaybackQueuePreview: false
@@ -76,6 +87,8 @@ Item {
     signal playbackLoaded()
     signal episodeSwitchRequested(string itemId, var context,
                                   double positionSeconds, bool paused)
+    signal replayRequested(string itemId, var context, string title)
+    signal queueRefreshRequested(string itemId, var context)
 
     onPlaybackQueueChanged: {
         if (developmentPlaybackQueuePreview && playbackQueue
@@ -85,15 +98,43 @@ Item {
 
     Rectangle { anchors.fill: parent; color: "black" }
 
+    PlaybackAdvancePolicy { id: playbackAdvancePolicy }
+
     MpvVideoItem {
         id: player
         anchors.fill: parent
         Component.onCompleted: app.playback.attachPlayer(player)
         onPlaybackError: message => {
+            // closePlayback() clears identity before the Loader is destroyed;
+            // discard any libmpv event already queued for that closed load.
+            if (root.mediaUrl.toString().length === 0
+                    || root.currentItemId.length === 0)
+                return
+            if (root.automaticAdvanceOpening) {
+                root.automaticAdvanceOpening = false
+                root.switchingEpisode = false
+                root.showPlaybackEndState(true, message)
+                return
+            }
             errorLabel.text = message
             root.errorOccurred(message)
         }
         onFileLoaded: {
+            if (root.mediaUrl.toString().length === 0
+                    || root.currentItemId.length === 0) {
+                player.stop()
+                return
+            }
+            const automaticOpenCompleted = root.automaticAdvanceOpening
+            root.automaticAdvanceOpening = false
+            if (automaticOpenCompleted) {
+                // keep-open and any stale runtime pause must never strand the
+                // automatically selected entry on its first frame.
+                player.paused = false
+                root.automaticAdvancePending = false
+                root.pendingAutomaticQueueItem = ({})
+                root.pendingAutomaticQueueIndex = -1
+            }
             root.introOfferArmed = false
             root.initialPlaybackTargetSeconds = root.developmentSeekSeconds > 0
                 ? root.developmentSeekSeconds
@@ -149,6 +190,7 @@ Item {
         onFileEnded: {
             root.playbackActive = false
         }
+        onPlaybackCompleted: root.handlePlaybackCompleted()
     }
 
     DanmakuOverlay {
@@ -271,9 +313,22 @@ Item {
         anchors.fill: parent
         z: 2
         active: root.loadingPreview || root.preparingPlayback
-            || root.switchingEpisode
+            || root.switchingEpisode || root.automaticAdvancePending
             || player.playbackState === MpvVideoItem.Loading
             || player.playbackState === MpvVideoItem.Buffering
+    }
+
+    PlaybackEndOverlay {
+        id: playbackEndOverlay
+        z: 20
+        anchors.fill: parent
+        shown: root.playbackEndVisible
+        retryMode: root.playbackEndRetryMode
+        heading: root.playbackEndHeading()
+        detail: root.playbackEndDetail()
+        onDoneRequested: root.closeRequested()
+        onReplayRequested: root.replayCurrentItem()
+        onRetryRequested: root.retryAutomaticAdvance()
     }
 
     AppButton {
@@ -819,6 +874,9 @@ Item {
         developmentDanmakuStylePreview.stop()
         developmentDanmakuStyleTriggered = false
         if (mediaUrl.toString().length > 0) {
+            const openingAutomatically = automaticAdvancePending
+            resetPlaybackEndState(openingAutomatically)
+            automaticAdvanceOpening = openingAutomatically
             switchingEpisode = false
             introOfferArmed = false
             introOfferDismissed = false
@@ -980,8 +1038,11 @@ Item {
         playbackContext = ({})
         playbackQueue = []
         currentQueueIndex = -1
+        queueResolutionSucceeded = false
         switchingEpisode = false
         preparingPlayback = false
+        automaticAdvanceOpening = false
+        resetPlaybackEndState()
         errorLabel.text = ""
     }
 
@@ -1002,6 +1063,203 @@ Item {
         preparingPlayback = false
         errorLabel.text = String(message || qsTr("Playback could not be prepared."))
         revealChrome()
+    }
+
+    function resetPlaybackEndState(preserveAutomaticAdvance) {
+        const preserveAutomatic = preserveAutomaticAdvance === true
+        playbackEndVisible = false
+        playbackEndRetryMode = false
+        playbackEndMessage = ""
+        playbackEndRetryAction = ""
+        automaticQueueRefreshPending = false
+        naturalCompletionHandled = false
+        if (!preserveAutomatic) {
+            automaticAdvancePending = false
+            pendingAutomaticQueueItem = ({})
+            pendingAutomaticQueueIndex = -1
+        }
+    }
+
+    function playbackEndHeading() {
+        if (playbackEndRetryMode
+                && playbackEndRetryAction === "resolve-next")
+            return qsTr("Could not check for another item")
+        if (playbackEndRetryMode)
+            return qsTr("The next item could not be played")
+        const kind = String((playbackContext || {}).kind || "").toLowerCase()
+        if (kind === "series")
+            return qsTr("You’ve reached the final episode")
+        if (kind === "playlist")
+            return qsTr("The play queue has ended")
+        return qsTr("Playback complete")
+    }
+
+    function playbackEndDetail() {
+        if (playbackEndRetryMode)
+            return playbackEndMessage
+        return String(mediaTitle || "").trim()
+    }
+
+    function showPlaybackEndState(retryMode, message, retryAction) {
+        playbackActive = false
+        preparingPlayback = false
+        automaticAdvancePending = false
+        automaticAdvanceOpening = false
+        automaticQueueRefreshPending = false
+        playbackEndRetryMode = retryMode === true
+        playbackEndMessage = String(message || "")
+        playbackEndRetryAction = playbackEndRetryMode
+            ? String(retryAction || "open-next") : ""
+        if (!playbackEndRetryMode
+                || playbackEndRetryAction !== "open-next") {
+            pendingAutomaticQueueItem = ({})
+            pendingAutomaticQueueIndex = -1
+        }
+        errorLabel.text = ""
+        introActivationTimer.stop()
+        introOfferTimeout.stop()
+        PopupCoordinator.closeScope(root, true)
+        hideChrome()
+        playbackEndVisible = true
+    }
+
+    function startAutomaticAdvance(decision) {
+        const item = (decision || {}).item || ({})
+        const itemId = String(item.id || "")
+        if (itemId.length === 0)
+            return false
+        const queueIndex = Number((decision || {}).queueIndex)
+        pendingAutomaticQueueItem = item
+        pendingAutomaticQueueIndex = Number.isInteger(queueIndex)
+            ? queueIndex : -1
+        automaticAdvancePending = true
+        playbackEndVisible = false
+        playbackEndRetryMode = false
+        playbackEndMessage = ""
+        playbackEndRetryAction = ""
+        PopupCoordinator.closeScope(root, true)
+        hideChrome()
+        const completedItemId = currentItemId
+        Qt.callLater(function() {
+            if (!root.automaticAdvancePending
+                    || root.currentItemId !== completedItemId)
+                return
+            if (!root.playQueueEntry(item,
+                                     root.pendingAutomaticQueueIndex, true)) {
+                root.showPlaybackEndState(
+                    true, qsTr("The next item could not be played."),
+                    "open-next")
+            }
+        })
+        return true
+    }
+
+    function requestAutomaticQueueRefresh() {
+        const itemId = String(currentItemId || "")
+        if (itemId.length === 0 || automaticQueueRefreshPending)
+            return false
+        automaticQueueRefreshPending = true
+        automaticAdvancePending = true
+        preparingPlayback = true
+        playbackEndVisible = false
+        playbackEndRetryMode = false
+        playbackEndMessage = ""
+        playbackEndRetryAction = ""
+        PopupCoordinator.closeScope(root, true)
+        hideChrome()
+        const requestedContext = playbackContext || ({})
+        Qt.callLater(function() {
+            if (root.automaticQueueRefreshPending
+                    && root.currentItemId === itemId)
+                root.queueRefreshRequested(itemId, requestedContext)
+        })
+        return true
+    }
+
+    function consumeQueueRefresh(descriptor) {
+        if (!automaticQueueRefreshPending)
+            return false
+        automaticQueueRefreshPending = false
+        automaticAdvancePending = false
+        preparingPlayback = false
+        previousItem = descriptor.previousItem || ({})
+        nextItem = descriptor.nextItem || ({})
+        playbackContext = descriptor.playbackContext || playbackContext || ({})
+        playbackQueue = descriptor.playbackQueue || []
+        currentQueueIndex = Number.isInteger(descriptor.currentQueueIndex)
+            ? descriptor.currentQueueIndex : -1
+        queueResolutionSucceeded = descriptor.queueResolutionSucceeded === true
+        const decision = playbackAdvancePolicy.decide(
+            playbackQueue, currentQueueIndex, nextItem,
+            queueResolutionSucceeded)
+        if (decision.action === "open-next")
+            startAutomaticAdvance(decision)
+        else if (decision.action === "complete")
+            showPlaybackEndState(false, "", "")
+        else
+            showPlaybackEndState(
+                true,
+                qsTr("Try again to check whether another item is available."),
+                "resolve-next")
+        return true
+    }
+
+    function recoverQueueRefreshFailure(message) {
+        if (!automaticQueueRefreshPending)
+            return
+        queueResolutionSucceeded = false
+        showPlaybackEndState(
+            true,
+            String(message
+                   || qsTr("Try again to check whether another item is available.")),
+            "resolve-next")
+    }
+
+    function handlePlaybackCompleted() {
+        if (mediaUrl.toString().length === 0 || currentItemId.length === 0
+                || naturalCompletionHandled || switchingEpisode
+                || preparingPlayback)
+            return
+        naturalCompletionHandled = true
+        playbackActive = false
+        introActivationTimer.stop()
+        introOfferTimeout.stop()
+        const decision = playbackAdvancePolicy.decide(
+            playbackQueue, currentQueueIndex, nextItem,
+            queueResolutionSucceeded)
+        if (decision.action === "open-next")
+            startAutomaticAdvance(decision)
+        else if (decision.action === "refresh-queue")
+            requestAutomaticQueueRefresh()
+        else
+            showPlaybackEndState(false, "", "")
+    }
+
+    function retryAutomaticAdvance() {
+        if (playbackEndRetryAction === "resolve-next") {
+            requestAutomaticQueueRefresh()
+            return
+        }
+        const item = pendingAutomaticQueueItem || ({})
+        const itemId = String(item.id || "")
+        if (itemId.length === 0) {
+            showPlaybackEndState(false, "", "")
+            return
+        }
+        if (!playQueueEntry(item, pendingAutomaticQueueIndex, true)) {
+            showPlaybackEndState(
+                true, qsTr("The next item could not be played."),
+                "open-next")
+        }
+    }
+
+    function replayCurrentItem() {
+        const itemId = String(currentItemId || "")
+        if (itemId.length === 0)
+            return
+        resetPlaybackEndState()
+        player.paused = false
+        replayRequested(itemId, playbackContext || ({}), mediaTitle)
     }
 
     function playAdjacent(item) {
@@ -1032,10 +1290,26 @@ Item {
             ? qsTr("Next episode") : qsTr("Next item")
     }
 
-    function playQueueEntry(item, queueIndex) {
+    function playQueueEntry(item, queueIndex, automaticAdvance) {
         const itemId = String(item && item.id ? item.id : "")
         if (itemId.length === 0 || switchingEpisode)
-            return
+            return false
+        const automatic = automaticAdvance === true
+        if (automatic) {
+            pendingAutomaticQueueItem = item || ({})
+            pendingAutomaticQueueIndex = Number.isInteger(queueIndex)
+                ? queueIndex : -1
+            automaticAdvancePending = true
+            automaticAdvanceOpening = false
+        } else {
+            automaticAdvancePending = false
+            automaticAdvanceOpening = false
+            pendingAutomaticQueueItem = ({})
+            pendingAutomaticQueueIndex = -1
+        }
+        playbackEndVisible = false
+        playbackEndRetryMode = false
+        playbackEndMessage = ""
         const baseContext = (item && item.playbackContext)
             ? item.playbackContext : (playbackContext || ({}))
         const requestedContext = ({})
@@ -1048,22 +1322,38 @@ Item {
         if (entryId.length > 0)
             requestedContext.playlistEntryId = entryId
         const lastPosition = player.position
-        const wasPaused = player.paused
+        const wasPaused = automatic ? false : player.paused
+        if (automatic)
+            player.paused = false
         playbackActive = false
         introActivationTimer.stop()
         introOfferTimeout.stop()
         switchingEpisode = true
-        player.stop()
+        // A naturally completed file is kept open by libmpv so its final
+        // frame can remain behind preparation and any recoverable error UI.
+        if (player.playbackState !== MpvVideoItem.Ended)
+            player.stop()
         mediaUrl = ""
         episodeSwitchRequested(itemId, requestedContext, lastPosition, wasPaused)
+        return true
     }
 
     function recoverFromPlaybackSwitchFailure(message) {
         if (!switchingEpisode)
             return
+        const automatic = automaticAdvancePending
         switchingEpisode = false
-        errorLabel.text = String(message || "")
-        revealChrome()
+        automaticAdvanceOpening = false
+        automaticAdvancePending = false
+        if (automatic) {
+            showPlaybackEndState(
+                true,
+                String(message || qsTr("The next item could not be played.")),
+                "open-next")
+        } else {
+            errorLabel.text = String(message || "")
+            revealChrome()
+        }
     }
 
     function skipIntro() {
