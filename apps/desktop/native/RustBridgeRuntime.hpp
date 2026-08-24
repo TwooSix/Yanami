@@ -64,6 +64,9 @@ public:
     YanamiOperationResult catalog(
         CatalogQuery query,
         const QString &parentId = {}) const;
+    YanamiOperationResult searchCatalog(const QString &query) const;
+    YanamiOperationResult hydrateCatalogSearchImages(
+        const QVariantMap &request) const;
     YanamiOperationResult media(
         MediaPort::Operation operation,
         const QString &itemId,
@@ -97,6 +100,7 @@ private:
         void *, const char *, const char *, char **, char **);
     using ItemBoolJsonOperation = int (*)(
         void *, const char *, int, char **, char **);
+    using ItemStatusOperation = int (*)(void *, const char *, char **);
     using ReportPlaybackJson = int (*)(void *, const char *, char **);
 
     template<typename Function>
@@ -143,6 +147,8 @@ private:
     JsonOperation m_activity = nullptr;
     JsonOperation m_favorites = nullptr;
     ItemJsonOperation m_collection = nullptr;
+    ItemJsonOperation m_catalogSearch = nullptr;
+    ItemStatusOperation m_catalogSearchHydrateImages = nullptr;
     ItemJsonOperation m_metadata = nullptr;
     ItemPayloadJsonOperation m_updateMetadata = nullptr;
     ItemJsonOperation m_playlistTargets = nullptr;

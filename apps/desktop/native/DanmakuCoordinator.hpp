@@ -8,7 +8,9 @@
 #include <QQueue>
 #include <QThreadPool>
 
+#include <atomic>
 #include <functional>
+#include <memory>
 #include <optional>
 
 class StatusSink;
@@ -30,8 +32,30 @@ public:
 
     using SessionStateProvider = std::function<SessionState()>;
 
+    // Plain function values keep the coordinator independently testable and,
+    // more importantly, let worker tasks retain only copyable callables. The
+    // production constructor below binds these operations to RustBridgeRuntime;
+    // no QObject or coordinator state is touched from a worker thread.
+    struct BackendOperations
+    {
+        std::function<bool()> ready;
+        std::function<YanamiStatusResult()> credentialSource;
+        std::function<YanamiOperationResult(
+            const QString &, const QString &)> configure;
+        std::function<YanamiOperationResult()> clearConfiguration;
+        std::function<YanamiOperationResult(
+            Operation, const QString &, const QVariantMap &)> danmaku;
+    };
+
     DanmakuCoordinator(
         RustBridgeRuntime &runtime,
+        QThreadPool &queryPool,
+        QThreadPool &mutationPool,
+        SessionStateProvider sessionStateProvider,
+        StatusSink &statusSink,
+        QObject *parent = nullptr);
+    DanmakuCoordinator(
+        BackendOperations backend,
         QThreadPool &queryPool,
         QThreadPool &mutationPool,
         SessionStateProvider sessionStateProvider,
@@ -96,10 +120,22 @@ private:
         quint64 identity = 0;
         quint64 sessionGeneration = 0;
         qint64 enqueuedAtMs = 0;
+        std::shared_ptr<std::atomic_bool> decodeAllowed;
         bool terminalDelivered = false;
     };
 
+    struct OperationWorkResult
+    {
+        int status = 1;
+        QString errorCode;
+        QString error;
+        QVariantMap result;
+        bool responseValid = false;
+        qint64 decodeElapsedNs = 0;
+    };
+
     SessionState sessionState() const;
+    bool backendReady() const;
     bool operationAvailable(const SessionState &session) const;
     bool refreshCredentialState(bool publishFailure);
 
@@ -129,15 +165,22 @@ private:
     void fenceSearchForMutation(const QString &itemId);
 
     bool accepts(const OperationRequest &request) const;
-    bool decodeResult(
+    static OperationWorkResult prepareResult(
+        Operation operation,
+        YanamiOperationResult operationResult,
+        const std::shared_ptr<std::atomic_bool> &decodeAllowed);
+    static bool decodeResult(
         Operation operation,
         const QByteArray &payload,
-        QVariantMap *result) const;
+        const std::shared_ptr<std::atomic_bool> &decodeAllowed,
+        QVariantMap *result);
     QString backendFailure(
         const YanamiOperationResult &result) const;
+    QString backendFailure(
+        const OperationWorkResult &result) const;
     void applyResult(
         OperationRequest &request,
-        const YanamiOperationResult &result,
+        const OperationWorkResult &result,
         qint64 elapsedMs);
     void completeOperation(
         OperationRequest &request,
@@ -156,7 +199,7 @@ private:
         bool publishStatus = false);
     static const char *operationName(Operation operation);
 
-    RustBridgeRuntime &m_runtime;
+    BackendOperations m_backend;
     QThreadPool &m_queryPool;
     QThreadPool &m_mutationPool;
     SessionStateProvider m_sessionStateProvider;
@@ -166,13 +209,13 @@ private:
     QElapsedTimer m_configurationTimer;
     std::optional<ConfigurationRequest> m_activeConfiguration;
 
-    QFutureWatcher<YanamiOperationResult> m_searchWatcher;
+    QFutureWatcher<OperationWorkResult> m_searchWatcher;
     QElapsedTimer m_searchTimer;
     std::optional<OperationRequest> m_activeSearch;
     std::optional<OperationRequest> m_queuedSearch;
     quint64 m_latestSearchIdentity = 0;
 
-    QFutureWatcher<YanamiOperationResult> m_mutationWatcher;
+    QFutureWatcher<OperationWorkResult> m_mutationWatcher;
     QElapsedTimer m_mutationTimer;
     std::optional<OperationRequest> m_activeMutation;
     QQueue<OperationRequest> m_mutationQueue;

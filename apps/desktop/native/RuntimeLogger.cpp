@@ -38,6 +38,7 @@ constexpr qsizetype maximumEntryBytes = 1024 * 1024;
 constexpr int archiveRetentionDays = 14;
 constexpr qsizetype maximumArchiveCount = 30;
 constexpr qint64 rotationRetryMilliseconds = 60'000;
+constexpr qint64 informationalFlushBytes = 64LL * 1024LL;
 
 struct LoggerState
 {
@@ -49,6 +50,7 @@ struct LoggerState
     quint64 rotationSequence = 0;
     bool installed = false;
     qint64 rotationRetryAfter = 0;
+    qint64 bytesSinceFlush = 0;
 };
 
 LoggerState &loggerState()
@@ -330,6 +332,7 @@ bool openActiveFile(LoggerState &state, const QDateTime &now)
     }
     if (!state.activeDate.isValid())
         state.activeDate = existingDate;
+    state.bytesSinceFlush = 0;
     return true;
 }
 
@@ -338,6 +341,7 @@ bool rotateActiveFile(LoggerState &state, const QDateTime &now)
     if (state.file.isOpen()) {
         state.file.flush();
         state.file.close();
+        state.bytesSinceFlush = 0;
     }
 
     const QFileInfo activeFile(state.activePath);
@@ -476,7 +480,8 @@ void writeEntryLocked(
     QtMsgType type,
     const QMessageLogContext &context,
     const QString &message,
-    const QDateTime &now)
+    const QDateTime &now,
+    bool forceFlush = false)
 {
     const QByteArray entry = formatEntry(type, context, message, now);
     if (!prepareForWrite(state, now, entry.size())) {
@@ -491,7 +496,19 @@ void writeEntryLocked(
         writeToStderr(entry.trimmed());
         return;
     }
-    state.file.flush();
+    state.bytesSinceFlush += entry.size();
+    const bool urgent = type == QtWarningMsg
+        || type == QtCriticalMsg || type == QtFatalMsg;
+    if (forceFlush || urgent
+        || state.bytesSinceFlush >= informationalFlushBytes) {
+        if (state.file.flush()) {
+            state.bytesSinceFlush = 0;
+        } else {
+            writeToStderr(
+                "RuntimeLogger: failed to flush log file: "
+                + state.file.errorString().toUtf8());
+        }
+    }
 }
 
 void messageHandler(
@@ -533,7 +550,9 @@ void writeLifecycleEntry(LoggerState &state, const QString &message)
         __LINE__,
         Q_FUNC_INFO,
         "yanami.runtime.logger");
-    writeEntryLocked(state, QtInfoMsg, context, message, QDateTime::currentDateTime());
+    writeEntryLocked(
+        state, QtInfoMsg, context, message,
+        QDateTime::currentDateTime(), true);
 }
 
 } // namespace
@@ -548,6 +567,7 @@ bool install()
     state.activePath = resolvedLogPath();
     state.activeDate = {};
     state.rotationRetryAfter = 0;
+    state.bytesSinceFlush = 0;
     if (state.activePath.isEmpty()) {
         writeToStderr("RuntimeLogger: AppLocalDataLocation is unavailable");
         return false;
@@ -604,6 +624,7 @@ void shutdown()
     if (state.file.isOpen()) {
         state.file.flush();
         state.file.close();
+        state.bytesSinceFlush = 0;
     }
 }
 

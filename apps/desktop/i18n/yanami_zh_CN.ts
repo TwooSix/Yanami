@@ -134,107 +134,107 @@
 <context>
     <name>ApplicationStatusService</name>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="200"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="204"/>
         <source>The operation was canceled.</source>
         <translation>操作已取消。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="202"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="206"/>
         <source>The request was invalid. Check the entered values and try again.</source>
         <translation>请求无效，请检查输入内容后重试。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="205"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="209"/>
         <source>This action requires an active Emby connection.</source>
         <translation>此操作需要有效的 Emby 连接。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="207"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="211"/>
         <source>The requested media item could not be found.</source>
         <translation>未找到所请求的媒体项目。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="209"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="213"/>
         <source>This account does not have permission to perform that action.</source>
         <translation>此账号没有执行该操作的权限。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="212"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="216"/>
         <source>This server operation or media format is not supported yet.</source>
         <translation>此服务器操作或媒体格式暂不受支持。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="215"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="219"/>
         <source>Yanami could not read or save its local data.</source>
         <translation>Yanami 无法读取或保存本地数据。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="217"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="221"/>
         <source>The saved credentials were rejected. Sign in again.</source>
         <translation>保存的凭据已被拒绝，请重新登录。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="219"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="223"/>
         <source>Yanami could not reach the Emby server. Check the server address and network connection.</source>
         <translation>Yanami 无法连接到 Emby 服务器，请检查服务器地址和网络连接。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="225"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="229"/>
         <source>Yanami could not start its application backend.</source>
         <translation>Yanami 无法启动应用后端。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="233"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="237"/>
         <source>The operation could not be completed. Please try again.</source>
         <translation>无法完成此操作，请重试。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="242"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="246"/>
         <source>The danmaku operation was canceled.</source>
         <translation>弹幕操作已取消。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="244"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="248"/>
         <source>The danmaku request was invalid. Check the entered values and try again.</source>
         <translation>弹幕请求无效，请检查输入内容后重试。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="247"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="251"/>
         <source>Danmaku cannot be loaded because there is no active playback session.</source>
         <translation>当前没有有效的播放会话，无法加载弹幕。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="250"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="254"/>
         <source>The requested danmaku could not be found.</source>
         <translation>未找到所请求的弹幕内容。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="252"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="256"/>
         <source>The danmaku service rejected this request.</source>
         <translation>弹幕服务拒绝了此请求。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="254"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="258"/>
         <source>The current danmaku request is not supported.</source>
         <translation>当前弹幕请求暂不受支持。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="256"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="260"/>
         <source>Yanami could not read or save its local danmaku data.</source>
         <translation>Yanami 无法读取或保存本地弹幕数据。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="258"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="262"/>
         <source>The danmaku service credentials were rejected. Check the danmaku settings.</source>
         <translation>弹幕服务凭据已被拒绝，请检查弹幕设置。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="261"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="265"/>
         <source>Could not connect to the danmaku service. Check the network connection.</source>
         <translation>无法连接到弹幕服务，请检查网络连接。</translation>
     </message>
     <message>
-        <location filename="../native/BackendInfrastructure.cpp" line="270"/>
+        <location filename="../native/BackendInfrastructure.cpp" line="274"/>
         <source>The danmaku operation could not be completed. Please try again.</source>
         <translation>无法完成弹幕操作，请重试。</translation>
     </message>
@@ -242,25 +242,25 @@
 <context>
     <name>CatalogCoordinator</name>
     <message>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="388"/>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="397"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="391"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="400"/>
         <source>The operation failed.</source>
         <translation>操作失败。</translation>
     </message>
     <message>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="414"/>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="437"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="417"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="440"/>
         <source>The media library response was invalid.</source>
         <translation>媒体库响应无效。</translation>
     </message>
     <message>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="419"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="422"/>
         <location filename="../native/CatalogCoordinatorNavigation.cpp" line="473"/>
         <source>The collection response was invalid.</source>
         <translation>内容集合响应无效。</translation>
     </message>
     <message>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="450"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="453"/>
         <source>Loaded %1 libraries, %2 titles and %3 recent episodes.</source>
         <translation>已加载 %1 个媒体库、%2 个标题和 %3 个最近更新单集。</translation>
     </message>
@@ -270,7 +270,7 @@
         <translation>已加载 %1 项。</translation>
     </message>
     <message>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="656"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="682"/>
         <source>The backend %1 response uses an incompatible schema version (expected %2, received %3).</source>
         <translation>后端 %1 响应使用了不兼容的数据版本（预期 %2，收到 %3）。</translation>
     </message>
@@ -502,14 +502,14 @@
 <context>
     <name>DanmakuViewModel</name>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="427"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="429"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="445"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="447"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="467"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="469"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="487"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="505"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="522"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="524"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="540"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="542"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="562"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="564"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="582"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="600"/>
         <source>Backend is unavailable.</source>
         <translation>后端当前不可用。</translation>
     </message>
@@ -624,13 +624,13 @@
 <context>
     <name>FavoritesViewModel</name>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="243"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="338"/>
         <source>Favorites could not be loaded.</source>
         <translation>无法加载收藏内容。</translation>
     </message>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="263"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="271"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="358"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="366"/>
         <source>Favorites are unavailable without an active server session.</source>
         <translation>未连接服务器时无法使用收藏内容。</translation>
     </message>
@@ -638,229 +638,239 @@
 <context>
     <name>HomePage</name>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="50"/>
-        <location filename="../qml/pages/HomePage.qml" line="197"/>
+        <location filename="../qml/pages/HomePage.qml" line="52"/>
+        <location filename="../qml/pages/HomePage.qml" line="208"/>
         <source>Name</source>
         <translation>名称</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="51"/>
+        <location filename="../qml/pages/HomePage.qml" line="53"/>
         <source>Recently updated</source>
         <translation>最近更新</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="52"/>
+        <location filename="../qml/pages/HomePage.qml" line="54"/>
         <source>Release date</source>
         <translation>发布时间</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="53"/>
+        <location filename="../qml/pages/HomePage.qml" line="55"/>
         <source>Recently added</source>
         <translation>最近入库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="54"/>
+        <location filename="../qml/pages/HomePage.qml" line="56"/>
         <source>Unplayed first</source>
         <translation>未播放优先</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="342"/>
+        <location filename="../qml/pages/HomePage.qml" line="383"/>
         <source>Playlists</source>
         <translation>播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="349"/>
+        <location filename="../qml/pages/HomePage.qml" line="390"/>
         <source>%1 playlists</source>
         <translation>%1 个播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="356"/>
+        <location filename="../qml/pages/HomePage.qml" line="397"/>
         <source>No playlists yet</source>
         <translation>还没有播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="453"/>
+        <location filename="../qml/pages/HomePage.qml" line="494"/>
         <source>Home</source>
         <translation>首页</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="455"/>
+        <location filename="../qml/pages/HomePage.qml" line="496"/>
         <source>Series details</source>
         <translation>剧集详情</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="465"/>
-        <location filename="../qml/pages/HomePage.qml" line="1180"/>
-        <location filename="../qml/pages/HomePage.qml" line="1181"/>
+        <location filename="../qml/pages/HomePage.qml" line="506"/>
+        <location filename="../qml/pages/HomePage.qml" line="1227"/>
+        <location filename="../qml/pages/HomePage.qml" line="1228"/>
         <source>Library</source>
         <translation>媒体库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="468"/>
+        <location filename="../qml/pages/HomePage.qml" line="509"/>
         <source>Playlist</source>
         <translation>播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="481"/>
-        <location filename="../qml/pages/HomePage.qml" line="1200"/>
+        <location filename="../qml/pages/HomePage.qml" line="522"/>
+        <location filename="../qml/pages/HomePage.qml" line="1247"/>
         <source>Sort · %1</source>
         <translation>排序 · %1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="490"/>
+        <location filename="../qml/pages/HomePage.qml" line="531"/>
         <source>Refresh</source>
         <translation>刷新</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="502"/>
+        <location filename="../qml/pages/HomePage.qml" line="543"/>
         <source>All libraries</source>
         <translation>所有媒体库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="551"/>
+        <location filename="../qml/pages/HomePage.qml" line="592"/>
         <source>No libraries to display</source>
         <translation>没有可显示的媒体库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="638"/>
+        <location filename="../qml/pages/HomePage.qml" line="665"/>
+        <source>Could not refresh Continue Watching</source>
+        <translation>无法刷新“继续观看”</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/HomePage.qml" line="682"/>
         <source>Recent updates</source>
         <translation>最近更新</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="690"/>
+        <location filename="../qml/pages/HomePage.qml" line="735"/>
+        <source>Could not refresh recent updates</source>
+        <translation>无法刷新最近更新</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/HomePage.qml" line="736"/>
         <source>No recent updates</source>
         <translation>没有最近更新</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="357"/>
+        <location filename="../qml/pages/HomePage.qml" line="398"/>
         <source>No titles in this library</source>
         <translation>媒体库中没有可显示的内容</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="551"/>
+        <location filename="../qml/pages/HomePage.qml" line="592"/>
         <source>Unable to load libraries</source>
         <translation>无法加载媒体库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="560"/>
-        <location filename="../qml/pages/HomePage.qml" line="834"/>
-        <location filename="../qml/pages/HomePage.qml" line="1294"/>
+        <location filename="../qml/pages/HomePage.qml" line="601"/>
+        <location filename="../qml/pages/HomePage.qml" line="881"/>
+        <location filename="../qml/pages/HomePage.qml" line="1341"/>
         <source>Try again</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="571"/>
+        <location filename="../qml/pages/HomePage.qml" line="612"/>
         <source>Continue watching</source>
         <translation>继续观看</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="623"/>
+        <location filename="../qml/pages/HomePage.qml" line="666"/>
         <source>Nothing to continue yet</source>
         <translation>暂无可继续观看的内容</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="703"/>
+        <location filename="../qml/pages/HomePage.qml" line="750"/>
         <source>Series</source>
         <translation>剧集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="768"/>
+        <location filename="../qml/pages/HomePage.qml" line="815"/>
         <source>PLAYLIST</source>
         <translation>播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="786"/>
+        <location filename="../qml/pages/HomePage.qml" line="833"/>
         <source>%1 items in playback order</source>
         <translation>%1 项 · 按播放顺序</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="350"/>
+        <location filename="../qml/pages/HomePage.qml" line="391"/>
         <source>%1 titles</source>
         <translation>%1 部作品</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="795"/>
+        <location filename="../qml/pages/HomePage.qml" line="842"/>
         <source>Play</source>
         <translation>播放</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="825"/>
+        <location filename="../qml/pages/HomePage.qml" line="872"/>
         <source>Unable to load this page</source>
         <translation>无法加载此页面</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="845"/>
+        <location filename="../qml/pages/HomePage.qml" line="892"/>
         <source>Seasons and specials</source>
         <translation>季与特别篇</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="897"/>
+        <location filename="../qml/pages/HomePage.qml" line="944"/>
         <source>No seasons to display</source>
         <translation>没有可显示的季</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="854"/>
-        <location filename="../qml/pages/HomePage.qml" line="997"/>
+        <location filename="../qml/pages/HomePage.qml" line="901"/>
+        <location filename="../qml/pages/HomePage.qml" line="1044"/>
         <source>%1 items</source>
         <translation>%1 项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="919"/>
+        <location filename="../qml/pages/HomePage.qml" line="966"/>
         <source>Episodes</source>
         <translation>本季单集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="967"/>
+        <location filename="../qml/pages/HomePage.qml" line="1014"/>
         <source>No playable episodes in this season</source>
         <translation>这一季没有可播放单集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="928"/>
+        <location filename="../qml/pages/HomePage.qml" line="975"/>
         <source>%1 episodes · Horizontal browsing</source>
         <translation>%1 集 · 横向浏览</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="989"/>
+        <location filename="../qml/pages/HomePage.qml" line="1036"/>
         <source>Playlist items</source>
         <translation>播放列表条目</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1092"/>
+        <location filename="../qml/pages/HomePage.qml" line="1139"/>
         <source>Remove from playlist</source>
         <translation>从播放列表移除</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1140"/>
+        <location filename="../qml/pages/HomePage.qml" line="1187"/>
         <source>This playlist is empty</source>
         <translation>这个播放列表还是空的</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1192"/>
+        <location filename="../qml/pages/HomePage.qml" line="1239"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1285"/>
+        <location filename="../qml/pages/HomePage.qml" line="1332"/>
         <source>Unable to load this library</source>
         <translation>无法加载此媒体库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1345"/>
+        <location filename="../qml/pages/HomePage.qml" line="1392"/>
         <source>Connect your Emby server</source>
         <translation>连接你的 Emby 服务器</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1355"/>
+        <location filename="../qml/pages/HomePage.qml" line="1402"/>
         <source>Set up Emby in Settings to start browsing your media library.</source>
         <translation>前往设置完成 Emby 配置，即可开始浏览你的媒体库。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1367"/>
+        <location filename="../qml/pages/HomePage.qml" line="1414"/>
         <source>Go to Settings</source>
         <translation>前往设置</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1379"/>
+        <location filename="../qml/pages/HomePage.qml" line="1426"/>
         <source>Library sorting</source>
         <translation>媒体库排序</translation>
     </message>
@@ -868,28 +878,35 @@
 <context>
     <name>HomeViewModel</name>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="157"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="158"/>
         <source>The library is unavailable without an active server session.</source>
         <translation>未连接服务器时无法使用媒体库。</translation>
     </message>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="166"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="167"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="184"/>
         <source>Activity is unavailable without an active server session.</source>
         <translation>未连接服务器时无法加载活动内容。</translation>
     </message>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="177"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="188"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="180"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="232"/>
+        <source>Activity could not be refreshed.</source>
+        <translation>无法刷新活动记录。</translation>
+    </message>
+    <message>
+        <location filename="../native/ApplicationViewModel.cpp" line="195"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="206"/>
         <source>The collection is unavailable without an active server session.</source>
         <translation>未连接服务器时无法使用此内容集合。</translation>
     </message>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="201"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="219"/>
         <source>The library could not be loaded.</source>
         <translation>无法加载媒体库。</translation>
     </message>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="220"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="244"/>
         <source>The collection could not be loaded.</source>
         <translation>无法加载内容集合。</translation>
     </message>
@@ -1162,62 +1179,62 @@
 <context>
     <name>Main</name>
     <message>
-        <location filename="../qml/Main.qml" line="416"/>
+        <location filename="../qml/Main.qml" line="419"/>
         <source>Favorites</source>
         <translation>收藏</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="678"/>
+        <location filename="../qml/Main.qml" line="680"/>
         <source>Delete media item?</source>
         <translation>删除媒体项目？</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="139"/>
+        <location filename="../qml/Main.qml" line="142"/>
         <source>An external subtitle is unavailable.</source>
         <translation>一个外挂字幕不可用。</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="141"/>
+        <location filename="../qml/Main.qml" line="144"/>
         <source>Some external subtitles are unavailable.</source>
         <translation>部分外挂字幕不可用。</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="142"/>
+        <location filename="../qml/Main.qml" line="145"/>
         <source>Playback started with a non-fatal warning.</source>
         <translation>播放已开始，但出现一项非致命警告。</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="679"/>
+        <location filename="../qml/Main.qml" line="681"/>
         <source>This permanently deletes &quot;%1&quot; from the Emby server. This action cannot be undone.</source>
         <translation>这将从 Emby 服务器永久删除“%1”，此操作无法撤销。</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="680"/>
+        <location filename="../qml/Main.qml" line="682"/>
         <source>Delete</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="394"/>
+        <location filename="../qml/Main.qml" line="397"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="403"/>
+        <location filename="../qml/Main.qml" line="406"/>
         <source>Search</source>
         <translation>搜索</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="426"/>
+        <location filename="../qml/Main.qml" line="429"/>
         <source>About</source>
         <translation>关于</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="435"/>
+        <location filename="../qml/Main.qml" line="438"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="714"/>
+        <location filename="../qml/Main.qml" line="717"/>
         <source>Added to playlist</source>
         <translation>已添加到播放列表</translation>
     </message>
@@ -1225,7 +1242,7 @@
 <context>
     <name>MediaActionHost</name>
     <message>
-        <location filename="../qml/components/MediaActionHost.qml" line="23"/>
+        <location filename="../qml/components/MediaActionHost.qml" line="24"/>
         <source>Removed from playlist</source>
         <translation>已从播放列表移除</translation>
     </message>
@@ -1233,7 +1250,7 @@
 <context>
     <name>MediaActionsViewModel</name>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="663"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="758"/>
         <source>Backend is unavailable.</source>
         <translation>后端当前不可用。</translation>
     </message>
@@ -1709,53 +1726,54 @@
 <context>
     <name>MpvVideoItem</name>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="218"/>
+        <location filename="../native/MpvVideoItem.cpp" line="255"/>
         <source>Unable to initialize the libmpv OpenGL renderer.</source>
         <translation>无法初始化 libmpv OpenGL 渲染器。</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="516"/>
+        <location filename="../native/MpvVideoItem.cpp" line="691"/>
         <source>Unable to switch the audio track.</source>
         <translation>无法切换音轨。</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="526"/>
+        <location filename="../native/MpvVideoItem.cpp" line="701"/>
         <source>Unable to switch the subtitle track.</source>
         <translation>无法切换字幕轨道。</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="535"/>
+        <location filename="../native/MpvVideoItem.cpp" line="710"/>
         <source>Unable to disable subtitles.</source>
         <translation>无法关闭字幕。</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="610"/>
+        <location filename="../native/MpvVideoItem.cpp" line="865"/>
         <source>Playback failed: %1</source>
         <translation>播放失败：%1</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="731"/>
+        <location filename="../native/MpvVideoItem.cpp" line="1016"/>
         <source>Playback ended before the media was complete.</source>
         <translation>播放在媒体完整结束前中断。</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="792"/>
+        <location filename="../native/MpvVideoItem.cpp" line="1140"/>
         <source>Audio track %1</source>
         <translation>音轨 %1</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="793"/>
+        <location filename="../native/MpvVideoItem.cpp" line="1141"/>
         <source>Subtitle %1</source>
         <translation>字幕 %1</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="940"/>
-        <location filename="../native/MpvVideoItem.cpp" line="991"/>
+        <location filename="../native/MpvVideoItem.cpp" line="1236"/>
+        <location filename="../native/MpvVideoItem.cpp" line="1287"/>
         <source>The connection is slow. Playback will resume automatically.</source>
         <translation>连接较慢，恢复后将自动继续播放。</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="859"/>
+        <location filename="../native/MpvVideoItem.cpp" line="733"/>
+        <location filename="../native/MpvVideoItem.cpp" line="1356"/>
         <source>libmpv rejected a playback command.</source>
         <translation>libmpv 拒绝了播放命令。</translation>
     </message>
@@ -1908,150 +1926,150 @@
 <context>
     <name>PlayerPage</name>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="341"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="377"/>
         <source>Skip Intro</source>
         <translation>跳过片头</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="384"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="420"/>
         <source>Playback position</source>
         <translation>播放进度</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1054"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1092"/>
         <source>Preparing playback</source>
         <translation>正在准备播放</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1064"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1103"/>
         <source>Playback could not be prepared.</source>
         <translation>无法准备播放。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1086"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1126"/>
         <source>Could not check for another item</source>
         <translation>无法确认是否还有下一项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1088"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1128"/>
         <source>The next item could not be played</source>
         <translation>无法播放下一项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1091"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1131"/>
         <source>You’ve reached the final episode</source>
         <translation>本剧已播放至最后一集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1093"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1133"/>
         <source>The play queue has ended</source>
         <translation>播放队列已结束</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1094"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1134"/>
         <source>Playback complete</source>
         <translation>播放完毕</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1150"/>
-        <location filename="../qml/pages/PlayerPage.qml" line="1251"/>
-        <location filename="../qml/pages/PlayerPage.qml" line="1351"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1191"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1292"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1394"/>
         <source>The next item could not be played.</source>
         <translation>无法播放下一项。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1202"/>
-        <location filename="../qml/pages/PlayerPage.qml" line="1214"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1243"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1255"/>
         <source>Try again to check whether another item is available.</source>
         <translation>请重试以检查是否还有下一项。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1285"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1326"/>
         <source>Previous episode</source>
         <translation>上一集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1290"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1331"/>
         <source>Next episode</source>
         <translation>下一集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="451"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="487"/>
         <source>Danmaku</source>
         <translation>弹幕</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="490"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="526"/>
         <source>Subtitles · %1</source>
         <translation>字幕 · %1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="491"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="527"/>
         <source>Subtitles</source>
         <translation>字幕</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="504"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="540"/>
         <source>Audio · %1</source>
         <translation>音轨 · %1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="505"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="541"/>
         <source>Audio</source>
         <translation>音轨</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="517"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="553"/>
         <source>Original</source>
         <translation>原画</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="570"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="606"/>
         <source>Exit fullscreen</source>
         <translation>退出全屏</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="571"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="607"/>
         <source>Enter fullscreen</source>
         <translation>进入全屏</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="586"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="622"/>
         <source>Subtitle tracks</source>
         <translation>字幕轨道</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="606"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="642"/>
         <source>Audio tracks</source>
         <translation>音轨</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="622"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="658"/>
         <source>Playback quality</source>
         <translation>播放质量</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="625"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="661"/>
         <source>Original · Automatically select the best direct source</source>
         <translation>原画 · 自动选择最佳直连源</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="536"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="572"/>
         <source>Play queue</source>
         <translation>播放队列</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="539"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="575"/>
         <source>Play queue · %1 of %2</source>
         <translation>播放队列 · 第 %1 项，共 %2 项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1285"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1326"/>
         <source>Previous item</source>
         <translation>上一项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1290"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1331"/>
         <source>Next item</source>
         <translation>下一项</translation>
     </message>
@@ -2136,66 +2154,149 @@
     </message>
 </context>
 <context>
+    <name>SearchCoordinator</name>
+    <message>
+        <location filename="../native/SearchCoordinator.cpp" line="230"/>
+        <source>Search requires an active Emby connection.</source>
+        <translation>需要连接 Emby 后才能搜索。</translation>
+    </message>
+    <message>
+        <location filename="../native/SearchCoordinator.cpp" line="408"/>
+        <source>Search could not be completed.</source>
+        <translation>无法完成搜索。</translation>
+    </message>
+    <message>
+        <location filename="../native/SearchCoordinator.cpp" line="419"/>
+        <source>The search response was invalid.</source>
+        <translation>搜索响应无效。</translation>
+    </message>
+    <message>
+        <location filename="../native/SearchCoordinator.cpp" line="429"/>
+        <source>The search response was incompatible.</source>
+        <translation>搜索响应版本不兼容。</translation>
+    </message>
+    <message>
+        <location filename="../native/SearchCoordinator.cpp" line="461"/>
+        <source>Background catalog indexing was interrupted and will retry automatically.</source>
+        <translation>后台媒体目录索引暂时中断，将自动重试。</translation>
+    </message>
+</context>
+<context>
     <name>SearchPage</name>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="64"/>
+        <location filename="../qml/pages/SearchPage.qml" line="72"/>
         <source>Search</source>
         <translation>搜索</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="71"/>
-        <source>Find movies and series by title</source>
-        <translation>按片名查找电影与剧集</translation>
+        <location filename="../qml/pages/SearchPage.qml" line="79"/>
+        <source>Find movies, series, seasons, and episodes</source>
+        <translation>查找电影、剧集、季与单集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="88"/>
+        <location filename="../qml/pages/SearchPage.qml" line="96"/>
         <source>Search library</source>
         <translation>搜索片库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="89"/>
+        <location filename="../qml/pages/SearchPage.qml" line="97"/>
         <source>Enter a title, episode, or season</source>
         <translation>输入片名、集名或季信息</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="100"/>
+        <location filename="../qml/pages/SearchPage.qml" line="112"/>
         <source>Clear</source>
         <translation>清除</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="112"/>
+        <location filename="../qml/pages/SearchPage.qml" line="124"/>
         <source>Search results</source>
         <translation>搜索结果</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="114"/>
+        <location filename="../qml/pages/SearchPage.qml" line="125"/>
+        <source>Searching…</source>
+        <translation>正在搜索…</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SearchPage.qml" line="128"/>
+        <source>Showing first %1 results</source>
+        <translation>显示前 %1 项结果</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SearchPage.qml" line="131"/>
+        <source>Showing %1 of %2 results</source>
+        <translation>显示 %1 / %2 项结果</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SearchPage.qml" line="134"/>
         <source>%1 results</source>
         <translation>找到 %1 项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="115"/>
+        <location filename="../qml/pages/SearchPage.qml" line="135"/>
         <source>No matches</source>
         <translation>没有匹配结果</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="179"/>
+        <location filename="../qml/pages/SearchPage.qml" line="150"/>
+        <source>Searching %1 cached items. %2</source>
+        <translation>正在搜索本地缓存的 %1 项内容。%2</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SearchPage.qml" line="156"/>
+        <source>Searching %1 cached items while indexing continues (%1 of %2).</source>
+        <translation>正在搜索本地缓存的 %1 项内容；后台索引仍在继续（%1 / %2）。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SearchPage.qml" line="158"/>
+        <source>Searching %1 cached items while indexing continues.</source>
+        <translation>正在搜索本地缓存的 %1 项内容；后台索引仍在继续。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SearchPage.qml" line="162"/>
+        <source>Searching %1 cached items; the catalog index is not complete yet.</source>
+        <translation>正在搜索本地缓存的 %1 项内容；全库索引尚未完成。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SearchPage.qml" line="230"/>
         <source>Start searching your Emby library</source>
         <translation>从你的 Emby 片库开始搜索</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="180"/>
+        <location filename="../qml/pages/SearchPage.qml" line="232"/>
+        <source>Searching the cached catalog…</source>
+        <translation>正在搜索本地媒体目录…</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SearchPage.qml" line="234"/>
+        <source>Building your local catalog…</source>
+        <translation>正在建立本地媒体目录…</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SearchPage.qml" line="235"/>
         <source>Try another keyword</source>
         <translation>换一个关键词试试</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="189"/>
-        <source>Matches titles and latest episode information instantly</source>
-        <translation>搜索会即时匹配片名与最新一集信息</translation>
+        <location filename="../qml/pages/SearchPage.qml" line="244"/>
+        <source>Cached results appear instantly while the full catalog indexes in the background</source>
+        <translation>已缓存的结果会立即显示，其余媒体目录会在后台继续索引</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="190"/>
-        <source>Try a shorter title or episode name</source>
-        <translation>可以输入更短的片名或剧集名称</translation>
+        <location filename="../qml/pages/SearchPage.qml" line="246"/>
+        <source>More matches can appear as indexing progresses</source>
+        <translation>随着索引推进，可能会出现更多匹配项</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SearchPage.qml" line="247"/>
+        <source>Try a shorter title, alias, or episode code</source>
+        <translation>尝试输入更短的片名、别名或剧集编号</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SearchPage.qml" line="530"/>
+        <source>The current keyword is preserved; results will update after search recovers.</source>
+        <translation>当前关键词会保留；搜索恢复后结果会自动更新。</translation>
     </message>
 </context>
 <context>

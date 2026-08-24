@@ -32,8 +32,40 @@ DanmakuCoordinator::DanmakuCoordinator(
     SessionStateProvider sessionStateProvider,
     StatusSink &statusSink,
     QObject *parent)
+    : DanmakuCoordinator(
+        BackendOperations {
+            [&runtime] { return runtime.ready(); },
+            [&runtime] {
+                return runtime.dandanplayCredentialSource();
+            },
+            [&runtime](const QString &appId,
+                const QString &appSecret) {
+                return runtime.configureDandanplay(appId, appSecret);
+            },
+            [&runtime] { return runtime.clearDandanplay(); },
+            [&runtime](Operation operation,
+                const QString &itemId,
+                const QVariantMap &payload) {
+                return runtime.danmaku(operation, itemId, payload);
+            },
+        },
+        queryPool,
+        mutationPool,
+        std::move(sessionStateProvider),
+        statusSink,
+        parent)
+{
+}
+
+DanmakuCoordinator::DanmakuCoordinator(
+    BackendOperations backend,
+    QThreadPool &queryPool,
+    QThreadPool &mutationPool,
+    SessionStateProvider sessionStateProvider,
+    StatusSink &statusSink,
+    QObject *parent)
     : DanmakuPort(parent)
-    , m_runtime(runtime)
+    , m_backend(std::move(backend))
     , m_queryPool(queryPool)
     , m_mutationPool(mutationPool)
     , m_sessionStateProvider(std::move(sessionStateProvider))
@@ -43,10 +75,10 @@ DanmakuCoordinator::DanmakuCoordinator(
         &QFutureWatcher<YanamiOperationResult>::finished,
         this, &DanmakuCoordinator::finishConfiguration);
     connect(&m_searchWatcher,
-        &QFutureWatcher<YanamiOperationResult>::finished,
+        &QFutureWatcher<OperationWorkResult>::finished,
         this, &DanmakuCoordinator::finishSearch);
     connect(&m_mutationWatcher,
-        &QFutureWatcher<YanamiOperationResult>::finished,
+        &QFutureWatcher<OperationWorkResult>::finished,
         this, &DanmakuCoordinator::finishMutation);
 }
 
@@ -67,7 +99,7 @@ bool DanmakuCoordinator::initializeCredentialStatus()
     if (m_shuttingDown)
         return false;
     m_initialized = true;
-    m_acceptingRequests = m_runtime.ready();
+    m_acceptingRequests = backendReady();
     if (!m_acceptingRequests) {
         m_statusSink.publishStatus(tr("The backend is unavailable."), true);
         return false;
@@ -133,7 +165,8 @@ void DanmakuCoordinator::configure(
     const QString &appId,
     const QString &appSecret)
 {
-    if (!m_acceptingRequests || !m_runtime.ready()) {
+    if (!m_acceptingRequests || !backendReady()
+        || !m_backend.configure) {
         rejectConfiguration(requestId, ConfigurationOperation::Configure,
             tr("The backend is unavailable."));
         return;
@@ -154,17 +187,18 @@ void DanmakuCoordinator::configure(
     request.clientRequestId = requestId;
     request.operation = ConfigurationOperation::Configure;
     request.identity = ++m_nextRequestIdentity;
-    RustBridgeRuntime *runtime = &m_runtime;
+    const auto configureBackend = m_backend.configure;
     startConfiguration(std::move(request),
-        [runtime, normalizedAppId, appSecret] {
-            return runtime->configureDandanplay(
+        [configureBackend, normalizedAppId, appSecret] {
+            return configureBackend(
                 normalizedAppId, appSecret);
         });
 }
 
 void DanmakuCoordinator::clearConfiguration(const QString &requestId)
 {
-    if (!m_acceptingRequests || !m_runtime.ready()) {
+    if (!m_acceptingRequests || !backendReady()
+        || !m_backend.clearConfiguration) {
         rejectConfiguration(requestId, ConfigurationOperation::Clear,
             tr("The backend is unavailable."));
         return;
@@ -179,15 +213,20 @@ void DanmakuCoordinator::clearConfiguration(const QString &requestId)
     request.clientRequestId = requestId;
     request.operation = ConfigurationOperation::Clear;
     request.identity = ++m_nextRequestIdentity;
-    RustBridgeRuntime *runtime = &m_runtime;
+    const auto clearBackend = m_backend.clearConfiguration;
     startConfiguration(std::move(request),
-        [runtime] { return runtime->clearDandanplay(); });
+        [clearBackend] { return clearBackend(); });
 }
 
 DanmakuCoordinator::SessionState DanmakuCoordinator::sessionState() const
 {
     return m_sessionStateProvider
         ? m_sessionStateProvider() : SessionState {};
+}
+
+bool DanmakuCoordinator::backendReady() const
+{
+    return m_backend.ready && m_backend.ready();
 }
 
 bool DanmakuCoordinator::operationAvailable(
@@ -197,13 +236,14 @@ bool DanmakuCoordinator::operationAvailable(
         && m_acceptingRequests
         && !m_shuttingDown
         && !m_sessionFenced
-        && m_runtime.ready()
+        && backendReady()
+        && m_backend.danmaku
         && session.connected;
 }
 
 bool DanmakuCoordinator::refreshCredentialState(bool publishFailure)
 {
-    if (!m_runtime.ready()) {
+    if (!backendReady() || !m_backend.credentialSource) {
         if (publishFailure) {
             m_statusSink.publishStatus(
                 tr("The backend is unavailable."), true);
@@ -211,7 +251,7 @@ bool DanmakuCoordinator::refreshCredentialState(bool publishFailure)
         return false;
     }
     const YanamiStatusResult status =
-        m_runtime.dandanplayCredentialSource();
+        m_backend.credentialSource();
     if (status.value < 0) {
         if (publishFailure) {
             m_statusSink.publishStatus(
@@ -330,7 +370,7 @@ void DanmakuCoordinator::submitOperation(OperationRequest request)
     if (!operationAvailable(session)) {
         const QString message = m_sessionFenced
             ? tr("The action was canceled because the Emby session changed.")
-            : (!m_runtime.ready() || !m_acceptingRequests
+            : (!backendReady() || !m_acceptingRequests
                     ? tr("The backend is unavailable.")
                     : tr("This action requires an active Emby connection."));
         rejectOperation(request.clientRequestId, request.itemId,
@@ -341,6 +381,7 @@ void DanmakuCoordinator::submitOperation(OperationRequest request)
     request.identity = ++m_nextRequestIdentity;
     request.sessionGeneration = session.generation;
     request.enqueuedAtMs = QDateTime::currentMSecsSinceEpoch();
+    request.decodeAllowed = std::make_shared<std::atomic_bool>(true);
     if (request.operation == Operation::Search)
         submitSearch(std::move(request));
     else
@@ -387,8 +428,9 @@ void DanmakuCoordinator::startSearch(OperationRequest request)
         ? QDateTime::currentMSecsSinceEpoch() - request.enqueuedAtMs : 0;
     const quint64 identity = request.identity;
     const QString itemId = request.itemId;
-    const QVariantMap payload = request.payload;
-    RustBridgeRuntime *runtime = &m_runtime;
+    QVariantMap payload = std::move(request.payload);
+    const auto decodeAllowed = request.decodeAllowed;
+    const auto runDanmaku = m_backend.danmaku;
     m_activeSearch = std::move(request);
     m_searchTimer.start();
     qInfo().noquote()
@@ -399,15 +441,18 @@ void DanmakuCoordinator::startSearch(OperationRequest request)
         << "schedulerWaitMs=" << schedulerWaitMs;
     m_searchWatcher.setFuture(QtConcurrent::run(
         &m_queryPool,
-        [runtime, itemId, payload] {
-            return runtime->danmaku(
-                Operation::Search, itemId, payload);
+        [runDanmaku, itemId, payload = std::move(payload),
+            decodeAllowed] {
+            return prepareResult(
+                Operation::Search,
+                runDanmaku(Operation::Search, itemId, payload),
+                decodeAllowed);
         }));
 }
 
 void DanmakuCoordinator::finishSearch()
 {
-    const YanamiOperationResult result = m_searchWatcher.result();
+    const OperationWorkResult result = m_searchWatcher.result();
     const qint64 elapsedMs = m_searchTimer.isValid()
         ? m_searchTimer.elapsed() : -1;
     m_searchTimer.invalidate();
@@ -489,8 +534,9 @@ void DanmakuCoordinator::startMutation(OperationRequest request)
     const quint64 identity = request.identity;
     const QString itemId = request.itemId;
     const Operation operation = request.operation;
-    const QVariantMap payload = request.payload;
-    RustBridgeRuntime *runtime = &m_runtime;
+    QVariantMap payload = std::move(request.payload);
+    const auto decodeAllowed = request.decodeAllowed;
+    const auto runDanmaku = m_backend.danmaku;
     m_activeMutation = std::move(request);
     m_mutationTimer.start();
     qInfo().noquote()
@@ -502,14 +548,18 @@ void DanmakuCoordinator::startMutation(OperationRequest request)
         << "schedulerWaitMs=" << schedulerWaitMs;
     m_mutationWatcher.setFuture(QtConcurrent::run(
         &m_mutationPool,
-        [runtime, operation, itemId, payload] {
-            return runtime->danmaku(operation, itemId, payload);
+        [runDanmaku, operation, itemId,
+            payload = std::move(payload), decodeAllowed] {
+            return prepareResult(
+                operation,
+                runDanmaku(operation, itemId, payload),
+                decodeAllowed);
         }));
 }
 
 void DanmakuCoordinator::finishMutation()
 {
-    const YanamiOperationResult result = m_mutationWatcher.result();
+    const OperationWorkResult result = m_mutationWatcher.result();
     const qint64 elapsedMs = m_mutationTimer.isValid()
         ? m_mutationTimer.elapsed() : -1;
     m_mutationTimer.invalidate();
@@ -601,16 +651,47 @@ bool DanmakuCoordinator::accepts(
         && request.sessionGeneration == current.generation;
 }
 
+DanmakuCoordinator::OperationWorkResult
+DanmakuCoordinator::prepareResult(
+    Operation operation,
+    YanamiOperationResult operationResult,
+    const std::shared_ptr<std::atomic_bool> &decodeAllowed)
+{
+    OperationWorkResult prepared;
+    prepared.status = operationResult.status;
+    prepared.errorCode = std::move(operationResult.errorCode);
+    prepared.error = std::move(operationResult.error);
+    if (prepared.status != 0)
+        return prepared;
+    if (decodeAllowed
+        && !decodeAllowed->load(std::memory_order_acquire)) {
+        return prepared;
+    }
+
+    QElapsedTimer decodeTimer;
+    decodeTimer.start();
+    prepared.responseValid = decodeResult(
+        operation, operationResult.payload, decodeAllowed,
+        &prepared.result);
+    prepared.decodeElapsedNs = decodeTimer.nsecsElapsed();
+    return prepared;
+}
+
 bool DanmakuCoordinator::decodeResult(
     Operation operation,
     const QByteArray &payload,
-    QVariantMap *result) const
+    const std::shared_ptr<std::atomic_bool> &decodeAllowed,
+    QVariantMap *result)
 {
     QJsonParseError parseError;
     const QJsonDocument document =
         QJsonDocument::fromJson(payload, &parseError);
     if (parseError.error != QJsonParseError::NoError
         || !document.isObject()) {
+        return false;
+    }
+    if (decodeAllowed
+        && !decodeAllowed->load(std::memory_order_acquire)) {
         return false;
     }
     const QJsonObject object = document.object();
@@ -651,6 +732,11 @@ bool DanmakuCoordinator::decodeResult(
         return false;
     }
 
+    if (decodeAllowed
+        && !decodeAllowed->load(std::memory_order_acquire)) {
+        return false;
+    }
+
     *result = object.toVariantMap();
     result->remove(QStringLiteral("schemaVersion"));
     return true;
@@ -666,9 +752,19 @@ QString DanmakuCoordinator::backendFailure(
     return tr("The operation failed.");
 }
 
+QString DanmakuCoordinator::backendFailure(
+    const OperationWorkResult &result) const
+{
+    if (!result.errorCode.isEmpty() || !result.error.isEmpty()) {
+        return m_statusSink.userFacingDanmakuError(
+            result.errorCode, result.error);
+    }
+    return tr("The operation failed.");
+}
+
 void DanmakuCoordinator::applyResult(
     OperationRequest &request,
-    const YanamiOperationResult &operationResult,
+    const OperationWorkResult &operationResult,
     qint64 elapsedMs)
 {
     if (operationResult.status != 0) {
@@ -688,9 +784,7 @@ void DanmakuCoordinator::applyResult(
         return;
     }
 
-    QVariantMap result;
-    if (!decodeResult(request.operation,
-            operationResult.payload, &result)) {
+    if (!operationResult.responseValid) {
         qWarning().noquote()
             << "danmaku_operation"
             << "phase=failed"
@@ -711,12 +805,19 @@ void DanmakuCoordinator::applyResult(
         << "requestIdentity=" << request.identity
         << "operation=" << operationName(request.operation)
         << "item=" << request.itemId
-        << "status=" << result.value(QStringLiteral("status")).toString()
+        << "status="
+        << operationResult.result.value(
+               QStringLiteral("status")).toString()
+        << "decodeMs="
+        << (static_cast<double>(operationResult.decodeElapsedNs)
+            / 1'000'000.0)
         << "comments="
-        << result.value(QStringLiteral("commentCount")).toInt()
+        << operationResult.result.value(
+               QStringLiteral("commentCount")).toInt()
         << "candidates="
-        << result.value(QStringLiteral("matches")).toList().size();
-    completeOperation(request, result);
+        << operationResult.result.value(
+               QStringLiteral("matches")).toList().size();
+    completeOperation(request, operationResult.result);
 }
 
 void DanmakuCoordinator::completeOperation(
@@ -738,6 +839,10 @@ void DanmakuCoordinator::failOperation(
 {
     if (request.terminalDelivered)
         return;
+    if (request.decodeAllowed) {
+        request.decodeAllowed->store(
+            false, std::memory_order_release);
+    }
     request.terminalDelivered = true;
     if (publishStatus)
         m_statusSink.publishStatus(message, !nonModal);
@@ -806,7 +911,7 @@ void DanmakuCoordinator::sessionTransitionCommitted()
     if (m_shuttingDown)
         return;
     m_sessionFenced = false;
-    m_acceptingRequests = m_initialized && m_runtime.ready();
+    m_acceptingRequests = m_initialized && backendReady();
     const SessionState session = sessionState();
     qInfo().noquote()
         << "danmaku_session_fence"

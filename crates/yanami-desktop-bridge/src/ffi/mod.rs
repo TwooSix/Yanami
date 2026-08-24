@@ -242,8 +242,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reports_abi_v2() {
-        assert_eq!(yanami_backend_abi_version(), 2);
+    fn reports_abi_v3() {
+        assert_eq!(yanami_backend_abi_version(), 3);
     }
 
     #[test]
@@ -288,5 +288,12 @@ mod tests {
             unsafe { parse_json::<serde_json::Value>(malformed.as_ptr(), "request") }.unwrap_err();
         assert_eq!(error.code(), ApplicationErrorCode::InvalidInput);
         assert!(error.message().starts_with("invalid request:"));
+    }
+
+    #[test]
+    fn empty_catalog_search_query_is_valid_utf8_input() {
+        let empty = CString::new("").unwrap();
+        let query = unsafe { required_string(empty.as_ptr(), "catalog search query") }.unwrap();
+        assert!(query.is_empty());
     }
 }

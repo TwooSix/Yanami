@@ -12,15 +12,25 @@ impl EmbyClient {
         let path = format!("Users/{user_id}/Items");
         let mut request = self.request(reqwest::Method::GET, &path);
         let include_types = query.include_item_types.join(",");
+        let fields = query
+            .fields
+            .as_ref()
+            .map_or_else(|| BROWSE_FIELDS.to_owned(), |fields| fields.join(","));
         let mut params = vec![
             ("Recursive", query.recursive.to_string()),
             ("StartIndex", query.start_index.to_string()),
             ("Limit", query.limit.max(1).to_string()),
-            ("Fields", BROWSE_FIELDS.to_owned()),
-            ("EnableImages", "true".to_owned()),
+            ("Fields", fields),
+            (
+                "EnableImages",
+                query.enable_images.unwrap_or(true).to_string(),
+            ),
             ("ImageTypeLimit", "1".to_owned()),
             ("EnableImageTypes", "Primary,Thumb,Backdrop".to_owned()),
-            ("EnableUserData", "true".to_owned()),
+            (
+                "EnableUserData",
+                query.enable_user_data.unwrap_or(true).to_string(),
+            ),
         ];
         if let Some(parent_id) = &query.parent_id {
             params.push(("ParentId", parent_id.clone()));
@@ -42,6 +52,18 @@ impl EmbyClient {
         }
         if let Some(can_edit_items) = query.can_edit_items {
             params.push(("CanEditItems", can_edit_items.to_string()));
+        }
+        if let Some(min_date_last_saved) = &query.min_date_last_saved {
+            params.push(("MinDateLastSaved", min_date_last_saved.clone()));
+        }
+        if let Some(min_date_last_saved_for_user) = &query.min_date_last_saved_for_user {
+            params.push((
+                "MinDateLastSavedForUser",
+                min_date_last_saved_for_user.clone(),
+            ));
+        }
+        if !query.ids.is_empty() {
+            params.push(("Ids", query.ids.join(",")));
         }
         request = request.query(&params);
         decode(request.send().await?).await

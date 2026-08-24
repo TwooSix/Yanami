@@ -250,6 +250,98 @@ void HomeViewModel::settleResources()
     }
 }
 
+SearchViewModel::SearchViewModel(SearchPort *port, QObject *parent)
+    : QObject(parent), m_port(port)
+{
+    if (port) {
+        connect(port, &SearchPort::stateChanged,
+            this, &SearchViewModel::stateChanged);
+    }
+}
+
+MediaQueryModel *SearchViewModel::results() const
+{
+    return m_port ? m_port->resultsModel() : nullptr;
+}
+
+MediaQueryModel *SearchViewModel::titleResults() const
+{
+    return m_port ? m_port->titleResultsModel() : nullptr;
+}
+
+MediaQueryModel *SearchViewModel::episodeResults() const
+{
+    return m_port ? m_port->episodeResultsModel() : nullptr;
+}
+
+QAbstractItemModel *SearchViewModel::resultRows() const
+{
+    return m_port ? m_port->resultRowsModel() : nullptr;
+}
+
+QString SearchViewModel::query() const
+{
+    return m_port ? m_port->query() : QString();
+}
+
+bool SearchViewModel::searching() const
+{
+    return m_port && m_port->searching();
+}
+
+bool SearchViewModel::syncing() const
+{
+    return m_port && m_port->syncing();
+}
+
+bool SearchViewModel::complete() const
+{
+    return m_port && m_port->complete();
+}
+
+qint64 SearchViewModel::cachedCount() const
+{
+    return m_port ? m_port->cachedCount() : 0;
+}
+
+qint64 SearchViewModel::totalCount() const
+{
+    return m_port ? m_port->totalCount() : -1;
+}
+
+qint64 SearchViewModel::totalMatches() const
+{
+    return m_port ? m_port->totalMatches() : 0;
+}
+
+bool SearchViewModel::hasMore() const
+{
+    return m_port && m_port->hasMore();
+}
+
+QString SearchViewModel::error() const
+{
+    return m_port ? m_port->error() : QString();
+}
+
+void SearchViewModel::inputPending()
+{
+    if (m_port)
+        m_port->inputPending();
+}
+
+void SearchViewModel::submit(const QString &query)
+{
+    if (m_port)
+        m_port->requestSearch(query);
+}
+
+void SearchViewModel::refresh()
+{
+    if (m_port)
+        m_port->refresh();
+}
+
 FavoritesViewModel::FavoritesViewModel(CatalogPort *port, QObject *parent)
     : QObject(parent), m_port(port)
 {
@@ -950,6 +1042,7 @@ void ApplicationViewModel::initialize(const BackendPortSet &ports)
 {
     m_session = new SessionViewModel(ports.session, this);
     m_home = new HomeViewModel(ports.catalog, this);
+    m_search = new SearchViewModel(ports.search, this);
     m_favorites = new FavoritesViewModel(ports.catalog, this);
     m_playback = new PlaybackViewModel(
         ports.playback, ports.playbackReporter, this);

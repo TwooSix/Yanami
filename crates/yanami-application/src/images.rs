@@ -46,6 +46,13 @@ struct ActiveDownloadGuard {
     path: PathBuf,
 }
 
+struct ImageCachePlan {
+    image_item_id: String,
+    image_type: String,
+    image_tag: String,
+    cache_path: PathBuf,
+}
+
 impl ActiveDownloadGuard {
     fn new(
         downloads: Arc<std::sync::Mutex<std::collections::HashSet<PathBuf>>>,
@@ -64,6 +71,26 @@ impl Drop for ActiveDownloadGuard {
 }
 
 impl Application {
+    /// Produces the same opaque cache URLs as `cache_images` without touching
+    /// the filesystem, reserving a dedupe entry, or spawning download work.
+    /// Search uses this first phase so publishing a local Top-K result stays
+    /// independent of image I/O.
+    pub(crate) fn planned_image_urls(
+        &self,
+        server_local_id: &str,
+        items: &[BaseItem],
+        purpose: ImagePurpose,
+    ) -> Result<Vec<Option<String>>, String> {
+        let cache_root = self.data_dir.join("cache");
+        self.plan_cached_images(server_local_id, items, purpose)?
+            .into_iter()
+            .map(|plan| {
+                plan.map(|plan| async_image_url(&cache_root, &plan.cache_path))
+                    .transpose()
+            })
+            .collect()
+    }
+
     pub(crate) fn image_editor_dto(
         &self,
         client: &EmbyClient,
@@ -378,54 +405,28 @@ impl Application {
             .join(client.profile().local_id.to_string());
         fs::create_dir_all(&cache_dir).map_err(display_error)?;
 
-        let generations = self
-            .image_mutation_generations
-            .lock()
-            .map_err(|_| "image mutation generation lock is poisoned")?;
-        let mut cache_paths = Vec::with_capacity(items.len());
+        let plans =
+            self.plan_cached_images(&client.profile().local_id.to_string(), items, purpose)?;
+        let cache_paths = plans
+            .iter()
+            .map(|plan| plan.as_ref().map(|plan| plan.cache_path.clone()))
+            .collect::<Vec<_>>();
         let mut downloads = Vec::new();
-        for item in items {
-            let Some((image_item_id, image_type, image_tag)) = image_reference(item, purpose)
-            else {
-                cache_paths.push(None);
-                continue;
-            };
-            let normalized_image_type = image_type.to_ascii_lowercase();
-            let generation = generations
-                .get(&(image_item_id.to_owned(), normalized_image_type.clone()))
-                .copied()
-                .unwrap_or_default();
-            let cache_name = if generation == 0 {
-                format!(
-                    "{}-{}-{}.jpg",
-                    safe_cache_component(image_item_id),
-                    normalized_image_type,
-                    safe_cache_component(image_tag)
-                )
-            } else {
-                format!(
-                    "{}-{}-{}-m{generation}.jpg",
-                    safe_cache_component(image_item_id),
-                    normalized_image_type,
-                    safe_cache_component(image_tag)
-                )
-            };
-            let cache_path = cache_dir.join(cache_name);
-            if !cache_path.is_file()
+        for plan in plans.into_iter().flatten() {
+            if !plan.cache_path.is_file()
                 && self
                     .image_downloads
                     .lock()
                     .map_err(|_| "image download cache is poisoned")?
-                    .insert(cache_path.clone())
+                    .insert(plan.cache_path.clone())
             {
                 downloads.push((
-                    image_item_id.to_owned(),
-                    image_type.to_owned(),
-                    image_tag.to_owned(),
-                    cache_path.clone(),
+                    plan.image_item_id,
+                    plan.image_type,
+                    plan.image_tag,
+                    plan.cache_path,
                 ));
             }
-            cache_paths.push(Some(cache_path));
         }
 
         for (image_item_id, image_type, image_tag, cache_path) in downloads {
@@ -486,6 +487,55 @@ impl Application {
                     .transpose()
             })
             .collect()
+    }
+
+    fn plan_cached_images(
+        &self,
+        server_local_id: &str,
+        items: &[BaseItem],
+        purpose: ImagePurpose,
+    ) -> Result<Vec<Option<ImageCachePlan>>, String> {
+        let cache_dir = self
+            .data_dir
+            .join("cache")
+            .join("images")
+            .join(server_local_id);
+        let generations = self
+            .image_mutation_generations
+            .lock()
+            .map_err(|_| "image mutation generation lock is poisoned")?;
+        Ok(items
+            .iter()
+            .map(|item| {
+                let (image_item_id, image_type, image_tag) = image_reference(item, purpose)?;
+                let normalized_image_type = image_type.to_ascii_lowercase();
+                let generation = generations
+                    .get(&(image_item_id.to_owned(), normalized_image_type.clone()))
+                    .copied()
+                    .unwrap_or_default();
+                let cache_name = if generation == 0 {
+                    format!(
+                        "{}-{}-{}.jpg",
+                        safe_cache_component(image_item_id),
+                        normalized_image_type,
+                        safe_cache_component(image_tag)
+                    )
+                } else {
+                    format!(
+                        "{}-{}-{}-m{generation}.jpg",
+                        safe_cache_component(image_item_id),
+                        normalized_image_type,
+                        safe_cache_component(image_tag)
+                    )
+                };
+                Some(ImageCachePlan {
+                    image_item_id: image_item_id.to_owned(),
+                    image_type: image_type.to_owned(),
+                    image_tag: image_tag.to_owned(),
+                    cache_path: cache_dir.join(cache_name),
+                })
+            })
+            .collect())
     }
 }
 
@@ -700,6 +750,7 @@ pub(crate) fn async_image_url(cache_root: &Path, cache_path: &Path) -> Result<St
 mod tests {
     use std::{collections::BTreeMap, fs, time::Duration};
 
+    use tokio::{runtime::Builder, sync::watch};
     use url::Url;
     use yanami_emby::{BaseItem, ImageInfo};
 
@@ -707,6 +758,7 @@ mod tests {
         async_image_url, current_item_image_tag, item_image_preview_cache_key, prune_cache_tree,
         read_local_image,
     };
+    use crate::{Application, presentation::ImagePurpose};
 
     #[test]
     fn image_preview_key_changes_with_server_tag_and_local_generation() {
@@ -763,5 +815,45 @@ mod tests {
                 .starts_with("image://yanami/v1-")
         );
         assert!(async_image_url(&nested, temp.path()).is_err());
+    }
+
+    #[test]
+    fn planned_card_image_url_is_stable_and_does_not_schedule_or_touch_cache() {
+        let temporary = tempfile::tempdir().unwrap();
+        let runtime = Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        let (cancellation, _) = watch::channel(false);
+        let application =
+            Application::open(temporary.path(), runtime.handle().clone(), cancellation).unwrap();
+        let item = BaseItem {
+            id: "series/unsafe".to_owned(),
+            name: "Series".to_owned(),
+            item_type: Some("Series".to_owned()),
+            image_tags: BTreeMap::from([("Primary".to_owned(), "tag:v1".to_owned())]),
+            ..BaseItem::default()
+        };
+
+        let first = application
+            .planned_image_urls(
+                "server-scope",
+                std::slice::from_ref(&item),
+                ImagePurpose::Poster,
+            )
+            .unwrap();
+        let second = application
+            .planned_image_urls("server-scope", &[item], ImagePurpose::Poster)
+            .unwrap();
+
+        assert_eq!(first, second);
+        assert!(
+            first[0]
+                .as_deref()
+                .is_some_and(|url| url.starts_with("image://yanami/v1-"))
+        );
+        assert!(application.image_downloads.lock().unwrap().is_empty());
+        assert!(!temporary.path().join("cache").join("images").exists());
     }
 }

@@ -22,6 +22,7 @@ Item {
     property string containerTitle: ""
     property string containerType: ""
     property int detailReturnPage: -1
+    property bool directExternalSeason: false
     property string pendingPlaylistRemovalId: ""
     property string pendingLibraryScrollResetId: ""
     readonly property string routeCollectionId: root.depth === 1 ? root.libraryId
@@ -241,12 +242,14 @@ Item {
         root.containerTitle = ""
         root.containerType = ""
         root.detailReturnPage = -1
+        root.directExternalSeason = false
         root.seriesDetails = ({})
         pageFlickable.contentY = 0
     }
 
     function openLibraryView(item) {
         root.detailReturnPage = -1
+        root.directExternalSeason = false
         root.libraryId = item.id
         root.libraryTitle = root.localizedLibraryTitle(item)
         root.seriesId = ""
@@ -294,10 +297,12 @@ Item {
         root.libraryId = ""
         root.libraryTitle = ""
         root.detailReturnPage = returnPage
+        root.directExternalSeason = false
         root.openLibraryItem(item)
     }
 
     function openSeason(item) {
+        root.directExternalSeason = false
         root.seriesDetails = root.collectionParent
         if (String(item.seriesId || "").length > 0)
             root.seriesId = String(item.seriesId)
@@ -315,6 +320,7 @@ Item {
         root.seriesTitle = String(item.seriesTitle || "")
         root.seriesDetails = ({})
         root.detailReturnPage = returnPage
+        root.directExternalSeason = true
         root.seasonId = item.id
         root.seasonTitle = item.title
         root.depth = 3
@@ -339,7 +345,11 @@ Item {
                 root.goHome()
             }
         } else if (root.depth === 3) {
-            if (root.seriesId.length > 0) {
+            if (root.directExternalSeason && root.detailReturnPage >= 0) {
+                const returnPage = root.detailReturnPage
+                root.goHome()
+                root.externalReturnRequested(returnPage)
+            } else if (root.seriesId.length > 0) {
                 root.depth = 2
                 root.seasonTitle = ""
                 root.seasonId = ""

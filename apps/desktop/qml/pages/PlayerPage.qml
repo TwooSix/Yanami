@@ -226,6 +226,7 @@ Item {
         danmakuEnabled: root.danmakuEnabled
         mediaPosition: player.position
         paused: player.paused
+        playbackRate: player.rate
         buffering: player.playbackState === MpvVideoItem.Loading
             || player.playbackState === MpvVideoItem.Buffering
         fontSize: danmakuMenu.fontSize
@@ -1372,6 +1373,10 @@ Item {
         introActivationTimer.stop()
         introOfferTimeout.stop()
         switchingEpisode = true
+        // Fence the old episode immediately. A no-match or slow danmaku
+        // response for the next item must never leave the previous timeline
+        // rendered over the new video.
+        danmakuComments = []
         // A naturally completed file is kept open by libmpv so its final
         // frame can remain behind preparation and any recoverable error UI.
         if (player.playbackState !== MpvVideoItem.Ended)

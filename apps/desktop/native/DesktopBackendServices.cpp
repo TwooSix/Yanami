@@ -6,6 +6,7 @@
 #include "MediaCoordinator.hpp"
 #include "PlaybackCoordinator.hpp"
 #include "PlaybackReporter.hpp"
+#include "SearchCoordinator.hpp"
 #include "SessionCoordinator.hpp"
 
 #include <QString>
@@ -58,6 +59,7 @@ private:
     void shutdown();
 
     CatalogSessionState catalogSessionState() const;
+    SearchSessionState searchSessionState() const;
     MediaSessionState mediaSessionState() const;
     PlaybackCoordinator::SessionState playbackSessionState() const;
     DanmakuCoordinator::SessionState danmakuSessionState() const;
@@ -70,6 +72,7 @@ private:
     std::unique_ptr<ApplicationStatusService> status;
     std::unique_ptr<SessionCoordinator> session;
     std::unique_ptr<CatalogCoordinator> catalog;
+    std::unique_ptr<SearchCoordinator> search;
     std::unique_ptr<MediaCoordinator> media;
     std::unique_ptr<PlaybackCoordinator> playback;
     std::unique_ptr<PlaybackReporter> playbackReporter;
@@ -119,6 +122,7 @@ void DesktopBackendServices::Impl::initialize()
     // feature coordinators scope caches or accept work.
     session->initialize();
     catalog->initializeFromSession();
+    search->initializeFromSession();
     media->initializeFromSession();
     danmaku->initializeCredentialStatus();
 }
@@ -147,6 +151,13 @@ void DesktopBackendServices::Impl::constructCoordinators()
                     sessionCapabilities(capabilities));
             }
         });
+
+    search = std::make_unique<SearchCoordinator>(
+        *runtime,
+        pools.search(),
+        pools.searchHydration(),
+        [this] { return searchSessionState(); },
+        *status);
 
     media = std::make_unique<MediaCoordinator>(
         *runtime,
@@ -224,6 +235,7 @@ void DesktopBackendServices::Impl::fenceFeatures()
     if (playbackReporter)
         playbackReporter->abandonSessionForTransition();
     catalog->sessionTransitionStarted("session_transition");
+    search->sessionTransitionStarted();
     media->sessionTransitionStarted("session_transition");
     playback->fenceSessionTransition("session_transition");
     danmaku->sessionTransitionStarted("session_transition");
@@ -234,6 +246,7 @@ void DesktopBackendServices::Impl::commitSessionTransition()
     // SessionCoordinator has already published the new generation. Only the
     // successful path resets session-scoped stores and cache identity.
     catalog->sessionCommitted();
+    search->sessionCommitted();
     media->sessionCommitted();
     playback->resumeAfterSessionTransition();
     danmaku->sessionTransitionCommitted();
@@ -249,6 +262,7 @@ void DesktopBackendServices::Impl::abortSessionTransition()
     // fences reopen, but no cache, MediaStore or current playback identity is
     // replaced with a speculative session.
     catalog->sessionTransitionAborted();
+    search->sessionTransitionAborted();
     media->sessionTransitionAborted();
     playback->resumeAfterSessionTransition();
     danmaku->sessionTransitionCommitted();
@@ -276,6 +290,17 @@ DesktopBackendServices::Impl::catalogSessionState() const
 
 MediaSessionState
 DesktopBackendServices::Impl::mediaSessionState() const
+{
+    if (!session)
+        return {};
+    return {
+        .generation = session->generation(),
+        .connected = session->connected(),
+    };
+}
+
+SearchSessionState
+DesktopBackendServices::Impl::searchSessionState() const
 {
     if (!session)
         return {};
@@ -321,6 +346,8 @@ void DesktopBackendServices::Impl::shutdown()
         playback->shutdown();
     if (media)
         media->shutdown();
+    if (search)
+        search->shutdown();
     if (catalog)
         catalog->shutdown();
     if (session)
@@ -338,6 +365,8 @@ void DesktopBackendServices::Impl::shutdown()
         playback->drain();
     if (media)
         media->drain();
+    if (search)
+        search->drain();
     if (catalog)
         catalog->drain();
     if (session)
@@ -351,6 +380,7 @@ BackendPortSet DesktopBackendServices::Impl::portSet() const
     return {
         .session = session.get(),
         .catalog = catalog.get(),
+        .search = search.get(),
         .playback = playback.get(),
         .playbackReporter = playbackReporter.get(),
         .danmaku = danmaku.get(),

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0",
+  "id": "B0",
+  "state": "not-captured",
+  "mode": "collect",
+  "capturedAtUtc": null,
+  "environmentFingerprint": null,
+  "candidateSha": null,
+  "fixtureHashes": {},
+  "metrics": {},
+  "notes": "Populate only from the two-week fixed-lab calibration. Never copy SLO limits into B0 and never raise SLO from this file."
+}

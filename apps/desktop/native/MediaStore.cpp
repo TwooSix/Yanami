@@ -1,12 +1,15 @@
 #include "MediaStore.hpp"
 
+#include <QBitArray>
 #include <QCollator>
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLocale>
+#include <QVarLengthArray>
 
 #include <algorithm>
+#include <numeric>
 #include <utility>
 
 namespace {
@@ -29,6 +32,10 @@ const QSet<QString> versionedMetadataKeys {
     QStringLiteral("title"),
     QStringLiteral("overview"),
     QStringLiteral("imageUrl"),
+    QStringLiteral("imageItemId"),
+    QStringLiteral("imageItemType"),
+    QStringLiteral("imageTag"),
+    QStringLiteral("primaryImageAspectRatio"),
     QStringLiteral("backdropUrl"),
     QStringLiteral("productionYear"),
     QStringLiteral("itemType"),
@@ -41,6 +48,38 @@ const QSet<QString> versionedMetadataKeys {
     QStringLiteral("sourceUpdatedAt"),
     QStringLiteral("sourceVersion"),
 };
+
+quint64 searchGramKey(QStringView text, qsizetype offset, qsizetype length)
+{
+    quint64 key = static_cast<quint64>(length) << 48;
+    for (qsizetype index = 0; index < length; ++index) {
+        const int shift = static_cast<int>((2 - index) * 16);
+        key |= static_cast<quint64>(text.at(offset + index).unicode()) << shift;
+    }
+    return key;
+}
+
+QVector<quint64> searchGramKeys(
+    const QPair<QString, QString> &texts)
+{
+    QVarLengthArray<quint64, 128> keys;
+    for (const QString &text : {texts.first, texts.second}) {
+        const QStringView view(text);
+        for (qsizetype length = 1; length <= 3; ++length) {
+            if (view.size() < length)
+                continue;
+            for (qsizetype offset = 0; offset <= view.size() - length; ++offset)
+                keys.push_back(searchGramKey(view, offset, length));
+        }
+    }
+    std::sort(keys.begin(), keys.end());
+    const auto uniqueEnd = std::unique(keys.begin(), keys.end());
+    QVector<quint64> result;
+    result.reserve(std::distance(keys.begin(), uniqueEnd));
+    for (auto key = keys.begin(); key != uniqueEnd; ++key)
+        result.push_back(*key);
+    return result;
+}
 
 qint64 dateValue(const QVariant &value)
 {
@@ -112,9 +151,91 @@ QVariantMap MediaQueryModel::get(int row) const
 
 void MediaQueryModel::synchronizeRows(QVector<MediaQueryRow> rows)
 {
+    if (m_rows == rows) {
+        ++m_contentRevision;
+        return;
+    }
+    m_synchronizingRows = true;
+    const auto finishSynchronization = [this] {
+        ++m_contentRevision;
+        m_synchronizingRows = false;
+        emit rowsSynchronized();
+    };
+    if (m_rows.isEmpty()) {
+        if (!rows.isEmpty()) {
+            beginInsertRows({}, 0, rows.size() - 1);
+            m_rows = std::move(rows);
+            endInsertRows();
+            emit countChanged();
+        }
+        finishSynchronization();
+        return;
+    }
+
+    // A server-side sort refresh can reorder the entire library. Preserve
+    // persistent indexes by rowKey and publish one layout permutation instead
+    // of N linear searches plus QVector moves (quadratic for a reversed list).
+    if (m_rows.size() == rows.size()) {
+        QHash<QString, int> oldRowsByKey;
+        QHash<QString, int> newRowsByKey;
+        oldRowsByKey.reserve(m_rows.size());
+        newRowsByKey.reserve(rows.size());
+        for (int row = 0; row < m_rows.size(); ++row) {
+            oldRowsByKey.insert(m_rows.at(row).rowKey, row);
+            newRowsByKey.insert(rows.at(row).rowKey, row);
+        }
+        const bool uniqueKeys = oldRowsByKey.size() == m_rows.size()
+            && newRowsByKey.size() == rows.size();
+        bool sameKeys = uniqueKeys;
+        if (sameKeys) {
+            for (auto key = oldRowsByKey.cbegin(); key != oldRowsByKey.cend(); ++key) {
+                if (!newRowsByKey.contains(key.key())) {
+                    sameKeys = false;
+                    break;
+                }
+            }
+        }
+        if (sameKeys) {
+            bool orderChanged = false;
+            for (int row = 0; row < m_rows.size(); ++row) {
+                if (m_rows.at(row).rowKey != rows.at(row).rowKey) {
+                    orderChanged = true;
+                    break;
+                }
+            }
+            if (!orderChanged) {
+                m_rows = std::move(rows);
+                emit dataChanged(index(0), index(m_rows.size() - 1));
+                finishSynchronization();
+                return;
+            }
+
+            emit layoutAboutToBeChanged(
+                {}, QAbstractItemModel::VerticalSortHint);
+            const QModelIndexList from = persistentIndexList();
+            QModelIndexList to;
+            to.reserve(from.size());
+            for (const QModelIndex &oldIndex : from) {
+                const QString rowKey = oldIndex.row() >= 0
+                        && oldIndex.row() < m_rows.size()
+                    ? m_rows.at(oldIndex.row()).rowKey
+                    : QString{};
+                const auto found = newRowsByKey.constFind(rowKey);
+                to.push_back(found == newRowsByKey.cend()
+                        ? QModelIndex{}
+                        : createIndex(found.value(), oldIndex.column()));
+            }
+            m_rows = std::move(rows);
+            changePersistentIndexList(from, to);
+            emit layoutChanged({}, QAbstractItemModel::VerticalSortHint);
+            finishSynchronization();
+            return;
+        }
+    }
+
     int target = 0;
     while (target < rows.size()) {
-        const MediaQueryRow wanted = rows.at(target);
+        const MediaQueryRow &wanted = rows.at(target);
         int found = -1;
         for (int current = target; current < m_rows.size(); ++current) {
             if (m_rows.at(current).rowKey == wanted.rowKey) {
@@ -146,23 +267,45 @@ void MediaQueryModel::synchronizeRows(QVector<MediaQueryRow> rows)
         endRemoveRows();
         emit countChanged();
     }
-    ++m_contentRevision;
+    finishSynchronization();
+}
+
+bool MediaQueryModel::filterAccepts(
+    int row,
+    const QString &needle,
+    const QString &category) const
+{
+    return m_store && row >= 0 && row < m_rows.size()
+        && m_store->filterAccepts(m_rows.at(row), m_kind, needle, category);
+}
+
+QPair<QString, QString> MediaQueryModel::filterTexts(int row) const
+{
+    return m_store && row >= 0 && row < m_rows.size()
+        ? m_store->filterTexts(m_rows.at(row), m_kind)
+        : QPair<QString, QString>{};
 }
 
 void MediaQueryModel::notifyEntityChanged(const QString &entityId)
 {
-    int rangeStart = -1;
+    notifyEntitiesChanged(QSet<QString>{entityId});
+}
+
+void MediaQueryModel::notifyEntitiesChanged(const QSet<QString> &entityIds)
+{
+    if (entityIds.isEmpty())
+        return;
+    int firstChangedRow = -1;
+    int lastChangedRow = -1;
     for (int row = 0; row < m_rows.size(); ++row) {
-        const bool matches = m_rows.at(row).entityId == entityId;
-        if (matches && rangeStart < 0)
-            rangeStart = row;
-        const bool endRange = rangeStart >= 0 && (!matches || row == m_rows.size() - 1);
-        if (endRange) {
-            const int rangeEnd = matches && row == m_rows.size() - 1 ? row : row - 1;
-            emit dataChanged(index(rangeStart), index(rangeEnd));
-            rangeStart = -1;
-        }
+        if (!entityIds.contains(m_rows.at(row).entityId))
+            continue;
+        if (firstChangedRow < 0)
+            firstChangedRow = row;
+        lastChangedRow = row;
     }
+    if (firstChangedRow >= 0)
+        emit dataChanged(index(firstChangedRow), index(lastChangedRow));
 }
 
 bool MediaQueryModel::removeFirst(
@@ -323,15 +466,42 @@ void MediaStore::setQuery(
     const QVariantMap &parent,
     qint64 fetchedAtMs)
 {
-    MediaQueryModel *model = ensureQueryModel(kind, scopeId);
-    QVector<MediaQueryRow> rows = rowsFromItems(items, normalizedKind(kind));
-    for (const QVariant &value : items)
-        patchEntity(canonicalFields(value.toMap(), normalizedKind(kind)));
+    const QString normalized = normalizedKind(kind);
+    MediaQueryModel *model = ensureQueryModel(normalized, scopeId);
+    QVector<MediaQueryRow> rows;
+    rows.reserve(items.size());
+    QHash<QString, int> occurrences;
+    occurrences.reserve(items.size());
+    if (m_entities.isEmpty())
+        m_entities.reserve(items.size());
+    beginEntityNotificationBatch();
+    for (const QVariant &value : items) {
+        const QVariantMap item = value.toMap();
+        const QString entityId = item.value(QStringLiteral("id")).toString();
+        if (entityId.isEmpty())
+            continue;
+        QString rowKey = item.value(QStringLiteral("playlistEntryId")).toString();
+        if (rowKey.isEmpty()) {
+            const int occurrence = occurrences[entityId]++;
+            rowKey = occurrence == 0 ? entityId
+                                     : QStringLiteral("%1#%2").arg(entityId).arg(occurrence);
+        } else {
+            rowKey.prepend(QStringLiteral("playlist:"));
+        }
+        const QVariantMap decoration = rowDecoration(item, normalized);
+        rows.push_back(MediaQueryRow{
+            rowKey,
+            entityId,
+            decoration,
+        });
+        patchEntity(canonicalFields(item, normalized));
+    }
     QString parentId;
     if (!parent.isEmpty()) {
         parentId = parent.value(QStringLiteral("id")).toString();
         patchEntity(canonicalFields(parent, collectionKind));
     }
+    endEntityNotificationBatch();
     model->synchronizeRows(std::move(rows));
     const qint64 committedAt = fetchedAtMs > 0
         ? fetchedAtMs : QDateTime::currentMSecsSinceEpoch();
@@ -345,7 +515,7 @@ void MediaStore::setQuery(
     model->m_stale = false;
     if (stateChanged)
         emit model->stateChanged();
-    emit queryChanged(normalizedKind(kind), scopeId);
+    emit queryChanged(normalized, scopeId);
 }
 
 void MediaStore::patchEntity(const QVariantMap &patch, const QSet<QString> &removedFields)
@@ -354,6 +524,27 @@ void MediaStore::patchEntity(const QVariantMap &patch, const QSet<QString> &remo
     if (entityId.isEmpty())
         return;
     EntityRecord &record = m_entities[entityId];
+    if (removedFields.isEmpty() && !record.fields.isEmpty()) {
+        if (record.fields.isSharedWith(patch))
+            return;
+        bool unchanged = true;
+        for (auto iterator = patch.cbegin(); iterator != patch.cend(); ++iterator) {
+            const auto existing = record.fields.constFind(iterator.key());
+            if (existing == record.fields.cend() || existing.value() != iterator.value()) {
+                unchanged = false;
+                break;
+            }
+        }
+        if (unchanged)
+            return;
+    }
+    if (record.fields.isEmpty() && removedFields.isEmpty()
+        && !m_refreshSourceBaselines.contains(entityId)) {
+        record.fields = patch;
+        ++record.revision;
+        notifyEntityChanged(entityId);
+        return;
+    }
     QVariantMap acceptedPatch = patch;
     const QString currentUpdatedAt =
         record.fields.value(QStringLiteral("sourceUpdatedAt")).toString();
@@ -392,8 +583,10 @@ void MediaStore::patchEntity(const QVariantMap &patch, const QSet<QString> &remo
 
 void MediaStore::patchEntities(const QVariantList &patches)
 {
+    beginEntityNotificationBatch();
     for (const QVariant &value : patches)
         patchEntity(value.toMap());
+    endEntityNotificationBatch();
 }
 
 void MediaStore::beginRefreshProtection(const QString &entityId)
@@ -576,6 +769,7 @@ bool MediaStore::restoreCacheJson(const QJsonObject &object)
         return false;
     }
     const QJsonObject entities = object.value(QStringLiteral("entities")).toObject();
+    beginEntityNotificationBatch();
     for (auto iterator = entities.begin(); iterator != entities.end(); ++iterator) {
         if (!iterator.value().isObject())
             continue;
@@ -583,6 +777,7 @@ bool MediaStore::restoreCacheJson(const QJsonObject &object)
         fields.insert(QStringLiteral("id"), iterator.key());
         patchEntity(fields);
     }
+    endEntityNotificationBatch();
     for (const QJsonValue &queryValue : object.value(QStringLiteral("queries")).toArray()) {
         if (!queryValue.isObject())
             continue;
@@ -596,10 +791,12 @@ bool MediaStore::restoreCacheJson(const QJsonObject &object)
             const QString entityId = row.value(QStringLiteral("entityId")).toString();
             if (entityId.isEmpty() || !m_entities.contains(entityId))
                 continue;
+            const QVariantMap decoration = row.value(QStringLiteral("decoration"))
+                .toObject().toVariantMap();
             rows.push_back(MediaQueryRow{
                 row.value(QStringLiteral("rowKey")).toString(),
                 entityId,
-                row.value(QStringLiteral("decoration")).toObject().toVariantMap(),
+                decoration,
             });
         }
         model->synchronizeRows(std::move(rows));
@@ -626,22 +823,43 @@ QString MediaStore::makeQueryKey(const QString &kind, const QString &scopeId)
 
 QVariantMap MediaStore::canonicalFields(const QVariantMap &item, const QString &kind)
 {
+    bool hasDecoration = false;
+    for (const QString &key : decorationKeys) {
+        if (item.contains(key)) {
+            hasDecoration = true;
+            break;
+        }
+    }
+    const bool hasContextualTitleFlag =
+        item.contains(QStringLiteral("titleIsContextual"));
+    if (kind == libraryKind && !hasDecoration && !hasContextualTitleFlag)
+        return item;
+
+    const bool contextualTitle = hasContextualTitleFlag
+        && item.value(QStringLiteral("titleIsContextual")).toBool();
+    const bool episodeContextTitle = (kind == resumeKind || kind == recentKind)
+        && item.value(QStringLiteral("itemType")).toString()
+            == QStringLiteral("Episode");
+    const bool removeContextualTitle = contextualTitle || episodeContextTitle;
+    const bool removeNullLatestEpisodeSubtitle = kind != libraryKind
+        && item.contains(QStringLiteral("latestEpisodeSubtitle"))
+        && item.value(QStringLiteral("latestEpisodeSubtitle")).isNull();
+
+    if (!hasDecoration && !hasContextualTitleFlag
+        && !removeNullLatestEpisodeSubtitle && !removeContextualTitle) {
+        return item;
+    }
+
     QVariantMap fields = item;
-    for (const QString &key : decorationKeys)
-        fields.remove(key);
-    const bool contextualTitle =
-        item.value(QStringLiteral("titleIsContextual")).toBool();
+    for (const QString &key : decorationKeys) {
+        if (fields.contains(key))
+            fields.remove(key);
+    }
     fields.remove(QStringLiteral("titleIsContextual"));
-    if (kind != libraryKind
-        && fields.value(QStringLiteral("latestEpisodeSubtitle")).isNull()) {
+    if (removeNullLatestEpisodeSubtitle)
         fields.remove(QStringLiteral("latestEpisodeSubtitle"));
-    }
-    const QString type = item.value(QStringLiteral("itemType")).toString();
-    if (contextualTitle
-        || (type == QStringLiteral("Episode")
-            && (kind == resumeKind || kind == recentKind))) {
+    if (removeContextualTitle)
         fields.remove(QStringLiteral("title"));
-    }
     return fields;
 }
 
@@ -652,39 +870,49 @@ QVariantMap MediaStore::rowDecoration(const QVariantMap &item, const QString &ki
         if (item.contains(key))
             decoration.insert(key, item.value(key));
     }
-    const QString type = item.value(QStringLiteral("itemType")).toString();
-    if ((item.value(QStringLiteral("titleIsContextual")).toBool()
-         || (type == QStringLiteral("Episode")
-             && (kind == resumeKind || kind == recentKind)))
+    const bool hasContextualTitleFlag =
+        item.contains(QStringLiteral("titleIsContextual"));
+    const bool mayUseEpisodeContext = kind == resumeKind || kind == recentKind;
+    if (!hasContextualTitleFlag && !mayUseEpisodeContext)
+        return decoration;
+    const bool contextualTitle = hasContextualTitleFlag
+        && item.value(QStringLiteral("titleIsContextual")).toBool();
+    const bool episodeContextTitle = mayUseEpisodeContext
+        && item.value(QStringLiteral("itemType")).toString()
+            == QStringLiteral("Episode");
+    if ((contextualTitle || episodeContextTitle)
         && item.contains(QStringLiteral("title"))) {
         decoration.insert(QStringLiteral("title"), item.value(QStringLiteral("title")));
     }
     return decoration;
 }
 
-QVector<MediaQueryRow> MediaStore::rowsFromItems(
-    const QVariantList &items,
-    const QString &kind)
+QString MediaStore::normalizedSearchText(const QString &value)
 {
-    QVector<MediaQueryRow> rows;
-    rows.reserve(items.size());
-    QHash<QString, int> occurrences;
-    for (const QVariant &value : items) {
-        const QVariantMap item = value.toMap();
-        const QString entityId = item.value(QStringLiteral("id")).toString();
-        if (entityId.isEmpty())
-            continue;
-        QString rowKey = item.value(QStringLiteral("playlistEntryId")).toString();
-        if (rowKey.isEmpty()) {
-            const int occurrence = occurrences[entityId]++;
-            rowKey = occurrence == 0 ? entityId
-                                     : QStringLiteral("%1#%2").arg(entityId).arg(occurrence);
-        } else {
-            rowKey.prepend(QStringLiteral("playlist:"));
-        }
-        rows.push_back(MediaQueryRow{rowKey, entityId, rowDecoration(item, kind)});
+    // This folded form is only a conservative candidate index. Final
+    // acceptance still uses QString::contains(..., Qt::CaseInsensitive) on
+    // the materialized fields, preserving the established search semantics.
+    return value.toCaseFolded();
+}
+
+QString MediaStore::searchableText(const QVariantMap &values)
+{
+    QString result;
+    const auto appendValue = [&result](const QString &value) {
+        if (value.isEmpty())
+            return;
+        if (!result.isEmpty())
+            result.append(QChar(0x1f));
+        result.append(value);
+    };
+    for (const QString &key : {
+             QStringLiteral("title"),
+             QStringLiteral("subtitle"),
+             QStringLiteral("seriesTitle"),
+         }) {
+        appendValue(values.value(key).toString());
     }
-    return rows;
+    return normalizedSearchText(result);
 }
 
 MediaQueryModel *MediaStore::ensureQueryModel(const QString &kind, const QString &scopeId)
@@ -714,8 +942,66 @@ QVariantMap MediaStore::materialize(const MediaQueryRow &row, const QString &kin
     return result;
 }
 
+bool MediaStore::filterAccepts(
+    const MediaQueryRow &row,
+    const QString &kind,
+    const QString &needle,
+    const QString &category) const
+{
+    const QVariantMap item = materialize(row, kind);
+    if (item.isEmpty())
+        return false;
+    if (!category.isEmpty() && itemCategory(item) != category)
+        return false;
+    if (needle.isEmpty())
+        return true;
+    return item.value(QStringLiteral("title")).toString().contains(
+               needle, Qt::CaseInsensitive)
+        || item.value(QStringLiteral("subtitle")).toString().contains(
+               needle, Qt::CaseInsensitive)
+        || item.value(QStringLiteral("seriesTitle")).toString().contains(
+               needle, Qt::CaseInsensitive);
+}
+
+QPair<QString, QString> MediaStore::filterTexts(
+    const MediaQueryRow &row,
+    const QString &kind) const
+{
+    return qMakePair(searchableText(materialize(row, kind)), QString{});
+}
+
+void MediaStore::beginEntityNotificationBatch()
+{
+    ++m_entityNotificationBatchDepth;
+}
+
+void MediaStore::endEntityNotificationBatch()
+{
+    Q_ASSERT(m_entityNotificationBatchDepth > 0);
+    if (--m_entityNotificationBatchDepth > 0)
+        return;
+
+    const QSet<QString> entityIds = std::exchange(
+        m_pendingEntityNotifications, {});
+    const QVector<QString> entityOrder = std::exchange(
+        m_pendingEntityNotificationOrder, {});
+    if (entityIds.isEmpty())
+        return;
+    for (MediaQueryModel *model : std::as_const(m_queries))
+        model->notifyEntitiesChanged(entityIds);
+    for (const QString &entityId : entityOrder)
+        emit entityChanged(entityId);
+}
+
 void MediaStore::notifyEntityChanged(const QString &entityId)
 {
+    if (m_entityNotificationBatchDepth > 0) {
+        if (!m_pendingEntityNotifications.contains(entityId)) {
+            m_pendingEntityNotifications.insert(entityId);
+            m_pendingEntityNotificationOrder.push_back(entityId);
+        }
+        return;
+    }
     for (MediaQueryModel *model : std::as_const(m_queries))
         model->notifyEntityChanged(entityId);
     emit entityChanged(entityId);
@@ -724,6 +1010,9 @@ void MediaStore::notifyEntityChanged(const QString &entityId)
 MediaQueryProxyModel::MediaQueryProxyModel(QObject *parent)
     : QSortFilterProxyModel(parent)
 {
+    m_collator.setLocale(QLocale(m_sortLocale));
+    m_collator.setCaseSensitivity(Qt::CaseInsensitive);
+    m_collator.setNumericMode(true);
     setDynamicSortFilter(true);
     setFilterRole(MediaQueryModel::ModelDataRole);
     setSortRole(MediaQueryModel::ModelDataRole);
@@ -741,6 +1030,7 @@ void MediaQueryProxyModel::setSearchText(const QString &value)
     beginFilterChange();
 #endif
     m_searchText = value;
+    m_searchNeedle = value.trimmed();
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
     endFilterChange(Direction::Rows);
 #else
@@ -795,6 +1085,7 @@ void MediaQueryProxyModel::setSortLocale(const QString &value)
     if (m_sortLocale == value)
         return;
     m_sortLocale = value;
+    m_collator.setLocale(QLocale(m_sortLocale));
     invalidate();
     emit sortLocaleChanged();
 }
@@ -810,6 +1101,11 @@ bool MediaQueryProxyModel::filterAcceptsRow(
 {
     if (!sourceModel())
         return false;
+    if (const auto *model = qobject_cast<const MediaQueryModel *>(sourceModel())) {
+        if (m_requireSearchText && m_searchNeedle.isEmpty())
+            return false;
+        return model->filterAccepts(sourceRow, m_searchNeedle, m_category);
+    }
     const QVariantMap item = sourceModel()
         ->data(sourceModel()->index(sourceRow, 0, sourceParent), MediaQueryModel::ModelDataRole)
         .toMap();
@@ -854,10 +1150,7 @@ bool MediaQueryProxyModel::lessThan(
         return dateValue(first.value(QStringLiteral("updatedAt")))
             > dateValue(second.value(QStringLiteral("updatedAt")));
     }
-    QCollator collator {QLocale(m_sortLocale)};
-    collator.setCaseSensitivity(Qt::CaseInsensitive);
-    collator.setNumericMode(true);
-    return collator.compare(
+    return m_collator.compare(
         first.value(QStringLiteral("title")).toString(),
         second.value(QStringLiteral("title")).toString()) < 0;
 }
@@ -875,4 +1168,299 @@ void MediaQueryProxyModel::updateSorting()
     else
         sort(0, Qt::AscendingOrder);
     invalidate();
+}
+
+MediaSearchModel::MediaSearchModel(QObject *parent)
+    : QAbstractListModel(parent)
+{
+}
+
+int MediaSearchModel::rowCount(const QModelIndex &parent) const
+{
+    return parent.isValid() ? 0 : m_sourceRows.size();
+}
+
+QVariant MediaSearchModel::data(const QModelIndex &index, int role) const
+{
+    if (!m_sourceModel || !index.isValid()
+        || index.row() < 0 || index.row() >= m_sourceRows.size()) {
+        return {};
+    }
+    return m_sourceModel->data(m_sourceModel->index(m_sourceRows.at(index.row()), 0), role);
+}
+
+QHash<int, QByteArray> MediaSearchModel::roleNames() const
+{
+    return m_sourceModel ? m_sourceModel->roleNames()
+                         : QHash<int, QByteArray>{
+                               {MediaQueryModel::ModelDataRole, QByteArrayLiteral("modelData")},
+                               {MediaQueryModel::EntityIdRole, QByteArrayLiteral("entityId")},
+                               {MediaQueryModel::RowKeyRole, QByteArrayLiteral("rowKey")},
+                           };
+}
+
+void MediaSearchModel::setSourceModel(MediaQueryModel *value)
+{
+    if (m_sourceModel == value)
+        return;
+    if (m_sourceModel)
+        disconnect(m_sourceModel, nullptr, this, nullptr);
+    m_sourceModel = value;
+    if (m_sourceModel) {
+        connect(m_sourceModel, &QAbstractItemModel::modelReset,
+                this, &MediaSearchModel::sourceStructureChanged);
+        connect(m_sourceModel, &QAbstractItemModel::rowsInserted,
+                this, &MediaSearchModel::sourceStructureChanged);
+        connect(m_sourceModel, &QAbstractItemModel::rowsRemoved,
+                this, &MediaSearchModel::sourceStructureChanged);
+        connect(m_sourceModel, &QAbstractItemModel::rowsMoved,
+                this, &MediaSearchModel::sourceStructureChanged);
+        connect(m_sourceModel, &QAbstractItemModel::dataChanged,
+                this, &MediaSearchModel::sourceDataChanged);
+        connect(m_sourceModel, &MediaQueryModel::rowsSynchronized,
+                this, &MediaSearchModel::sourceChanged);
+        connect(m_sourceModel, &QObject::destroyed, this, [this] {
+            m_sourceModel = nullptr;
+            sourceChanged();
+            emit sourceModelChanged();
+        });
+    }
+    sourceChanged();
+    emit sourceModelChanged();
+}
+
+void MediaSearchModel::setSearchText(const QString &value)
+{
+    if (m_searchText == value)
+        return;
+    m_searchText = value;
+    m_searchNeedle = value.trimmed();
+    m_indexSearchText = MediaStore::normalizedSearchText(m_searchNeedle);
+    rebuild();
+    emit searchTextChanged();
+}
+
+void MediaSearchModel::setRequireSearchText(bool value)
+{
+    if (m_requireSearchText == value)
+        return;
+    m_requireSearchText = value;
+    rebuild();
+    emit requireSearchTextChanged();
+}
+
+QVariantMap MediaSearchModel::get(int row) const
+{
+    return data(index(row, 0), MediaQueryModel::ModelDataRole).toMap();
+}
+
+void MediaSearchModel::sourceChanged()
+{
+    rebuildIndex();
+    if (!rebuild(true) && !m_sourceRows.isEmpty()) {
+        emit dataChanged(
+            index(0, 0),
+            index(m_sourceRows.size() - 1, 0));
+    }
+}
+
+void MediaSearchModel::sourceStructureChanged()
+{
+    if (m_sourceModel && m_sourceModel->m_synchronizingRows)
+        return;
+    sourceChanged();
+}
+
+void MediaSearchModel::sourceDataChanged(
+    const QModelIndex &topLeft,
+    const QModelIndex &bottomRight,
+    const QList<int> &roles)
+{
+    if (m_sourceModel && m_sourceModel->m_synchronizingRows)
+        return;
+    bool requiresFullRebuild = m_indexedTexts.size()
+        != (m_sourceModel ? m_sourceModel->rowCount() : 0);
+    int changedTextRows = 0;
+    if (!requiresFullRebuild && m_sourceModel) {
+        const int firstSourceRow = std::max(0, topLeft.row());
+        const int lastSourceRow = std::min(
+            bottomRight.row(), m_sourceModel->rowCount() - 1);
+        for (int sourceRow = firstSourceRow;
+             sourceRow <= lastSourceRow;
+             ++sourceRow) {
+            const auto updatedTexts = m_sourceModel->filterTexts(sourceRow);
+            if (updatedTexts == m_indexedTexts.at(sourceRow))
+                continue;
+
+            const QVector<quint64> oldKeys = searchGramKeys(
+                m_indexedTexts.at(sourceRow));
+            const QVector<quint64> newKeys = searchGramKeys(updatedTexts);
+            for (const quint64 key : newKeys) {
+                if (!std::binary_search(oldKeys.cbegin(), oldKeys.cend(), key))
+                    m_postings[key].push_back(sourceRow);
+            }
+            m_indexedTexts[sourceRow] = updatedTexts;
+            ++changedTextRows;
+        }
+    }
+    if (changedTextRows > 0) {
+        m_hasStalePostings = true;
+        m_incrementalTextChanges += changedTextRows;
+        const int rebuildThreshold = std::max(
+            64, m_sourceModel->rowCount() / 10);
+        requiresFullRebuild = m_incrementalTextChanges > rebuildThreshold;
+    }
+    if (requiresFullRebuild) {
+        rebuildIndex();
+    }
+    if ((requiresFullRebuild || changedTextRows > 0) && rebuild())
+        return;
+
+    int firstProxyRow = -1;
+    int lastProxyRow = -1;
+    for (int proxyRow = 0; proxyRow < m_sourceRows.size(); ++proxyRow) {
+        const int sourceRow = m_sourceRows.at(proxyRow);
+        if (sourceRow < topLeft.row() || sourceRow > bottomRight.row())
+            continue;
+        if (firstProxyRow < 0)
+            firstProxyRow = proxyRow;
+        lastProxyRow = proxyRow;
+    }
+    if (firstProxyRow >= 0) {
+        emit dataChanged(
+            index(firstProxyRow, 0),
+            index(lastProxyRow, 0),
+            roles);
+    }
+}
+
+void MediaSearchModel::rebuildIndex()
+{
+    m_postings.clear();
+    m_indexedTexts.clear();
+    m_hasStalePostings = false;
+    m_incrementalTextChanges = 0;
+    if (!m_sourceModel)
+        return;
+    const int sourceCount = m_sourceModel->rowCount();
+    m_indexedTexts.resize(sourceCount);
+    m_postings.reserve(std::min(sourceCount * 4, 500'000));
+    for (int row = 0; row < sourceCount; ++row) {
+        const auto texts = m_sourceModel->filterTexts(row);
+        m_indexedTexts[row] = texts;
+        for (const quint64 key : searchGramKeys(texts))
+            m_postings[key].push_back(row);
+    }
+}
+
+bool MediaSearchModel::rebuild(bool preserveSourceViewState)
+{
+    QVector<int> sourceRows;
+    if (m_sourceModel && (!m_requireSearchText || !m_searchNeedle.isEmpty())) {
+        const int sourceCount = m_sourceModel->rowCount();
+        if (m_searchNeedle.isEmpty()) {
+            sourceRows.resize(sourceCount);
+            std::iota(sourceRows.begin(), sourceRows.end(), 0);
+        } else {
+            const QStringView query(m_indexSearchText);
+            if (query.isEmpty()) {
+                sourceRows.reserve(sourceCount);
+                for (int row = 0; row < sourceCount; ++row) {
+                    if (m_sourceModel->filterAccepts(
+                            row, m_searchNeedle, {})) {
+                        sourceRows.push_back(row);
+                    }
+                }
+            } else {
+                const qsizetype gramLength = std::min<qsizetype>(3, query.size());
+                const QVector<int> *candidates = nullptr;
+                for (qsizetype offset = 0;
+                     offset <= query.size() - gramLength;
+                     ++offset) {
+                    const auto found = m_postings.constFind(
+                        searchGramKey(query, offset, gramLength));
+                    if (found == m_postings.cend()) {
+                        candidates = nullptr;
+                        break;
+                    }
+                    if (!candidates || found->size() < candidates->size())
+                        candidates = &found.value();
+                }
+                if (candidates) {
+                    // The gram index only narrows candidates. Exact verification
+                    // preserves the previous materialized-field and Qt case
+                    // insensitive matching behavior, including short queries.
+                    sourceRows.reserve(candidates->size());
+                    QBitArray seenRows;
+                    if (m_hasStalePostings)
+                        seenRows.resize(sourceCount);
+                    for (const int row : *candidates) {
+                        if (row < 0 || row >= sourceCount)
+                            continue;
+                        if (m_hasStalePostings) {
+                            if (seenRows.testBit(row))
+                                continue;
+                            seenRows.setBit(row);
+                        }
+                        if (m_sourceModel->filterAccepts(
+                                row, m_searchNeedle, {})) {
+                            sourceRows.push_back(row);
+                        }
+                    }
+                    if (m_hasStalePostings)
+                        std::sort(sourceRows.begin(), sourceRows.end());
+                }
+            }
+        }
+    }
+    QVector<QString> rowKeys;
+    rowKeys.reserve(sourceRows.size());
+    for (const int sourceRow : sourceRows) {
+        rowKeys.push_back(
+            m_sourceModel && sourceRow >= 0
+                    && sourceRow < m_sourceModel->m_rows.size()
+                ? m_sourceModel->m_rows.at(sourceRow).rowKey
+                : QString{});
+    }
+    if (m_sourceRows == sourceRows && m_rowKeys == rowKeys)
+        return false;
+
+    if (preserveSourceViewState && m_rowKeys.size() == rowKeys.size()) {
+        const QSet<QString> previousKeys(m_rowKeys.cbegin(), m_rowKeys.cend());
+        const QSet<QString> nextKeys(rowKeys.cbegin(), rowKeys.cend());
+        if (previousKeys == nextKeys) {
+            QHash<QString, int> newRows;
+            newRows.reserve(rowKeys.size());
+            for (int row = 0; row < rowKeys.size(); ++row)
+                newRows.insert(rowKeys.at(row), row);
+
+            emit layoutAboutToBeChanged({}, QAbstractItemModel::VerticalSortHint);
+            const QModelIndexList from = persistentIndexList();
+            m_sourceRows = std::move(sourceRows);
+            const QVector<QString> oldRowKeys = std::exchange(
+                m_rowKeys, std::move(rowKeys));
+            QModelIndexList to;
+            to.reserve(from.size());
+            for (const QModelIndex &oldIndex : from) {
+                const QString key = oldIndex.row() >= 0
+                        && oldIndex.row() < oldRowKeys.size()
+                    ? oldRowKeys.at(oldIndex.row())
+                    : QString{};
+                const auto found = newRows.constFind(key);
+                to.push_back(found == newRows.cend()
+                        ? QModelIndex{}
+                        : createIndex(found.value(), oldIndex.column()));
+            }
+            changePersistentIndexList(from, to);
+            emit layoutChanged({}, QAbstractItemModel::VerticalSortHint);
+            return true;
+        }
+    }
+
+    beginResetModel();
+    m_sourceRows = std::move(sourceRows);
+    m_rowKeys = std::move(rowKeys);
+    endResetModel();
+    emit countChanged();
+    return true;
 }

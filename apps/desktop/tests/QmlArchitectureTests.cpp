@@ -129,6 +129,79 @@ private slots:
         }
     }
 
+    void searchPageKeepsPartitionedResultsNavigable()
+    {
+        const QString path = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))
+            .filePath(QStringLiteral("pages/SearchPage.qml"));
+        const QString content = source(path);
+        QVERIFY2(!content.isEmpty(), qPrintable(path));
+
+        QVERIFY2(content.contains(QStringLiteral(
+                     "model: app.search.resultRows"))
+                && content.contains(QStringLiteral(
+                    "mediaSection === \"titles\""))
+                && content.contains(QStringLiteral(
+                    "mediaSection === \"episodes\"")),
+            "Search must render title and episode visual rows in one virtualized list");
+        QVERIFY2(content.contains(QStringLiteral(
+                     "app.search.results.count")),
+            "The aggregate search model must remain the total/empty-state authority");
+        QVERIFY2(content.contains(QStringLiteral("moveResultFocus"))
+                && content.contains(QStringLiteral("Keys.onDownPressed"))
+                && content.contains(QStringLiteral("revealResultCard")),
+            "Both result sections must retain directional focus and scroll reveal");
+        QVERIFY2(content.contains(QStringLiteral(
+                     "resultsList.resetScrollPosition()"))
+                && content.contains(QStringLiteral(
+                    "root.focusedResultId = \"\"")),
+            "A new query must reset scroll and stale semantic focus together");
+        QVERIFY2(content.contains(QStringLiteral(
+                     "running: root.visible && root.effectiveQuery.length > 0"))
+                && content.contains(QStringLiteral(
+                     "&& root.hostWindowActive && !app.search.searching"))
+                && content.contains(QStringLiteral(
+                    "&& !searchSubmission.pending"))
+                && content.contains(QStringLiteral(
+                    "&& !searchField.inputMethodComposing"))
+                && !content.contains(QStringLiteral(
+                    "running: root.visible && app.search.syncing")),
+            "Catalog revision polling must pause during input and IME composition");
+        QVERIFY2(content.contains(QStringLiteral(
+                     "onVisibleChanged:"))
+                && content.contains(QStringLiteral(
+                    "function onActiveChanged()"))
+                && content.contains(QStringLiteral(
+                    "root.refreshCatalogRevision()")),
+            "Returning to Search or reactivating its window must request one immediate revision check");
+        QCOMPARE(content.count(QStringLiteral("add: Transition")), 0);
+        QVERIFY2(content.contains(QStringLiteral(
+                     "visible: app.search.results.count > 0"))
+                && content.contains(QStringLiteral(
+                    "visible: app.search.results.count === 0"))
+                && !content.contains(QStringLiteral(
+                    "opacity: app.search.results.count")),
+            "Search result and empty-state containers must switch deterministically without opacity crossfades");
+        QVERIFY2(!content.contains(QStringLiteral(
+                     "Layout.preferredHeight: Math.ceil"))
+                && !content.contains(QStringLiteral("GridView {"))
+                && content.contains(QStringLiteral("SmoothListView {"))
+                && content.contains(QStringLiteral("cacheBuffer: cardRowHeight")),
+            "Search result cards must be row-virtualized instead of expanding nested grids");
+        QVERIFY2(content.contains(QStringLiteral("SearchSubmissionPolicy {"))
+                && content.contains(QStringLiteral("delayMs: 100"))
+                && content.contains(QStringLiteral("app.search.inputPending()"))
+                && content.contains(QStringLiteral(
+                    "searchSubmission.pending || app.search.searching")),
+            "Search input must use the production trailing policy, fence old work, and expose pending state");
+        QVERIFY2(content.contains(QStringLiteral(
+                     "function onRowsAboutToBeRebuilt()"))
+                && content.contains(QStringLiteral(
+                    "root.restoreScrollAnchor()"))
+                && content.contains(QStringLiteral(
+                    "InputModality.focusNavigationActive")),
+            "Incremental results must preserve pointer scroll anchors without stealing keyboard focus");
+    }
+
     void framelessMainWindowRetainsPlatformWindowCapabilities()
     {
         const QString path = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))

@@ -132,6 +132,8 @@ WorkerPools::WorkerPools()
     configure(m_sessionControl, 1);
     configure(m_danmakuControl, 1);
     configure(m_catalog, 2);
+    configure(m_search, 1);
+    configure(m_searchHydration, 1);
     configure(m_mediaRead, 4);
     configure(m_mediaMutation, 2);
     configure(m_playbackPrepare, 1);
@@ -154,6 +156,8 @@ void WorkerPools::drain()
     m_sessionControl.waitForDone();
     m_danmakuControl.waitForDone();
     m_catalog.waitForDone();
+    m_search.waitForDone();
+    m_searchHydration.waitForDone();
     m_mediaRead.waitForDone();
     m_mediaMutation.waitForDone();
     m_playbackPrepare.waitForDone();

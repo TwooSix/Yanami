@@ -6,6 +6,7 @@
 //! crates directly.
 
 mod catalog;
+mod catalog_search;
 mod danmaku;
 mod error;
 mod images;
@@ -15,7 +16,7 @@ mod presentation;
 mod session;
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     future::Future,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -23,9 +24,12 @@ use std::{
 
 use tokio::{runtime::Handle, sync::watch, task::JoinHandle};
 use yanami_emby::{EmbyClient, RefreshProgress};
-use yanami_storage::{AppStorage, CredentialVault};
+use yanami_storage::{AppStorage, CatalogScope, CredentialVault, MediaCatalog};
 
 pub use catalog::{ActivityOutcome, CollectionOutcome, FavoritesOutcome, LibraryOutcome};
+pub use catalog_search::{
+    CatalogSearchImageHydrationRequest, CatalogSearchOutcome, CatalogSearchStatus,
+};
 pub use danmaku::{
     DanmakuApplyOutcome, DanmakuApplyRequest, DanmakuAutoOutcome, DanmakuSearchOutcome,
     DanmakuSearchRequest,
@@ -49,14 +53,116 @@ pub use session::{DandanCredentialSource, EmbySettingsOutcome, RefreshProgressOu
 use playback::ActivePlayback;
 use session::ActiveSession;
 
+type MediaCatalogCache = Arc<Mutex<Option<(CatalogScope, Arc<MediaCatalog>)>>>;
+
 pub(crate) enum BackgroundTaskScope {
     Global,
+    Catalog { session_key: String },
     Image { item_id: String, image_type: String },
 }
 
 pub(crate) struct RegisteredTask {
     scope: BackgroundTaskScope,
     handle: JoinHandle<()>,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct CatalogNotificationBatch {
+    pub(crate) upsert_ids: Vec<String>,
+    pub(crate) removed_ids: Vec<String>,
+    pub(crate) catchup_required: bool,
+    pub(crate) membership_required: bool,
+}
+
+#[derive(Default)]
+pub(crate) struct CatalogNotificationBuffer {
+    session_key: Option<String>,
+    upsert_ids: BTreeSet<String>,
+    removed_ids: BTreeSet<String>,
+    catchup_required: bool,
+    membership_required: bool,
+}
+
+impl CatalogNotificationBuffer {
+    fn select_session(&mut self, session_key: &str) {
+        if self.session_key.as_deref() != Some(session_key) {
+            self.clear();
+            self.session_key = Some(session_key.to_owned());
+        }
+    }
+
+    pub(crate) fn enqueue(
+        &mut self,
+        session_key: &str,
+        upsert_ids: impl IntoIterator<Item = String>,
+        removed_ids: impl IntoIterator<Item = String>,
+        membership_required: bool,
+    ) {
+        self.select_session(session_key);
+        for item_id in upsert_ids {
+            let item_id = item_id.trim();
+            if !item_id.is_empty() {
+                self.removed_ids.remove(item_id);
+                self.upsert_ids.insert(item_id.to_owned());
+            }
+        }
+        for item_id in removed_ids {
+            let item_id = item_id.trim();
+            if !item_id.is_empty() {
+                self.upsert_ids.remove(item_id);
+                self.removed_ids.insert(item_id.to_owned());
+            }
+        }
+        self.membership_required |= membership_required;
+    }
+
+    pub(crate) fn mark_gap(&mut self, session_key: &str) {
+        self.select_session(session_key);
+        self.catchup_required = true;
+        self.membership_required = true;
+    }
+
+    pub(crate) fn mark_catchup(&mut self, session_key: &str) {
+        self.select_session(session_key);
+        self.catchup_required = true;
+    }
+
+    pub(crate) fn drain(&mut self, session_key: &str) -> CatalogNotificationBatch {
+        self.select_session(session_key);
+        CatalogNotificationBatch {
+            upsert_ids: std::mem::take(&mut self.upsert_ids).into_iter().collect(),
+            removed_ids: std::mem::take(&mut self.removed_ids).into_iter().collect(),
+            catchup_required: std::mem::take(&mut self.catchup_required),
+            membership_required: std::mem::take(&mut self.membership_required),
+        }
+    }
+
+    pub(crate) fn merge(&mut self, session_key: &str, batch: CatalogNotificationBatch) {
+        self.select_session(session_key);
+        // `batch` was drained before a failed persistence attempt. Events
+        // already present in this buffer are newer and must win for the same
+        // ID; only restore older work which has no newer disposition.
+        for item_id in batch.upsert_ids {
+            if !self.upsert_ids.contains(&item_id) && !self.removed_ids.contains(&item_id) {
+                self.upsert_ids.insert(item_id);
+            }
+        }
+        for item_id in batch.removed_ids {
+            if !self.upsert_ids.contains(&item_id) && !self.removed_ids.contains(&item_id) {
+                self.removed_ids.insert(item_id);
+            }
+        }
+        self.catchup_required |= batch.catchup_required;
+        self.membership_required |= batch.membership_required;
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.session_key = None;
+        self.upsert_ids.clear();
+        self.removed_ids.clear();
+        self.catchup_required = false;
+        self.membership_required = false;
+    }
 }
 
 impl RegisteredTask {
@@ -81,6 +187,9 @@ pub struct Application {
     pub(crate) refresh_progress: Arc<Mutex<BTreeMap<String, RefreshProgress>>>,
     pub(crate) refresh_monitor: Mutex<Option<JoinHandle<()>>>,
     pub(crate) background_tasks: Mutex<Vec<RegisteredTask>>,
+    pub(crate) media_catalog: MediaCatalogCache,
+    pub(crate) catalog_notifications: Arc<Mutex<CatalogNotificationBuffer>>,
+    pub(crate) catalog_wake: Arc<tokio::sync::Notify>,
     pub(crate) image_downloads: Arc<Mutex<HashSet<PathBuf>>>,
     pub(crate) image_download_slots: Arc<tokio::sync::Semaphore>,
     pub(crate) image_mutation_generations: Mutex<BTreeMap<(String, String), u64>>,

@@ -1,6 +1,7 @@
 #include "MpvVideoItem.hpp"
 
 #include "DevelopmentHooks.hpp"
+#include "PerformanceTrace.hpp"
 
 #include <QMetaObject>
 #include <QMutex>
@@ -23,6 +24,7 @@
 #include <atomic>
 #include <clocale>
 #include <cmath>
+#include <cstdint>
 #include <stdexcept>
 #include <vector>
 
@@ -147,12 +149,39 @@ const char *playbackStateName(MpvVideoItem::PlaybackState state)
     return "unknown";
 }
 
+enum class ObservedProperty : uint64_t {
+    Pause = 1,
+    TimePosition = 2,
+    Duration = 3,
+    TrackCount = 4,
+    DemuxerCacheTime = 5,
+    PausedForCache = 6,
+    Volume = 7,
+    Mute = 8,
+    Speed = 9,
+    Seekable = 10,
+    EofReached = 11,
+    DecoderFrameDropCount = 12,
+    FrameDropCount = 13,
+    MistimedFrameCount = 14,
+    DelayedFrameCount = 15,
+    AvSync = 16,
+    EstimatedVideoFps = 17,
+};
+
+constexpr uint64_t observerId(ObservedProperty property) noexcept
+{
+    return static_cast<uint64_t>(property);
+}
+
 } // namespace
 
 struct MpvRenderState
 {
     QMutex itemMutex;
     QPointer<MpvVideoItem> item;
+    bool diagnosticsEnabled = false;
+    std::atomic_bool updateQueued{false};
     std::atomic_uint64_t callbackCount{0};
     std::atomic_uint64_t renderCount{0};
     std::atomic_uint64_t renderTotalNanoseconds{0};
@@ -179,7 +208,10 @@ public:
     QOpenGLFramebufferObject *createFramebufferObject(const QSize &size) override
     {
         QOpenGLFramebufferObjectFormat format;
-        format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
+        // libmpv renders a full-screen color target and never consumes depth
+        // or stencil. Avoid allocating an unused attachment (about 31.6 MiB
+        // at 3840x2160 for a 32-bit combined buffer).
+        format.setAttachment(QOpenGLFramebufferObject::NoAttachment);
         format.setTextureTarget(GL_TEXTURE_2D);
         return new QOpenGLFramebufferObject(size, format);
     }
@@ -194,7 +226,8 @@ public:
             return;
 
         QElapsedTimer renderTimer;
-        renderTimer.start();
+        if (m_state->diagnosticsEnabled)
+            renderTimer.start();
 
         if (!m_context) {
             if (auto *context = QOpenGLContext::currentContext()) {
@@ -243,12 +276,20 @@ public:
             {MPV_RENDER_PARAM_INVALID, nullptr},
         };
         mpv_render_context_render(m_context, parameters);
-        ++m_state->renderCount;
-        const auto elapsed = static_cast<quint64>(renderTimer.nsecsElapsed());
-        m_state->renderTotalNanoseconds += elapsed;
-        auto maximum = m_state->renderMaximumNanoseconds.load();
-        while (elapsed > maximum
-               && !m_state->renderMaximumNanoseconds.compare_exchange_weak(maximum, elapsed)) {
+        if (m_state->diagnosticsEnabled) {
+            m_state->renderCount.fetch_add(1, std::memory_order_relaxed);
+            const auto elapsed = static_cast<quint64>(renderTimer.nsecsElapsed());
+            m_state->renderTotalNanoseconds.fetch_add(
+                elapsed, std::memory_order_relaxed);
+            auto maximum = m_state->renderMaximumNanoseconds.load(
+                std::memory_order_relaxed);
+            while (elapsed > maximum
+                   && !m_state->renderMaximumNanoseconds.compare_exchange_weak(
+                       maximum,
+                       elapsed,
+                       std::memory_order_relaxed,
+                       std::memory_order_relaxed)) {
+            }
         }
         QQuickOpenGLUtils::resetOpenGLState();
 
@@ -260,14 +301,33 @@ private:
         auto *renderer = static_cast<MpvRenderer *>(context);
         if (!renderer)
             return;
-        ++renderer->m_state->callbackCount;
-        QMutexLocker locker(&renderer->m_state->itemMutex);
-        if (renderer->m_state->item) {
-            QMetaObject::invokeMethod(renderer->m_state->item, [item = renderer->m_state->item] {
-                if (item)
-                    item->update();
-            });
+        const auto state = renderer->m_state;
+        if (state->diagnosticsEnabled)
+            state->callbackCount.fetch_add(1, std::memory_order_relaxed);
+        if (state->updateQueued.exchange(true, std::memory_order_acq_rel))
+            return;
+
+        bool queued = false;
+        {
+            QMutexLocker locker(&state->itemMutex);
+            if (state->item) {
+                const QPointer<MpvVideoItem> item = state->item;
+                queued = QMetaObject::invokeMethod(
+                    state->item,
+                    [state, item] {
+                        // Release the coalescing gate before update(). A callback
+                        // racing with this GUI-thread turn can enqueue one more
+                        // update, while every callback observed before this point
+                        // is covered by the update below.
+                        state->updateQueued.store(false, std::memory_order_release);
+                        if (item)
+                            item->update();
+                    },
+                    Qt::QueuedConnection);
+            }
         }
+        if (!queued)
+            state->updateQueued.store(false, std::memory_order_release);
     }
 
     std::shared_ptr<mpv_handle> m_mpvOwner;
@@ -287,6 +347,10 @@ MpvVideoItem::MpvVideoItem(QQuickItem *parent)
     if (!m_mpv)
         throw std::runtime_error("mpv_create failed");
     m_renderState->item = this;
+    m_renderState->diagnosticsEnabled = DevelopmentHooks::isSet(
+        DevelopmentHooks::Variable::RenderDiagnostics);
+    m_performanceTraceEnabled =
+        YanamiPerformance::PerformanceTrace::enabled();
 
     const QByteArray hardwareDecoding = diagnosticOption(
         DevelopmentHooks::Variable::MpvHwdec, "auto");
@@ -351,19 +415,63 @@ MpvVideoItem::MpvVideoItem(QQuickItem *parent)
     // message is sanitized before it reaches the persistent logger.
     mpv_request_log_messages(m_mpv, "warn");
 
-    mpv_observe_property(m_mpv, 1, "pause", MPV_FORMAT_FLAG);
-    mpv_observe_property(m_mpv, 2, "time-pos", MPV_FORMAT_DOUBLE);
-    mpv_observe_property(m_mpv, 3, "duration", MPV_FORMAT_DOUBLE);
-    mpv_observe_property(m_mpv, 4, "track-list/count", MPV_FORMAT_INT64);
-    mpv_observe_property(m_mpv, 5, "demuxer-cache-time", MPV_FORMAT_DOUBLE);
-    mpv_observe_property(m_mpv, 6, "paused-for-cache", MPV_FORMAT_FLAG);
-    mpv_observe_property(m_mpv, 7, "volume", MPV_FORMAT_DOUBLE);
-    mpv_observe_property(m_mpv, 8, "mute", MPV_FORMAT_FLAG);
-    mpv_observe_property(m_mpv, 9, "speed", MPV_FORMAT_DOUBLE);
-    mpv_observe_property(m_mpv, 10, "seekable", MPV_FORMAT_FLAG);
+    mpv_observe_property(
+        m_mpv, observerId(ObservedProperty::Pause), "pause", MPV_FORMAT_FLAG);
+    mpv_observe_property(
+        m_mpv, observerId(ObservedProperty::TimePosition), "time-pos", MPV_FORMAT_DOUBLE);
+    mpv_observe_property(
+        m_mpv, observerId(ObservedProperty::Duration), "duration", MPV_FORMAT_DOUBLE);
+    mpv_observe_property(
+        m_mpv, observerId(ObservedProperty::TrackCount), "track-list/count", MPV_FORMAT_INT64);
+    mpv_observe_property(
+        m_mpv, observerId(ObservedProperty::DemuxerCacheTime), "demuxer-cache-time", MPV_FORMAT_DOUBLE);
+    mpv_observe_property(
+        m_mpv, observerId(ObservedProperty::PausedForCache), "paused-for-cache", MPV_FORMAT_FLAG);
+    mpv_observe_property(
+        m_mpv, observerId(ObservedProperty::Volume), "volume", MPV_FORMAT_DOUBLE);
+    mpv_observe_property(
+        m_mpv, observerId(ObservedProperty::Mute), "mute", MPV_FORMAT_FLAG);
+    mpv_observe_property(
+        m_mpv, observerId(ObservedProperty::Speed), "speed", MPV_FORMAT_DOUBLE);
+    mpv_observe_property(
+        m_mpv, observerId(ObservedProperty::Seekable), "seekable", MPV_FORMAT_FLAG);
     // MPV_EVENT_END_FILE is not emitted at natural EOF while keep-open keeps
     // the file loaded. eof-reached is the authoritative completion boundary.
-    mpv_observe_property(m_mpv, 11, "eof-reached", MPV_FORMAT_FLAG);
+    mpv_observe_property(
+        m_mpv, observerId(ObservedProperty::EofReached), "eof-reached", MPV_FORMAT_FLAG);
+    if (m_performanceTraceEnabled) {
+        m_performanceObserversRegistered = true;
+        m_performanceObserversRegistered &= mpv_observe_property(
+            m_mpv,
+            observerId(ObservedProperty::DecoderFrameDropCount),
+            "decoder-frame-drop-count",
+            MPV_FORMAT_INT64) >= 0;
+        m_performanceObserversRegistered &= mpv_observe_property(
+            m_mpv,
+            observerId(ObservedProperty::FrameDropCount),
+            "frame-drop-count",
+            MPV_FORMAT_INT64) >= 0;
+        m_performanceObserversRegistered &= mpv_observe_property(
+            m_mpv,
+            observerId(ObservedProperty::MistimedFrameCount),
+            "mistimed-frame-count",
+            MPV_FORMAT_INT64) >= 0;
+        m_performanceObserversRegistered &= mpv_observe_property(
+            m_mpv,
+            observerId(ObservedProperty::DelayedFrameCount),
+            "vo-delayed-frame-count",
+            MPV_FORMAT_INT64) >= 0;
+        m_performanceObserversRegistered &= mpv_observe_property(
+            m_mpv,
+            observerId(ObservedProperty::AvSync),
+            "avsync",
+            MPV_FORMAT_DOUBLE) >= 0;
+        m_performanceObserversRegistered &= mpv_observe_property(
+            m_mpv,
+            observerId(ObservedProperty::EstimatedVideoFps),
+            "estimated-vf-fps",
+            MPV_FORMAT_DOUBLE) >= 0;
+    }
     mpv_set_wakeup_callback(m_mpv, &MpvVideoItem::wakeup, this);
 
     m_playbackStallClock.start();
@@ -376,14 +484,19 @@ MpvVideoItem::MpvVideoItem(QQuickItem *parent)
         &MpvVideoItem::pollPlaybackStall);
 
 #ifdef YANAMI_ENABLE_DEV_HOOKS
-    if (DevelopmentHooks::isSet(DevelopmentHooks::Variable::RenderDiagnostics)) {
+    if (m_renderState->diagnosticsEnabled) {
         auto *diagnosticTimer = new QTimer(this);
         diagnosticTimer->setInterval(1000);
         connect(diagnosticTimer, &QTimer::timeout, this, [this] {
-            const quint64 renderCount = m_renderState->renderCount.exchange(0);
-            const quint64 totalNanoseconds = m_renderState->renderTotalNanoseconds.exchange(0);
-            const quint64 maximumNanoseconds = m_renderState->renderMaximumNanoseconds.exchange(0);
-            qInfo() << "render-load mpvCallbacks=" << m_renderState->callbackCount.exchange(0)
+            const quint64 renderCount = m_renderState->renderCount.exchange(
+                0, std::memory_order_relaxed);
+            const quint64 totalNanoseconds = m_renderState->renderTotalNanoseconds.exchange(
+                0, std::memory_order_relaxed);
+            const quint64 maximumNanoseconds = m_renderState->renderMaximumNanoseconds.exchange(
+                0, std::memory_order_relaxed);
+            qInfo() << "render-load mpvCallbacks="
+                    << m_renderState->callbackCount.exchange(
+                           0, std::memory_order_relaxed)
                     << "mpvRenders=" << renderCount
                     << "averageRenderMs=" << (renderCount > 0
                                ? totalNanoseconds / 1'000'000.0 / renderCount
@@ -422,6 +535,22 @@ void MpvVideoItem::open(const QUrl &url, const QVariantMap &headers)
     m_bufferingTimer.invalidate();
     m_bufferingTransitions = 0;
     m_totalBufferingMs = 0;
+    if (m_performanceTraceEnabled) {
+        m_decoderDroppedFrames = 0;
+        m_outputDroppedFrames = 0;
+        m_mistimedFrames = 0;
+        m_delayedFrames = 0;
+        m_avSyncSeconds = 0.0;
+        m_estimatedVideoFps = 0.0;
+        m_decoderDroppedFramesAvailable = false;
+        m_outputDroppedFramesAvailable = false;
+        m_mistimedFramesAvailable = false;
+        m_delayedFramesAvailable = false;
+        m_avSyncAvailable = false;
+        m_estimatedVideoFpsAvailable = false;
+        m_firstPlaybackRestartObserved = false;
+        m_seekTimer.invalidate();
+    }
     m_pauseRequested = m_paused;
     qCInfo(playbackLog).noquote()
         << "playback_mpv_open"
@@ -429,6 +558,15 @@ void MpvVideoItem::open(const QUrl &url, const QVariantMap &headers)
         << "source=" << (url.isLocalFile() ? "local" : "remote")
         << "scheme=" << url.scheme().toLower()
         << "headerCount=" << headers.size();
+    if (m_performanceTraceEnabled) {
+        YanamiPerformance::PerformanceTrace::mark(
+            QStringLiteral("playback_open_requested"),
+            {
+                {QStringLiteral("generation"), m_loadGeneration},
+                {QStringLiteral("source"), url.isLocalFile() ? QStringLiteral("local")
+                                                             : QStringLiteral("remote")},
+            });
+    }
     m_buffering = false;
     m_fileLoaded = false;
     m_completionGate.reset();
@@ -467,6 +605,10 @@ void MpvVideoItem::stop()
         << "state=" << playbackStateName(m_playbackState)
         << "bufferingTransitions=" << m_bufferingTransitions
         << "totalBufferingMs=" << m_totalBufferingMs;
+    if (m_performanceTraceEnabled) {
+        YanamiPerformance::PerformanceTrace::mark(
+            QStringLiteral("playback_stopped"), performanceSnapshot());
+    }
     command({"stop"});
     setHeaders({});
     resetPlaybackStall();
@@ -492,11 +634,21 @@ void MpvVideoItem::seek(double seconds)
         << "targetSeconds=" << target
         << "fileLoaded=" << m_fileLoaded;
     if (m_fileLoaded) {
+        if (m_performanceTraceEnabled)
+            m_seekTimer.restart();
         m_playbackStallWatchdog.beginSeek(playbackStallNow(), m_position);
         m_playbackStallTimer.start();
     }
     command({"seek", QByteArray::number(target, 'f', 3), "absolute+exact"});
     emit seekRequested(target);
+    if (m_performanceTraceEnabled) {
+        YanamiPerformance::PerformanceTrace::mark(
+            QStringLiteral("playback_seek_requested"),
+            {
+                {QStringLiteral("generation"), m_loadGeneration},
+                {QStringLiteral("targetSeconds"), target},
+            });
+    }
 }
 
 void MpvVideoItem::setVolume(double volume)
@@ -592,11 +744,20 @@ bool MpvVideoItem::event(QEvent *event)
 void MpvVideoItem::wakeup(void *context)
 {
     auto *item = static_cast<MpvVideoItem *>(context);
-    QMetaObject::invokeMethod(item, &MpvVideoItem::drainEvents, Qt::QueuedConnection);
+    if (!item || item->m_eventDrainQueued.exchange(true, std::memory_order_acq_rel))
+        return;
+    if (!QMetaObject::invokeMethod(
+            item, &MpvVideoItem::drainEvents, Qt::QueuedConnection)) {
+        item->m_eventDrainQueued.store(false, std::memory_order_release);
+    }
 }
 
 void MpvVideoItem::drainEvents()
 {
+    // Clear before draining. Any event that arrives during this turn may queue
+    // one redundant follow-up drain, but an event racing with MPV_EVENT_NONE
+    // can never be stranded behind a still-set coalescing flag.
+    m_eventDrainQueued.store(false, std::memory_order_release);
     while (const mpv_event *event = mpv_wait_event(m_mpv, 0)) {
         if (event->event_id == MPV_EVENT_NONE)
             break;
@@ -623,6 +784,14 @@ void MpvVideoItem::drainEvents()
                 << "durationSeconds=" << m_duration
                 << "audioTracks=" << m_audioTracks.size()
                 << "subtitleTracks=" << m_subtitleTracks.size();
+            if (m_performanceTraceEnabled) {
+                QVariantMap loadedAttributes = performanceSnapshot();
+                loadedAttributes.insert(
+                    QStringLiteral("hwdecCurrent"),
+                    stringProperty(m_mpv, QByteArrayLiteral("hwdec-current")));
+                YanamiPerformance::PerformanceTrace::mark(
+                    QStringLiteral("playback_file_loaded"), loadedAttributes);
+            }
             emit fileLoaded();
         } else if (event->event_id == MPV_EVENT_SEEK) {
             if (m_fileLoaded) {
@@ -630,9 +799,30 @@ void MpvVideoItem::drainEvents()
                     playbackStallNow(), m_position);
             }
         } else if (event->event_id == MPV_EVENT_PLAYBACK_RESTART) {
-            if (m_fileLoaded)
+            if (m_fileLoaded) {
                 m_playbackStallWatchdog.observePlaybackRestart(
                     playbackStallNow(), m_position);
+                if (m_performanceTraceEnabled) {
+                    if (!m_firstPlaybackRestartObserved) {
+                        m_firstPlaybackRestartObserved = true;
+                        QVariantMap firstFrameAttributes = performanceSnapshot();
+                        firstFrameAttributes.insert(
+                            QStringLiteral("hwdecCurrent"),
+                            stringProperty(m_mpv, QByteArrayLiteral("hwdec-current")));
+                        YanamiPerformance::PerformanceTrace::mark(
+                            QStringLiteral("playback_first_frame_candidate"),
+                            firstFrameAttributes);
+                    } else if (m_seekTimer.isValid()) {
+                        QVariantMap seekAttributes = performanceSnapshot();
+                        seekAttributes.insert(
+                            QStringLiteral("seekElapsedMs"), m_seekTimer.elapsed());
+                        YanamiPerformance::PerformanceTrace::mark(
+                            QStringLiteral("playback_seek_present_candidate"),
+                            seekAttributes);
+                        m_seekTimer.invalidate();
+                    }
+                }
+            }
         } else if (event->event_id == MPV_EVENT_END_FILE) {
             if (m_buffering && m_bufferingTimer.isValid()) {
                 m_totalBufferingMs += m_bufferingTimer.elapsed();
@@ -653,12 +843,24 @@ void MpvVideoItem::drainEvents()
                 << "durationSeconds=" << m_duration
                 << "bufferingTransitions=" << m_bufferingTransitions
                 << "totalBufferingMs=" << m_totalBufferingMs;
+            if (m_performanceTraceEnabled) {
+                YanamiPerformance::PerformanceTrace::mark(
+                    QStringLiteral("playback_file_ended"), performanceSnapshot());
+            }
             if (endFile && endFile->error < 0) {
                 qCWarning(playbackLog).noquote()
                     << "playback_mpv_error"
                     << "generation=" << m_loadGeneration
                     << "errorCode=" << endFile->error
                     << "error=" << mpv_error_string(endFile->error);
+                if (m_performanceTraceEnabled) {
+                    YanamiPerformance::PerformanceTrace::mark(
+                        QStringLiteral("playback_error"),
+                        {
+                            {QStringLiteral("generation"), m_loadGeneration},
+                            {QStringLiteral("errorCode"), endFile->error},
+                        });
+                }
                 emit playbackError(
                     tr("Playback failed: %1")
                         .arg(QString::fromUtf8(mpv_error_string(endFile->error))));
@@ -668,12 +870,14 @@ void MpvVideoItem::drainEvents()
             auto *property = static_cast<mpv_event_property *>(event->data);
             if (!property)
                 continue;
-            const QByteArray name(property->name);
-            if (name == "track-list/count") {
+            const auto observedProperty = static_cast<ObservedProperty>(
+                event->reply_userdata);
+            if (observedProperty == ObservedProperty::TrackCount) {
                 refreshTracks();
             } else if (!property->data) {
                 continue;
-            } else if (name == "pause" && property->format == MPV_FORMAT_FLAG) {
+            } else if (observedProperty == ObservedProperty::Pause
+                       && property->format == MPV_FORMAT_FLAG) {
                 const bool value = *static_cast<int *>(property->data) != 0;
                 if (m_paused != value) {
                     m_paused = value;
@@ -681,7 +885,8 @@ void MpvVideoItem::drainEvents()
                 }
                 m_pauseRequested = value;
                 updatePlaybackPauseMonitoring(value);
-            } else if (name == "paused-for-cache" && property->format == MPV_FORMAT_FLAG) {
+            } else if (observedProperty == ObservedProperty::PausedForCache
+                       && property->format == MPV_FORMAT_FLAG) {
                 const bool buffering = *static_cast<int *>(property->data) != 0;
                 if (m_buffering != buffering) {
                     qint64 intervalMs = 0;
@@ -702,10 +907,19 @@ void MpvVideoItem::drainEvents()
                         << "totalBufferingMs=" << m_totalBufferingMs
                         << "positionSeconds=" << m_position
                         << "bufferedPositionSeconds=" << m_bufferedPosition;
+                    if (m_performanceTraceEnabled) {
+                        QVariantMap bufferingAttributes = performanceSnapshot();
+                        bufferingAttributes.insert(QStringLiteral("active"), buffering);
+                        bufferingAttributes.insert(QStringLiteral("intervalMs"), intervalMs);
+                        YanamiPerformance::PerformanceTrace::mark(
+                            QStringLiteral("playback_buffering_changed"),
+                            bufferingAttributes);
+                    }
                     m_buffering = buffering;
                 }
                 refreshPlaybackState();
-            } else if (name == "time-pos" && property->format == MPV_FORMAT_DOUBLE) {
+            } else if (observedProperty == ObservedProperty::TimePosition
+                       && property->format == MPV_FORMAT_DOUBLE) {
                 m_position = *static_cast<double *>(property->data);
                 emit positionChanged();
                 if (m_fileLoaded) {
@@ -713,40 +927,47 @@ void MpvVideoItem::drainEvents()
                         m_playbackStallWatchdog.observePosition(
                             playbackStallNow(), m_position));
                 }
-            } else if (name == "duration" && property->format == MPV_FORMAT_DOUBLE) {
+            } else if (observedProperty == ObservedProperty::Duration
+                       && property->format == MPV_FORMAT_DOUBLE) {
                 m_duration = *static_cast<double *>(property->data);
                 emit durationChanged();
-            } else if (name == "demuxer-cache-time" && property->format == MPV_FORMAT_DOUBLE) {
+            } else if (observedProperty == ObservedProperty::DemuxerCacheTime
+                       && property->format == MPV_FORMAT_DOUBLE) {
                 const double value = *static_cast<double *>(property->data);
                 if (std::isfinite(value)) {
                     m_bufferedPosition = std::max(0.0, value);
                     emit bufferedPositionChanged();
                 }
-            } else if (name == "volume" && property->format == MPV_FORMAT_DOUBLE) {
+            } else if (observedProperty == ObservedProperty::Volume
+                       && property->format == MPV_FORMAT_DOUBLE) {
                 const double value = std::clamp(*static_cast<double *>(property->data), 0.0, 100.0);
                 if (std::abs(m_volume - value) > 0.01) {
                     m_volume = value;
                     emit volumeChanged();
                 }
-            } else if (name == "mute" && property->format == MPV_FORMAT_FLAG) {
+            } else if (observedProperty == ObservedProperty::Mute
+                       && property->format == MPV_FORMAT_FLAG) {
                 const bool value = *static_cast<int *>(property->data) != 0;
                 if (m_muted != value) {
                     m_muted = value;
                     emit mutedChanged();
                 }
-            } else if (name == "speed" && property->format == MPV_FORMAT_DOUBLE) {
+            } else if (observedProperty == ObservedProperty::Speed
+                       && property->format == MPV_FORMAT_DOUBLE) {
                 const double value = *static_cast<double *>(property->data);
                 if (std::isfinite(value) && std::abs(m_rate - value) > 0.001) {
                     m_rate = value;
                     emit rateChanged();
                 }
-            } else if (name == "seekable" && property->format == MPV_FORMAT_FLAG) {
+            } else if (observedProperty == ObservedProperty::Seekable
+                       && property->format == MPV_FORMAT_FLAG) {
                 const bool value = *static_cast<int *>(property->data) != 0;
                 if (m_seekable != value) {
                     m_seekable = value;
                     emit seekableChanged();
                 }
-            } else if (name == "eof-reached" && property->format == MPV_FORMAT_FLAG) {
+            } else if (observedProperty == ObservedProperty::EofReached
+                       && property->format == MPV_FORMAT_FLAG) {
                 const bool value = *static_cast<int *>(property->data) != 0;
                 const std::optional<YanamiPlayback::CompletionBoundary> boundary =
                     m_completionGate.observe(
@@ -771,6 +992,14 @@ void MpvVideoItem::drainEvents()
                         << "durationSeconds=" << m_duration
                         << "bufferingTransitions=" << m_bufferingTransitions
                         << "totalBufferingMs=" << m_totalBufferingMs;
+                    if (m_performanceTraceEnabled) {
+                        QVariantMap eofAttributes = performanceSnapshot();
+                        eofAttributes.insert(
+                            QStringLiteral("natural"),
+                            *boundary == YanamiPlayback::CompletionBoundary::Natural);
+                        YanamiPerformance::PerformanceTrace::mark(
+                            QStringLiteral("playback_eof"), eofAttributes);
+                    }
                     if (*boundary == YanamiPlayback::CompletionBoundary::Natural) {
                         emit playbackCompleted();
                     } else {
@@ -779,10 +1008,45 @@ void MpvVideoItem::drainEvents()
                             << "generation=" << m_loadGeneration
                             << "positionSeconds=" << m_position
                             << "durationSeconds=" << m_duration;
+                        if (m_performanceTraceEnabled) {
+                            YanamiPerformance::PerformanceTrace::mark(
+                                QStringLiteral("playback_premature_eof"),
+                                performanceSnapshot());
+                        }
                         emit playbackError(tr(
                             "Playback ended before the media was complete."));
                         emit fileEnded();
                     }
+                }
+            } else if (observedProperty == ObservedProperty::DecoderFrameDropCount
+                       && property->format == MPV_FORMAT_INT64) {
+                m_decoderDroppedFrames = *static_cast<int64_t *>(property->data);
+                m_decoderDroppedFramesAvailable = true;
+            } else if (observedProperty == ObservedProperty::FrameDropCount
+                       && property->format == MPV_FORMAT_INT64) {
+                m_outputDroppedFrames = *static_cast<int64_t *>(property->data);
+                m_outputDroppedFramesAvailable = true;
+            } else if (observedProperty == ObservedProperty::MistimedFrameCount
+                       && property->format == MPV_FORMAT_INT64) {
+                m_mistimedFrames = *static_cast<int64_t *>(property->data);
+                m_mistimedFramesAvailable = true;
+            } else if (observedProperty == ObservedProperty::DelayedFrameCount
+                       && property->format == MPV_FORMAT_INT64) {
+                m_delayedFrames = *static_cast<int64_t *>(property->data);
+                m_delayedFramesAvailable = true;
+            } else if (observedProperty == ObservedProperty::AvSync
+                       && property->format == MPV_FORMAT_DOUBLE) {
+                const double value = *static_cast<double *>(property->data);
+                if (std::isfinite(value)) {
+                    m_avSyncSeconds = value;
+                    m_avSyncAvailable = true;
+                }
+            } else if (observedProperty == ObservedProperty::EstimatedVideoFps
+                       && property->format == MPV_FORMAT_DOUBLE) {
+                const double value = *static_cast<double *>(property->data);
+                if (std::isfinite(value)) {
+                    m_estimatedVideoFps = value;
+                    m_estimatedVideoFpsAvailable = true;
                 }
             }
         } else if (event->event_id == MPV_EVENT_LOG_MESSAGE) {
@@ -796,6 +1060,39 @@ void MpvVideoItem::drainEvents()
             }
         }
     }
+}
+
+QVariantMap MpvVideoItem::performanceSnapshot() const
+{
+    qint64 totalBufferingMs = m_totalBufferingMs;
+    if (m_buffering && m_bufferingTimer.isValid())
+        totalBufferingMs += m_bufferingTimer.elapsed();
+    return {
+        {QStringLiteral("generation"), m_loadGeneration},
+        {QStringLiteral("elapsedMs"),
+         m_loadTimer.isValid() ? m_loadTimer.elapsed() : -1},
+        {QStringLiteral("positionSeconds"), m_position},
+        {QStringLiteral("durationSeconds"), m_duration},
+        {QStringLiteral("bufferingTransitions"), m_bufferingTransitions},
+        {QStringLiteral("totalBufferingMs"), totalBufferingMs},
+        {QStringLiteral("decoderDroppedFrames"), m_decoderDroppedFrames},
+        {QStringLiteral("outputDroppedFrames"), m_outputDroppedFrames},
+        {QStringLiteral("mistimedFrames"), m_mistimedFrames},
+        {QStringLiteral("delayedFrames"), m_delayedFrames},
+        {QStringLiteral("avSyncMs"), m_avSyncSeconds * 1000.0},
+        {QStringLiteral("estimatedVideoFps"), m_estimatedVideoFps},
+        {QStringLiteral("performanceObserversRegistered"),
+         m_performanceObserversRegistered},
+        {QStringLiteral("decoderDroppedFramesAvailable"),
+         m_decoderDroppedFramesAvailable},
+        {QStringLiteral("outputDroppedFramesAvailable"),
+         m_outputDroppedFramesAvailable},
+        {QStringLiteral("mistimedFramesAvailable"), m_mistimedFramesAvailable},
+        {QStringLiteral("delayedFramesAvailable"), m_delayedFramesAvailable},
+        {QStringLiteral("avSyncAvailable"), m_avSyncAvailable},
+        {QStringLiteral("estimatedVideoFpsAvailable"),
+         m_estimatedVideoFpsAvailable},
+    };
 }
 
 void MpvVideoItem::refreshTracks()

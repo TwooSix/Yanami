@@ -108,6 +108,9 @@ impl Application {
             }
             client.delete_item(item_id).await.map_err(network_error)
         })?;
+        if let Err(error) = self.evict_media_catalog_item(item_id) {
+            tracing::warn!(item_id, error = %error, "deleted media could not be evicted from the local catalog");
+        }
         Ok(MediaOutcome::invalidated(
             item_id,
             DeleteItemResult {},

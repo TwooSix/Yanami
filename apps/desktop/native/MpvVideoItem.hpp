@@ -13,6 +13,7 @@
 
 #include <mpv/client.h>
 
+#include <atomic>
 #include <memory>
 
 struct MpvRenderState;
@@ -122,10 +123,14 @@ private:
     void handlePlaybackStallEvent(YanamiPlayback::PlaybackStallEvent event);
     void resetPlaybackStall();
     qint64 playbackStallNow() const;
+    QVariantMap performanceSnapshot() const;
 
     std::shared_ptr<mpv_handle> m_mpvOwner;
     mpv_handle *m_mpv = nullptr;
     std::shared_ptr<MpvRenderState> m_renderState;
+    std::atomic_bool m_eventDrainQueued{false};
+    bool m_performanceTraceEnabled = false;
+    bool m_performanceObserversRegistered = false;
     bool m_paused = false;
     bool m_pauseRequested = false;
     // Native libmpv paused-for-cache and the synthetic no-progress watchdog
@@ -140,11 +145,25 @@ private:
     qint64 m_totalBufferingMs = 0;
     QElapsedTimer m_loadTimer;
     QElapsedTimer m_bufferingTimer;
+    QElapsedTimer m_seekTimer;
     QElapsedTimer m_playbackStallClock;
     QTimer m_playbackStallTimer;
     YanamiPlayback::PlaybackStallWatchdog m_playbackStallWatchdog;
     qint64 m_startupWatchStartedMs = 0;
     qint64 m_lastPlaybackStallPollMs = 0;
+    qint64 m_decoderDroppedFrames = 0;
+    qint64 m_outputDroppedFrames = 0;
+    qint64 m_mistimedFrames = 0;
+    qint64 m_delayedFrames = 0;
+    double m_avSyncSeconds = 0.0;
+    double m_estimatedVideoFps = 0.0;
+    bool m_decoderDroppedFramesAvailable = false;
+    bool m_outputDroppedFramesAvailable = false;
+    bool m_mistimedFramesAvailable = false;
+    bool m_delayedFramesAvailable = false;
+    bool m_avSyncAvailable = false;
+    bool m_estimatedVideoFpsAvailable = false;
+    bool m_firstPlaybackRestartObserved = false;
     double m_position = 0.0;
     double m_duration = 0.0;
     double m_bufferedPosition = 0.0;

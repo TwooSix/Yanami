@@ -43,7 +43,7 @@ pub struct CollectionOutcome {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum CatalogEntity {
-    Media(CatalogMediaEntity),
+    Media(Box<CatalogMediaEntity>),
     View(CatalogViewEntity),
     Parent(CatalogParentEntity),
 }
@@ -59,6 +59,16 @@ pub struct CatalogMediaEntity {
     series_title: Option<String>,
     season_id: Option<String>,
     image_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image_item_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image_item_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image_tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    primary_image_aspect_ratio: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    playback_context: Option<crate::PlaybackContext>,
     resume_ticks: u64,
     played: bool,
     favorite: bool,
@@ -124,6 +134,8 @@ pub struct CatalogQueries {
     favorites: Option<CatalogQuery>,
     #[serde(skip_serializing_if = "Option::is_none")]
     collection: Option<CatalogQuery>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    search: Option<CatalogQuery>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -167,7 +179,9 @@ pub struct UserCapabilities {
     can_delete: bool,
 }
 
-fn decode_catalog_outcome<T: DeserializeOwned>(value: Value) -> Result<T, ApplicationError> {
+pub(crate) fn decode_catalog_outcome<T: DeserializeOwned>(
+    value: Value,
+) -> Result<T, ApplicationError> {
     serde_json::from_value(value).map_err(|error| ApplicationError::internal(error.to_string()))
 }
 
@@ -308,7 +322,7 @@ impl Application {
             .zip(resume_images)
             .map(|(item, image_url)| media_card_json(item, image_url.as_deref(), true, None))
             .collect();
-        decode_catalog_outcome(normalized_query_payload(
+        let outcome = decode_catalog_outcome(normalized_query_payload(
             vec![
                 ("library", String::new(), library, None),
                 ("views", String::new(), library_views, None),
@@ -324,7 +338,11 @@ impl Application {
                         || user.policy.enable_content_deletion,
                 },
             }),
-        )?)
+        )?)?;
+        if let Err(error) = self.ensure_media_catalog_sync() {
+            tracing::warn!(error = %error, "media catalog background sync did not start");
+        }
+        Ok(outcome)
     }
 
     pub fn favorites(&self) -> Result<FavoritesOutcome, ApplicationError> {
@@ -570,7 +588,7 @@ fn collection_parent_json(
     })
 }
 
-fn normalized_query_payload(
+pub(crate) fn normalized_query_payload(
     queries: Vec<(&str, String, Vec<Value>, Option<Value>)>,
     extra: Value,
 ) -> Result<Value, String> {

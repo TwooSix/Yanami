@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "1.0",
+  "id": "WindowsReference-v1",
+  "os": "Windows 11",
+  "memoryGiB": 16,
+  "memoryConfiguration": "dual-channel",
+  "cpuClass": "mainstream-6-core",
+  "gpuClass": ["Intel Xe iGPU", "AMD RDNA2 iGPU"],
+  "storageClass": "NVMe",
+  "strictRendering": {
+    "renderWidthPixels": 3840,
+    "renderHeightPixels": 2160,
+    "displayRefreshHz": 60,
+    "dpiScalePercent": 100,
+    "hdrEnabled": false,
+    "vrrEnabled": false,
+    "windowMode": "borderless-fullscreen",
+    "qtRhiRenderer": "d3d11",
+    "fontSet": {
+      "id": "WindowsDanmakuFonts-v1",
+      "families": [
+        "Segoe UI",
+        "Microsoft YaHei UI",
+        "Yu Gothic UI",
+        "Segoe UI Emoji"
+      ],
+      "fingerprintAlgorithm": "sha256(lowercase-path-and-file-sha256-pairs-sorted-by-lowercase-path)",
+      "allowedFingerprintSource": "lab fingerprint allow-list"
+    },
+    "fontCacheState": "warm",
+    "fontCachePreparationId": "DanmakuGlyphWarmup-v1"
+  },
+  "requiredPinnedFields": [
+    "windowsBuild",
+    "cpuModel",
+    "gpuModel",
+    "gpuDriver",
+    "storageModel",
+    "powerPlan",
+    "qtVersion",
+    "rustVersion",
+    "renderWidthPixels",
+    "renderHeightPixels",
+    "displayRefreshHz",
+    "dpiScalePercent",
+    "hdrEnabled",
+    "vrrEnabled",
+    "windowMode",
+    "qtRhiRenderer",
+    "fontSetId",
+    "fontSetSha256",
+    "fontCacheState",
+    "fontCachePreparationId"
+  ],
+  "fingerprintAlgorithm": "sha256(lowercase-key-sorted-utf8-json)",
+  "notes": "The lab owns the concrete machine and font-set fingerprint allow-lists. Strict 4K60 rendering evidence is valid only when every requiredPinnedField is recorded, referenceMatch=true, and the manifest rendering values match strictRendering. HDR and VRR are disabled so Present cadence is evaluated against a fixed 60 Hz output rather than an adaptive display. The font cache is warmed by the named deterministic preparation before timed capture."
+}

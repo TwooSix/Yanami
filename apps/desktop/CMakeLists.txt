@@ -195,6 +195,10 @@ qt_add_executable(yanami-desktop
     native/CatalogCoordinatorNavigation.cpp
     native/CatalogCoordinatorStore.cpp
     native/CatalogCoordinatorCache.cpp
+    native/SearchCoordinator.cpp
+    native/SearchCoordinator.hpp
+    native/SearchResultRowsModel.cpp
+    native/SearchResultRowsModel.hpp
     native/MediaCoordinator.cpp
     native/MediaCoordinator.hpp
     native/MediaCoordinatorInteractive.cpp
@@ -233,6 +237,8 @@ qt_add_executable(yanami-desktop
     native/PlaybackReportQueue.hpp
     native/PlaybackTelemetry.cpp
     native/PlaybackTelemetry.hpp
+    native/PerformanceTrace.cpp
+    native/PerformanceTrace.hpp
     native/RustBridgeRuntime.cpp
     native/RustBridgeRuntime.hpp
     native/RustBridgeError.cpp
@@ -290,6 +296,10 @@ qt_add_qml_module(yanami-ui
     SOURCES
         native/ControllerNavigation.cpp
         native/ControllerNavigation.hpp
+        native/DanmakuRenderItem.cpp
+        native/DanmakuRenderItem.hpp
+        native/DanmakuTimelineModel.cpp
+        native/DanmakuTimelineModel.hpp
         native/InputModalityController.cpp
         native/InputModalityController.hpp
     QML_FILES
@@ -337,9 +347,11 @@ qt_add_qml_module(yanami-ui
         qml/components/RecentEpisodeCard.qml
         qml/components/RefreshMetadataDialog.qml
         qml/components/RoundedImage.qml
+        qml/components/SearchSubmissionPolicy.qml
         qml/components/SmoothFlickable.qml
         qml/components/SmoothGridView.qml
         qml/components/SmoothHorizontalList.qml
+        qml/components/SmoothListView.qml
         qml/components/TrackMenu.qml
         qml/components/VolumeControl.qml
         qml/components/WindowResizeHandles.qml
@@ -647,6 +659,42 @@ if(BUILD_TESTING)
         NAME yanami-media-store-tests
         COMMAND $<TARGET_FILE:yanami-media-store-tests>
     )
+    add_executable(yanami-danmaku-coordinator-tests
+        tests/DanmakuCoordinatorTests.cpp
+        native/DanmakuCoordinator.cpp
+        native/DanmakuCoordinator.hpp
+        native/BackendPorts.hpp
+        native/RustBridgeRuntime.cpp
+        native/RustBridgeRuntime.hpp
+        native/RustBridgeError.cpp
+        native/RustBridgeError.hpp
+        native/PlaybackTelemetry.cpp
+        native/PlaybackTelemetry.hpp
+    )
+    target_include_directories(yanami-danmaku-coordinator-tests PRIVATE native)
+    target_link_libraries(yanami-danmaku-coordinator-tests PRIVATE
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Test
+    )
+    add_test(
+        NAME yanami-danmaku-coordinator-tests
+        COMMAND $<TARGET_FILE:yanami-danmaku-coordinator-tests>
+    )
+    add_executable(yanami-danmaku-timeline-tests
+        tests/DanmakuTimelineModelTests.cpp
+        native/DanmakuTimelineModel.cpp
+        native/DanmakuTimelineModel.hpp
+    )
+    target_include_directories(yanami-danmaku-timeline-tests PRIVATE native)
+    target_link_libraries(yanami-danmaku-timeline-tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+    )
+    add_test(
+        NAME yanami-danmaku-timeline-tests
+        COMMAND $<TARGET_FILE:yanami-danmaku-timeline-tests>
+    )
     add_executable(yanami-playback-track-mapper-tests
         tests/PlaybackTrackMapperTests.cpp
         native/PlaybackTrackMapper.cpp
@@ -688,6 +736,8 @@ if(BUILD_TESTING)
         native/PlaybackStallWatchdog.hpp
         native/DevelopmentHooks.cpp
         native/DevelopmentHooks.hpp
+        native/PerformanceTrace.cpp
+        native/PerformanceTrace.hpp
     )
     target_include_directories(yanami-playback-reporter-tests PRIVATE native)
     target_link_libraries(yanami-playback-reporter-tests PRIVATE
@@ -779,6 +829,34 @@ if(BUILD_TESTING)
     add_test(
         NAME yanami-qml-architecture-tests
         COMMAND $<TARGET_FILE:yanami-qml-architecture-tests>
+    )
+    add_executable(yanami-search-coordinator-tests
+        tests/SearchCoordinatorTests.cpp
+        native/BackendInfrastructure.cpp
+        native/BackendInfrastructure.hpp
+        native/BackendPorts.hpp
+        native/MediaStore.cpp
+        native/MediaStore.hpp
+        native/PlaybackTelemetry.cpp
+        native/PlaybackTelemetry.hpp
+        native/RustBridgeError.cpp
+        native/RustBridgeError.hpp
+        native/RustBridgeRuntime.cpp
+        native/RustBridgeRuntime.hpp
+        native/SearchCoordinator.cpp
+        native/SearchCoordinator.hpp
+        native/SearchResultRowsModel.cpp
+        native/SearchResultRowsModel.hpp
+    )
+    target_include_directories(yanami-search-coordinator-tests PRIVATE native)
+    target_link_libraries(yanami-search-coordinator-tests PRIVATE
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Test
+    )
+    add_test(
+        NAME yanami-search-coordinator-tests
+        COMMAND $<TARGET_FILE:yanami-search-coordinator-tests>
     )
     add_executable(yanami-backend-architecture-tests
         tests/BackendArchitectureTests.cpp
@@ -897,6 +975,79 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:yanami-update-checker-tests>
     )
 
+    add_executable(yanami-performance-trace-tests
+        tests/performance/PerformanceTraceTests.cpp
+        native/PerformanceTrace.cpp
+        native/PerformanceTrace.hpp
+    )
+    target_include_directories(yanami-performance-trace-tests PRIVATE native)
+    target_link_libraries(yanami-performance-trace-tests PRIVATE Qt6::Core)
+    add_test(
+        NAME yanami-performance-trace-tests
+        COMMAND $<TARGET_FILE:yanami-performance-trace-tests>
+    )
+
+    add_executable(yanami-desktop-perf-probe
+        tests/performance/DesktopPerfProbe.cpp
+        native/BackendInfrastructure.cpp
+        native/BackendInfrastructure.hpp
+        native/BackendPorts.hpp
+        native/MediaStore.cpp
+        native/MediaStore.hpp
+        native/PlaybackTelemetry.cpp
+        native/PlaybackTelemetry.hpp
+        native/RequestCoordinator.hpp
+        native/RustBridgeError.cpp
+        native/RustBridgeError.hpp
+        native/RustBridgeRuntime.cpp
+        native/RustBridgeRuntime.hpp
+        native/SearchCoordinator.cpp
+        native/SearchCoordinator.hpp
+        native/SearchResultRowsModel.cpp
+        native/SearchResultRowsModel.hpp
+    )
+    target_include_directories(yanami-desktop-perf-probe PRIVATE native)
+    target_compile_definitions(yanami-desktop-perf-probe PRIVATE
+        "YANAMI_PERF_BUILD_TYPE=\"$<CONFIG>\""
+        "YANAMI_PERF_VERSION=\"${YANAMI_BUILD_VERSION}\""
+    )
+    target_link_libraries(yanami-desktop-perf-probe PRIVATE
+        Qt6::Concurrent
+        Qt6::Core
+    )
+    add_test(
+        NAME yanami-desktop-perf-collect
+        COMMAND $<TARGET_FILE:yanami-desktop-perf-probe>
+            --profile pull-request
+            --mode collect
+            --output "${CMAKE_CURRENT_BINARY_DIR}/perf/desktop-media-store.json"
+    )
+    set_tests_properties(yanami-desktop-perf-collect PROPERTIES
+        LABELS "performance;collect"
+        TIMEOUT 180
+    )
+
+    qt_add_executable(yanami-danmaku-perf-probe
+        tests/performance/DanmakuPerfProbe.cpp
+    )
+    qt_add_qml_module(yanami-danmaku-perf-probe
+        URI Yanami.DanmakuPerfProbe
+        VERSION 1.0
+        IMPORTS
+            TARGET yanami-ui
+        QML_FILES
+            tests/performance/DanmakuPerfHarness.qml
+    )
+    target_compile_definitions(yanami-danmaku-perf-probe PRIVATE
+        "YANAMI_PERF_BUILD_TYPE=\"$<CONFIG>\""
+        "YANAMI_PERF_VERSION=\"${YANAMI_BUILD_VERSION}\""
+    )
+    target_link_libraries(yanami-danmaku-perf-probe PRIVATE
+        Qt6::Gui
+        Qt6::Quick
+        yanami-uiplugin
+    )
+
     qt_add_executable(yanami-popup-quicktests
         tests/qml/PopupQuickTestMain.cpp
     )
@@ -953,6 +1104,8 @@ if(BUILD_TESTING)
             yanami-image-editor-view-model-tests
             yanami-application-view-model-tests
             yanami-update-checker-tests
+            yanami-performance-trace-tests
+            yanami-desktop-perf-collect
             yanami-popup-quicktests
             PROPERTIES
             ENVIRONMENT_MODIFICATION

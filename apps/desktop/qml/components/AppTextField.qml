@@ -11,6 +11,7 @@ Item {
     property alias echoMode: field.echoMode
     property alias validator: field.validator
     property alias inputMethodHints: field.inputMethodHints
+    readonly property bool inputMethodComposing: field.inputMethodComposing
     signal accepted()
     implicitWidth: 280
     implicitHeight: 78

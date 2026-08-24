@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "1.0",
+  "id": "DanmakuDensity-v1",
+  "description": "Deterministic high-density danmaku corpus and black-box rendering workload for hosted smoke and fixed 4K60 gates.",
+  "generator": "scripts/performance/New-DanmakuFixture.ps1",
+  "generatorVersion": "1.0",
+  "seed": 20260824,
+  "durationSeconds": 1800,
+  "counts": {
+    "hostedSlice": 20000,
+    "strictTotal": 100000
+  },
+  "encoding": "UTF-8-no-BOM",
+  "lineEndings": "LF",
+  "fixtureSha256": "f81fde6c04284da1fb4f0554c3845c86ec3e7c6d12bad2a684d8e766dff7acd1",
+  "fixtureHashDefinition": "SHA-256 of danmaku-comments-v1.jsonl bytes",
+  "files": [
+    {
+      "name": "danmaku-comments-v1.jsonl",
+      "sha256": "f81fde6c04284da1fb4f0554c3845c86ec3e7c6d12bad2a684d8e766dff7acd1"
+    }
+  ],
+  "distribution": {
+    "modes": { "scroll": 0.8, "top": 0.1, "bottom": 0.1 },
+    "textClasses": ["CJK", "ASCII", "Japanese", "emoji", "blocked-term", "long"],
+    "colors": 5,
+    "fileOrder": "intentionally-not-timestamp-sorted"
+  },
+  "densityWindows": [
+    {
+      "id": "sustained-120-per-second",
+      "startSeconds": 600,
+      "durationSeconds": 60,
+      "injectedCommentsPerSecond": 120,
+      "observedTotalCommentsPerSecond": { "minimum": 170, "median": 171, "maximum": 174 }
+    },
+    {
+      "id": "peak-240-per-second",
+      "startSeconds": 900,
+      "durationSeconds": 1,
+      "injectedCommentsPerSecond": 240,
+      "observedTotalCommentsPerSecond": 292
+    }
+  ],
+  "admissionOracle": {
+    "independentFromProduction": true,
+    "eligibleDefinition": "A comment is eligible after the scenario's mode, density, area, blocked-term, and time-window policy is applied. Intentional policy shedding is excluded; every eligible ID must be presented exactly once and never early.",
+    "duplicateTolerance": 0,
+    "staleTolerance": 0,
+    "earlyTolerance": 0
+  },
+  "hostedSmoke": {
+    "resolution": "1920x1080",
+    "renderer": "Qt offscreen software",
+    "commentCount": 20000,
+    "evidenceClass": "qt-offscreen-software",
+    "strictAbsoluteEvidence": false
+  },
+  "strictMatrix": {
+    "requiredResolution": "3840x2160",
+    "refreshHz": 60,
+    "pairedBaseline": "same video, same machine, overlay disabled",
+    "durationsSeconds": { "Lab": 60, "Nightly": 600, "Weekly": 1800, "Release": 600 },
+    "densitySettings": [4, 14, 30],
+    "fontSizesPx": [18, 42, 72],
+    "scrollDurationsSeconds": [3, 9, 20],
+    "displayAreas": [0.25, 0.7, 1.0],
+    "events": [
+      "steady-play",
+      "load-10k",
+      "load-50k",
+      "load-100k",
+      "seek-100-times",
+      "pause-resume",
+      "controlled-buffering",
+      "rate-0.5x-1x-1.5x-2x",
+      "toggle-30-times",
+      "style-change",
+      "resize-fullscreen",
+      "episode-switch"
+    ],
+    "requiredEvidence": [
+      "QPC external input start",
+      "ETW/PresentMon native Present",
+      "pixel capture correlated to the Present timeline",
+      "mpv playback telemetry",
+      "ETW process CPU/GPU/RSS counters"
+    ]
+  },
+  "strictEvidenceBundle": {
+    "artifactPlacement": "Every raw artifact is a non-empty sibling of the run manifest. The runner recomputes SHA-256 before setting runnerValidated=true.",
+    "requiredRolesByEvidence": {
+      "external-present": ["presentmon-trace"],
+      "external-pixel-present": ["presentmon-trace", "pixel-capture-index"],
+      "external-pixel-oracle": ["presentmon-trace", "pixel-capture-index"],
+      "mpv-paired-telemetry": ["mpv-telemetry", "paired-baseline-index"],
+      "etw-paired-process": ["etw-process-counters", "paired-baseline-index"]
+    },
+    "collectorContract": {
+      "required": ["name", "version", "kind", "clockDomain", "executableSha256"],
+      "clockDomain": "QPC"
+    },
+    "pairedBaselineIndexRequiredFields": [
+      "schemaVersion",
+      "overlayEnabledRunId",
+      "overlayDisabledRunId",
+      "candidateSha",
+      "fixtureSha256",
+      "environmentFingerprint"
+    ],
+    "pixelCaptureIndexRequiredFields": [
+      "schemaVersion",
+      "runId",
+      "candidateSha",
+      "fixtureSha256",
+      "environmentFingerprint",
+      "captures"
+    ]
+  }
+}

@@ -208,31 +208,26 @@ ApplicationWindow {
     function openContextItem(item) {
         const type = String(item.itemType || "")
         const previousPage = window.currentPage
-        const cameFromFavorites = previousPage === 4
         if (type === "CollectionFolder" || type === "UserView" || type === "Folder"
                 || type === "AggregateFolder") {
             window.currentPage = 0
             homePage.openLibraryView(item)
         } else if (type === "Playlist") {
             window.currentPage = 0
-            if (cameFromFavorites)
+            if (previousPage !== 0)
                 homePage.openExternalItem(item, previousPage)
-            else if (previousPage !== 0)
-                homePage.openSearchItem(item)
             else
                 homePage.openLibraryItem(item)
         } else if (type === "Series") {
             const cameFromExternalPage = previousPage !== 0
             window.currentPage = 0
-            if (cameFromFavorites)
+            if (cameFromExternalPage)
                 homePage.openExternalItem(item, previousPage)
-            else if (cameFromExternalPage)
-                homePage.openSearchItem(item)
             else
                 homePage.openLibraryItem(item)
         } else if (type === "Season") {
             window.currentPage = 0
-            if (cameFromFavorites)
+            if (previousPage !== 0)
                 homePage.openExternalSeason(item, previousPage)
             else
                 homePage.openSeason(item)
@@ -242,7 +237,10 @@ ApplicationWindow {
                 item.id, false, item.playbackContext || ({}), item.title)
         } else {
             window.currentPage = 0
-            homePage.openSearchItem(item)
+            if (previousPage !== 0)
+                homePage.openExternalItem(item, previousPage)
+            else
+                homePage.openLibraryItem(item)
         }
     }
 
@@ -479,12 +477,10 @@ ApplicationWindow {
                         asynchronous: true
                         sourceComponent: SearchPage {
                             developmentDiagnostics: window.developmentSearchQuery.length > 0
-                            onItemRequested: item => {
-                                window.currentPage = 0
-                                homePage.openSearchItem(item)
-                            }
-                            onPlayRequested: (itemId, title) =>
-                                window.requestPlayback(itemId, false, ({}), title)
+                            onItemRequested: item => window.openContextItem(item)
+                            onPlayRequested: (itemId, title, playbackContext) =>
+                                window.requestPlayback(
+                                    itemId, false, playbackContext, title)
                             onMediaContextRequested: (item, sourceItem, x, y,
                                                       keyboardInvocation) =>
                                 mediaContextMenu.openFor(

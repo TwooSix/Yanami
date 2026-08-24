@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0",
+  "id": "NetworkProfiles-v1",
+  "enforcement": "controlled-endpoint-only",
+  "profiles": {
+    "loopback": {
+      "roundTripTimeMs": 0,
+      "jitterMs": 0,
+      "downstreamMbps": null,
+      "upstreamMbps": null
+    },
+    "lan-5ms": {
+      "roundTripTimeMs": 5,
+      "jitterMs": 0,
+      "downstreamMbps": 1000,
+      "upstreamMbps": 1000
+    },
+    "wan-50ms": {
+      "roundTripTimeMs": 50,
+      "jitterMs": 10,
+      "downstreamMbps": 100,
+      "upstreamMbps": 100
+    }
+  },
+  "requirements": {
+    "endpoint": "Loopback or isolated LAN fixture server",
+    "internetResultsAreHardGateEvidence": false,
+    "profileMustBeAppliedOutsideMeasuredProcess": true,
+    "actualProfileMustBeRecordedInRunManifest": true
+  }
+}

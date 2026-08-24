@@ -195,6 +195,7 @@ private slots:
         static constexpr ExpectedBase expected[] {
             {"SessionCoordinator", "SessionPort"},
             {"CatalogCoordinator", "CatalogPort"},
+            {"SearchCoordinator", "SearchPort"},
             {"MediaCoordinator", "MediaPort"},
             {"PlaybackCoordinator", "PlaybackPort"},
             {"DanmakuCoordinator", "DanmakuPort"},
@@ -253,6 +254,69 @@ private slots:
             QRegularExpression::CaseInsensitiveOption);
         QVERIFY2(!adapter.match(content).hasMatch(),
             "DesktopBackendServices must remain a composition root, not an adapter");
+    }
+
+    void catalogCoordinatorDoesNotMaterializeQueriesForMetadata()
+    {
+        const QStringList files {
+            QStringLiteral("CatalogCoordinator.cpp"),
+            QStringLiteral("CatalogCoordinatorNavigation.cpp"),
+            QStringLiteral("CatalogCoordinatorStore.cpp"),
+            QStringLiteral("CatalogCoordinatorCache.cpp"),
+        };
+        const QRegularExpression queryMaterialization(
+            QStringLiteral(R"(m_mediaStore\s*->\s*queryItems\s*\()"));
+
+        for (const QString &fileName : files) {
+            const QString content = source(
+                QDir(m_nativeRoot).filePath(fileName));
+            QVERIFY2(!content.isEmpty(), qPrintable(fileName));
+            QVERIFY2(!queryMaterialization.match(content).hasMatch(),
+                qPrintable(fileName
+                    + QStringLiteral(
+                        " materializes full query rows for count/existence metadata; "
+                        "use the query model's O(1) rowCount instead")));
+        }
+    }
+
+    void searchPosterHydrationIsDelayedGenerationFencedAndIsolated()
+    {
+        const QString coordinator = source(
+            QDir(m_nativeRoot).filePath(
+                QStringLiteral("SearchCoordinator.cpp")));
+        const QString infrastructure = source(
+            QDir(m_nativeRoot).filePath(
+                QStringLiteral("BackendInfrastructure.hpp")));
+        const QString composition = source(
+            QDir(m_nativeRoot).filePath(
+                QStringLiteral("DesktopBackendServices.cpp")));
+        QVERIFY(!coordinator.isEmpty());
+        QVERIFY(!infrastructure.isEmpty());
+        QVERIFY(!composition.isEmpty());
+
+        QVERIFY(coordinator.contains(
+            QStringLiteral("constexpr int hydrationDelayMs = 150")));
+        QVERIFY(coordinator.contains(
+            QStringLiteral("m_hydrationDelay.setSingleShot(true)")));
+        QVERIFY(coordinator.contains(
+            QStringLiteral("cancelPendingHydration();")));
+        QVERIFY(coordinator.contains(
+            QStringLiteral("completed->identity.query == m_publishedQuery")));
+        QVERIFY(coordinator.contains(
+            QStringLiteral("&m_hydrationPool")));
+        QVERIFY(coordinator.contains(
+            QStringLiteral("m_operations.hydrateCatalogSearchImages")));
+        QVERIFY(coordinator.contains(
+            QStringLiteral("return hydrationOperation(payload);")));
+
+        QVERIFY(infrastructure.contains(
+            QStringLiteral("QThreadPool m_search;")));
+        QVERIFY(infrastructure.contains(
+            QStringLiteral("QThreadPool m_searchHydration;")));
+        QVERIFY(composition.contains(
+            QStringLiteral("pools.search(),")));
+        QVERIFY(composition.contains(
+            QStringLiteral("pools.searchHydration(),")));
     }
 
 private:

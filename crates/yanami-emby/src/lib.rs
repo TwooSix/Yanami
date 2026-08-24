@@ -14,8 +14,8 @@ mod transport;
 
 pub use client::{ClientIdentity, EmbyClient, EmbyError, ItemQuery, RemoteImageQuery};
 pub use models::{
-    AuthenticationResult, BaseItem, ChapterInfo, ImageInfo, ImageProviderInfo, ItemsResult,
-    MediaSource, MediaStream, PlaybackInfo, PlaybackProgress, RefreshProgress, RemoteImageInfo,
-    RemoteImageResult, UserDto, UserItemData,
+    AuthenticationResult, BaseItem, ChapterInfo, EmbyNotification, ImageInfo, ImageProviderInfo,
+    ItemsResult, LibraryChange, MediaSource, MediaStream, PlaybackInfo, PlaybackProgress,
+    RefreshProgress, RemoteImageInfo, RemoteImageResult, UserDataChange, UserDto, UserItemData,
 };
 pub use planner::PlaybackPlanner;

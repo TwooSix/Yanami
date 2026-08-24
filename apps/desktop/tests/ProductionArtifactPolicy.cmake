@@ -60,6 +60,8 @@ set(required_bridge_symbols
     yanami_backend_emby_settings_json
     yanami_backend_refresh_progress_json
     yanami_backend_library_json
+    yanami_backend_catalog_search_json
+    yanami_backend_catalog_search_hydrate_images
     yanami_backend_activity_json
     yanami_backend_favorites_json
     yanami_backend_collection_json
@@ -91,7 +93,7 @@ foreach(required_symbol IN LISTS required_bridge_symbols)
     string(FIND "${bridge_symbol_strings}" "${required_symbol}" symbol_position)
     if(symbol_position EQUAL -1)
         message(FATAL_ERROR
-            "Rust bridge is missing required ABI v2 symbol: ${required_symbol}")
+            "Rust bridge is missing required ABI v3 symbol: ${required_symbol}")
     endif()
 endforeach()
 set(forbidden_bridge_symbols

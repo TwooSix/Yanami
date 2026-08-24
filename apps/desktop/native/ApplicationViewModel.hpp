@@ -135,6 +135,53 @@ private:
     AsyncResourceState *m_collectionState = nullptr;
 };
 
+class SearchViewModel final : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(MediaQueryModel *results READ results CONSTANT)
+    Q_PROPERTY(MediaQueryModel *titleResults READ titleResults CONSTANT)
+    Q_PROPERTY(MediaQueryModel *episodeResults READ episodeResults CONSTANT)
+    Q_PROPERTY(QAbstractItemModel *resultRows READ resultRows CONSTANT)
+    Q_PROPERTY(QString query READ query NOTIFY stateChanged)
+    Q_PROPERTY(bool searching READ searching NOTIFY stateChanged)
+    Q_PROPERTY(bool syncing READ syncing NOTIFY stateChanged)
+    Q_PROPERTY(bool complete READ complete NOTIFY stateChanged)
+    Q_PROPERTY(qint64 cachedCount READ cachedCount NOTIFY stateChanged)
+    Q_PROPERTY(qint64 totalCount READ totalCount NOTIFY stateChanged)
+    Q_PROPERTY(qint64 totalMatches READ totalMatches NOTIFY stateChanged)
+    Q_PROPERTY(bool hasMore READ hasMore NOTIFY stateChanged)
+    Q_PROPERTY(QString error READ error NOTIFY stateChanged)
+
+public:
+    explicit SearchViewModel(
+        SearchPort *port,
+        QObject *parent = nullptr);
+
+    MediaQueryModel *results() const;
+    MediaQueryModel *titleResults() const;
+    MediaQueryModel *episodeResults() const;
+    QAbstractItemModel *resultRows() const;
+    QString query() const;
+    bool searching() const;
+    bool syncing() const;
+    bool complete() const;
+    qint64 cachedCount() const;
+    qint64 totalCount() const;
+    qint64 totalMatches() const;
+    bool hasMore() const;
+    QString error() const;
+
+    Q_INVOKABLE void inputPending();
+    Q_INVOKABLE void submit(const QString &query);
+    Q_INVOKABLE void refresh();
+
+signals:
+    void stateChanged();
+
+private:
+    QPointer<SearchPort> m_port;
+};
+
 class FavoritesViewModel final : public QObject
 {
     Q_OBJECT
@@ -447,6 +494,7 @@ class ApplicationViewModel final : public QObject
     Q_OBJECT
     Q_PROPERTY(SessionViewModel *session READ session CONSTANT)
     Q_PROPERTY(HomeViewModel *home READ home CONSTANT)
+    Q_PROPERTY(SearchViewModel *search READ search CONSTANT)
     Q_PROPERTY(FavoritesViewModel *favorites READ favorites CONSTANT)
     Q_PROPERTY(PlaybackViewModel *playback READ playback CONSTANT)
     Q_PROPERTY(DanmakuViewModel *danmaku READ danmaku CONSTANT)
@@ -465,6 +513,7 @@ public:
 
     SessionViewModel *session() const { return m_session; }
     HomeViewModel *home() const { return m_home; }
+    SearchViewModel *search() const { return m_search; }
     FavoritesViewModel *favorites() const { return m_favorites; }
     PlaybackViewModel *playback() const { return m_playback; }
     DanmakuViewModel *danmaku() const { return m_danmaku; }
@@ -481,6 +530,7 @@ private:
 
     SessionViewModel *m_session = nullptr;
     HomeViewModel *m_home = nullptr;
+    SearchViewModel *m_search = nullptr;
     FavoritesViewModel *m_favorites = nullptr;
     PlaybackViewModel *m_playback = nullptr;
     DanmakuViewModel *m_danmaku = nullptr;

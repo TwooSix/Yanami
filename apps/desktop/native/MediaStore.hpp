@@ -1,13 +1,17 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QCollator>
 #include <QHash>
+#include <QList>
 #include <QObject>
+#include <QPointer>
 #include <QSet>
 #include <QSortFilterProxyModel>
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QVector>
 
 class MediaStore;
 
@@ -53,12 +57,21 @@ public:
 signals:
     void countChanged();
     void stateChanged();
+    void rowsSynchronized();
 
 private:
     friend class MediaStore;
+    friend class MediaQueryProxyModel;
+    friend class MediaSearchModel;
 
     void synchronizeRows(QVector<MediaQueryRow> rows);
     void notifyEntityChanged(const QString &entityId);
+    void notifyEntitiesChanged(const QSet<QString> &entityIds);
+    bool filterAccepts(
+        int row,
+        const QString &normalizedNeedle,
+        const QString &category) const;
+    QPair<QString, QString> filterTexts(int row) const;
     bool removeFirst(const QString &entityId, const QString &rowKey, int *removedIndex = nullptr,
                      MediaQueryRow *removedRow = nullptr);
     void restoreRow(int index, const MediaQueryRow &row);
@@ -73,6 +86,7 @@ private:
     qint64 m_fetchedAtMs = 0;
     quint64 m_contentRevision = 0;
     bool m_stale = true;
+    bool m_synchronizingRows = false;
 };
 
 class MediaStore final : public QObject
@@ -149,6 +163,8 @@ signals:
 
 private:
     friend class MediaQueryModel;
+    friend class MediaQueryProxyModel;
+    friend class MediaSearchModel;
     struct EntityRecord {
         QVariantMap fields;
         QVariantMap overlay;
@@ -170,18 +186,30 @@ private:
     static QString makeQueryKey(const QString &kind, const QString &scopeId);
     static QVariantMap canonicalFields(const QVariantMap &item, const QString &kind);
     static QVariantMap rowDecoration(const QVariantMap &item, const QString &kind);
-    static QVector<MediaQueryRow> rowsFromItems(
-        const QVariantList &items,
-        const QString &kind);
+    static QString normalizedSearchText(const QString &value);
+    static QString searchableText(const QVariantMap &values);
     MediaQueryModel *ensureQueryModel(const QString &kind, const QString &scopeId);
     QVariantMap materialize(const MediaQueryRow &row, const QString &kind) const;
+    bool filterAccepts(
+        const MediaQueryRow &row,
+        const QString &kind,
+        const QString &needle,
+        const QString &category) const;
+    QPair<QString, QString> filterTexts(
+        const MediaQueryRow &row,
+        const QString &kind) const;
+    void beginEntityNotificationBatch();
+    void endEntityNotificationBatch();
     void notifyEntityChanged(const QString &entityId);
 
     QHash<QString, EntityRecord> m_entities;
     QHash<QString, MediaQueryModel *> m_queries;
     QHash<QString, MutationJournal> m_mutations;
     QHash<QString, QString> m_refreshSourceBaselines;
+    QSet<QString> m_pendingEntityNotifications;
+    QVector<QString> m_pendingEntityNotificationOrder;
     QString m_activeMutationId;
+    int m_entityNotificationBatchDepth = 0;
 };
 
 class MediaQueryProxyModel : public QSortFilterProxyModel
@@ -227,8 +255,63 @@ private:
     void updateSorting();
 
     QString m_searchText;
+    QString m_searchNeedle;
     QString m_category;
     bool m_requireSearchText = false;
     QString m_sortLocale = QStringLiteral("en");
     int m_sortMode = -1;
+    QCollator m_collator;
+};
+
+class MediaSearchModel : public QAbstractListModel
+{
+    Q_OBJECT
+    Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
+    Q_PROPERTY(MediaQueryModel *sourceModel READ sourceModel WRITE setSourceModel NOTIFY sourceModelChanged)
+    Q_PROPERTY(QString searchText READ searchText WRITE setSearchText NOTIFY searchTextChanged)
+    Q_PROPERTY(bool requireSearchText READ requireSearchText WRITE setRequireSearchText NOTIFY requireSearchTextChanged)
+
+public:
+    explicit MediaSearchModel(QObject *parent = nullptr);
+
+    int rowCount(const QModelIndex &parent = {}) const override;
+    QVariant data(const QModelIndex &index, int role) const override;
+    QHash<int, QByteArray> roleNames() const override;
+
+    MediaQueryModel *sourceModel() const { return m_sourceModel; }
+    QString searchText() const { return m_searchText; }
+    bool requireSearchText() const { return m_requireSearchText; }
+
+    void setSourceModel(MediaQueryModel *value);
+    void setSearchText(const QString &value);
+    void setRequireSearchText(bool value);
+    Q_INVOKABLE QVariantMap get(int row) const;
+
+signals:
+    void countChanged();
+    void sourceModelChanged();
+    void searchTextChanged();
+    void requireSearchTextChanged();
+
+private:
+    void sourceStructureChanged();
+    void sourceChanged();
+    void sourceDataChanged(
+        const QModelIndex &topLeft,
+        const QModelIndex &bottomRight,
+        const QList<int> &roles);
+    void rebuildIndex();
+    bool rebuild(bool preserveSourceViewState = false);
+
+    QPointer<MediaQueryModel> m_sourceModel;
+    QVector<int> m_sourceRows;
+    QVector<QString> m_rowKeys;
+    QHash<quint64, QVector<int>> m_postings;
+    QVector<QPair<QString, QString>> m_indexedTexts;
+    QString m_searchText;
+    QString m_searchNeedle;
+    QString m_indexSearchText;
+    bool m_requireSearchText = false;
+    bool m_hasStalePostings = false;
+    int m_incrementalTextChanges = 0;
 };

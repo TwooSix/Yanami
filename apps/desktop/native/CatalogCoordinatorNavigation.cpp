@@ -451,12 +451,9 @@ void CatalogCoordinator::applyNavigationResult(
         if (presentationCurrent) {
             m_statusSink.publishStatus(
                 tr("Loaded %1 libraries, %2 titles and %3 recent episodes.")
-                    .arg(m_mediaStore->queryItems(
-                        QStringLiteral("views")).size())
-                    .arg(m_mediaStore->queryItems(
-                        QStringLiteral("library")).size())
-                    .arg(m_mediaStore->queryItems(
-                        QStringLiteral("recent")).size()),
+                    .arg(m_mediaStore->libraryViewsModel()->rowCount())
+                    .arg(m_mediaStore->libraryModel()->rowCount())
+                    .arg(m_mediaStore->recentModel()->rowCount()),
                 false);
         }
         return;
@@ -647,7 +644,7 @@ void CatalogCoordinator::finishFavoritesRefresh()
         << "status=" << operationResult.status
         << "outcome=" << outcome
         << "items="
-        << m_mediaStore->queryItems(QStringLiteral("favorites")).size()
+        << m_mediaStore->favoritesModel()->rowCount()
         << "sessionGeneration=" << m_favoritesSessionGeneration;
     if (activeSession() && m_favoritesRefreshQueued) {
         m_favoritesRefreshQueued = false;

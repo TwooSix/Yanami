@@ -113,6 +113,55 @@ public:
     RequestDisposition collectionDisposition = RequestDisposition::Accepted;
 };
 
+class FakeSearchPort final : public SearchPort
+{
+public:
+    FakeSearchPort()
+        : model(store.queryModel(QStringLiteral("search")))
+        , titleModel(store.queryModel(QStringLiteral("search-titles")))
+        , episodeModel(store.queryModel(QStringLiteral("search-episodes")))
+    {
+    }
+
+    MediaQueryModel *resultsModel() const override { return model; }
+    MediaQueryModel *titleResultsModel() const override { return titleModel; }
+    MediaQueryModel *episodeResultsModel() const override { return episodeModel; }
+    QAbstractItemModel *resultRowsModel() const override { return nullptr; }
+    QString query() const override { return currentQuery; }
+    bool searching() const override { return isSearching; }
+    bool syncing() const override { return isSyncing; }
+    bool complete() const override { return isComplete; }
+    qint64 cachedCount() const override { return cached; }
+    qint64 totalCount() const override { return total; }
+    qint64 totalMatches() const override { return matches; }
+    bool hasMore() const override { return more; }
+    QString error() const override { return currentError; }
+    void inputPending() override { ++inputPendingCalls; }
+    void requestSearch(const QString &query) override
+    {
+        currentQuery = query;
+        ++searchCalls;
+    }
+    void refresh() override { ++refreshCalls; }
+
+    MediaStore store;
+    MediaQueryModel *model = nullptr;
+    MediaQueryModel *titleModel = nullptr;
+    MediaQueryModel *episodeModel = nullptr;
+    QString currentQuery;
+    QString currentError;
+    qint64 cached = 0;
+    qint64 total = -1;
+    qint64 matches = 0;
+    int inputPendingCalls = 0;
+    int searchCalls = 0;
+    int refreshCalls = 0;
+    bool isSearching = false;
+    bool isSyncing = false;
+    bool isComplete = false;
+    bool more = false;
+};
+
 class FakePlaybackPort final : public PlaybackPort
 {
 public:
@@ -311,6 +360,7 @@ struct Fixture
 {
     FakeSessionPort session;
     FakeCatalogPort catalog;
+    FakeSearchPort search;
     FakePlaybackPort playback;
     FakePlaybackReporter playbackReporter;
     FakeDanmakuPort danmaku;
@@ -319,7 +369,7 @@ struct Fixture
 
     BackendPortSet ports()
     {
-        return {&session, &catalog, &playback, &playbackReporter,
+        return {&session, &catalog, &search, &playback, &playbackReporter,
             &danmaku, &media, &status};
     }
 };
@@ -359,6 +409,7 @@ private slots:
 
         QVERIFY(viewModel.session());
         QVERIFY(viewModel.home());
+        QVERIFY(viewModel.search());
         QVERIFY(viewModel.favorites());
         QVERIFY(viewModel.playback());
         QVERIFY(viewModel.danmaku());
@@ -414,6 +465,44 @@ private slots:
         QCOMPARE(fixture.catalog.loadedCollection, QStringLiteral("collection-B"));
         viewModel.favorites()->refresh();
         QCOMPARE(fixture.catalog.refreshFavoritesCalls, 1);
+    }
+
+    void searchUsesItsOwnTypedPortAndBoundedModel()
+    {
+        Fixture fixture;
+        fixture.search.cached = 110000;
+        fixture.search.total = 110000;
+        fixture.search.matches = 73;
+        fixture.search.isComplete = true;
+        QVariantList items;
+        for (int index = 0; index < 50; ++index) {
+            items.push_back(QVariantMap {
+                {QStringLiteral("id"), QStringLiteral("episode-%1").arg(index)},
+                {QStringLiteral("title"), QStringLiteral("Episode %1").arg(index)},
+                {QStringLiteral("itemType"), QStringLiteral("Episode")},
+            });
+        }
+        fixture.search.store.setQuery(QStringLiteral("search"), {}, items);
+        fixture.search.store.setQuery(QStringLiteral("search-titles"), {}, {});
+        fixture.search.store.setQuery(QStringLiteral("search-episodes"), {}, items);
+        fixture.search.more = true;
+
+        ApplicationViewModel viewModel(fixture.ports());
+        QCOMPARE(viewModel.search()->results()->rowCount(), 50);
+        QCOMPARE(viewModel.search()->titleResults()->rowCount(), 0);
+        QCOMPARE(viewModel.search()->episodeResults()->rowCount(), 50);
+        QCOMPARE(viewModel.search()->cachedCount(), 110000);
+        QCOMPARE(viewModel.search()->totalMatches(), 73);
+        QVERIFY(viewModel.search()->hasMore());
+        QVERIFY(viewModel.search()->complete());
+
+        viewModel.search()->inputPending();
+        QCOMPARE(fixture.search.inputPendingCalls, 1);
+        viewModel.search()->submit(QStringLiteral("S02E03"));
+        QCOMPARE(fixture.search.currentQuery, QStringLiteral("S02E03"));
+        QCOMPARE(fixture.search.searchCalls, 1);
+        viewModel.search()->refresh();
+        QCOMPARE(fixture.search.refreshCalls, 1);
     }
 
     void sessionOperationsRequireMatchingExplicitTerminal()

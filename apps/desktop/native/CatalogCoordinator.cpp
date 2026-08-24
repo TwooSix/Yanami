@@ -240,9 +240,8 @@ CatalogPort::RequestDisposition CatalogCoordinator::loadLibrary()
     request.sessionGeneration = m_committedSession.generation;
     request.activityRevision = ++m_activityRevisionIssued;
     request.enqueuedAtMs = QDateTime::currentMSecsSinceEpoch();
-    request.hadCachedData = !m_mediaStore->queryItems(
-        QStringLiteral("views")).isEmpty()
-        || !m_mediaStore->queryItems(QStringLiteral("library")).isEmpty();
+    request.hadCachedData = m_mediaStore->libraryViewsModel()->rowCount() > 0
+        || m_mediaStore->libraryModel()->rowCount() > 0;
     submitNavigationQuery(std::move(request));
     return RequestDisposition::Accepted;
 }
@@ -386,7 +385,7 @@ void CatalogCoordinator::beginFavoritesRefresh(bool force)
         << "phase=start"
         << "force=" << force
         << "cachedItems="
-        << m_mediaStore->queryItems(QStringLiteral("favorites")).size()
+        << m_mediaStore->favoritesModel()->rowCount()
         << "sessionGeneration=" << m_favoritesSessionGeneration
         << "requestGeneration=" << m_favoritesRequest.queryGeneration;
     m_favoritesWatcher.setFuture(QtConcurrent::run(
