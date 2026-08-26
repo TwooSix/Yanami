@@ -1555,15 +1555,15 @@ private slots:
         emit fixture.playback.stoppedReported();
         QCOMPARE(fixture.catalog.invalidateActivityCalls, 2);
 
-        QTest::qWait(850);
-        QCOMPARE(fixture.catalog.ensureActivityFreshCalls, 1);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            fixture.catalog.ensureActivityFreshCalls, 1, 2000);
         QCOMPARE(fixture.catalog.refreshActivityCalls, 0);
         QCOMPARE(fixture.catalog.refreshCollectionCalls, 1);
         QCOMPARE(fixture.catalog.refreshedCollection, QStringLiteral("series-a"));
 
-        QTest::qWait(2400);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            fixture.catalog.refreshActivityCalls, 1, 4000);
         QCOMPARE(fixture.catalog.ensureActivityFreshCalls, 1);
-        QCOMPARE(fixture.catalog.refreshActivityCalls, 1);
     }
 
     void playbackStopInvalidatesSeriesContinueOutsideSeriesRoute()
@@ -1592,7 +1592,8 @@ private slots:
 
         QCOMPARE(fixture.catalog.invalidatedSeriesContinue,
             QStringList {QStringLiteral("series-a")});
-        QTest::qWait(850);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            fixture.catalog.ensureActivityFreshCalls, 1, 2000);
         QCOMPARE(fixture.catalog.refreshCollectionCalls, 0);
     }
 
@@ -1648,8 +1649,8 @@ private slots:
             {QStringLiteral("itemType"), QStringLiteral("Series")},
         };
 
-        QTest::qWait(850);
-        QCOMPARE(fixture.catalog.ensureActivityFreshCalls, 1);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            fixture.catalog.ensureActivityFreshCalls, 1, 2000);
         QCOMPARE(fixture.catalog.refreshCollectionCalls, 0);
         QVERIFY(fixture.catalog.refreshedCollection.isEmpty());
     }
