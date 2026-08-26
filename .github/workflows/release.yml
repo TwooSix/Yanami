@@ -637,7 +637,11 @@ jobs:
           done
           strings "$bridge" | grep -F "$YANAMI_RELEASE_VERSION" >/dev/null
           ldd_output="$(LD_LIBRARY_PATH="$package_root/lib" ldd "$executable")"
-          ! grep -q 'not found' <<<"$ldd_output"
+          if grep -q 'not found' <<<"$ldd_output"; then
+            echo "Packaged desktop has unresolved shared libraries:" >&2
+            echo "$ldd_output" >&2
+            exit 1
+          fi
           grep -q 'libmpv' <<<"$ldd_output"
 
           export XDG_DATA_HOME="$extract_dir/data"
