@@ -22,7 +22,9 @@ Item {
     property string containerTitle: ""
     property string containerType: ""
     property int detailReturnPage: -1
+    property bool directExternalSeason: false
     property string pendingPlaylistRemovalId: ""
+    property string pendingLibraryScrollResetId: ""
     readonly property string routeCollectionId: root.depth === 1 ? root.libraryId
         : (root.depth === 2 ? root.seriesId
         : (root.depth === 3 ? root.seasonId : (root.depth === 4 ? root.containerId : "")))
@@ -36,14 +38,8 @@ Item {
     property real resumeSectionHeight: (animatedResumeModel.count > 0
         || resumeRemovalDelay.running || app.home.libraryRefreshing
         || app.home.activityRefreshing) ? 186 : 18
-    property real recentSectionHeight: (animatedRecentModel.count > 0
-        || recentRemovalDelay.running || app.home.libraryRefreshing
-        || app.home.activityRefreshing) ? 186 : 18
 
     Behavior on resumeSectionHeight {
-        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
-    }
-    Behavior on recentSectionHeight {
         NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
     }
     property var sortOptions: [
@@ -61,15 +57,32 @@ Item {
     }
     readonly property var animatedLibraryViewsModel: app.home.mediaStore.libraryViewsModel
     readonly property var animatedResumeModel: app.home.mediaStore.resumeModel
-    readonly property var animatedRecentModel: app.home.mediaStore.recentModel
+    readonly property var animatedLatestSectionsModel:
+        app.home.mediaStore.queryModel("latestSections")
     readonly property var animatedSeasonsModel:
         app.home.mediaStore.queryModel("collection", root.seriesId)
+    readonly property var animatedSeriesContinueModel:
+        app.home.mediaStore.queryModel("seriesContinue", root.seriesId)
     readonly property var animatedEpisodesModel:
         app.home.mediaStore.queryModel("collection", root.seasonId)
     readonly property var animatedContainerModel:
         app.home.mediaStore.queryModel("collection", root.containerId)
 
+    onCollectionReadyChanged: {
+        if (root.collectionReady)
+            Qt.callLater(root.completeLibraryScrollReset)
+    }
+    onSortModeChanged: {
+        if (root.depth === 1)
+            root.requestLibraryScrollReset(root.libraryId)
+    }
+    onDepthChanged: {
+        if (root.visible && InputModality.focusNavigationActive)
+            Qt.callLater(root.controllerFocusRequested)
+    }
+
     signal externalReturnRequested(int page)
+    signal controllerFocusRequested()
 
     component LoadingStrip: Item {
         id: strip
@@ -106,7 +119,6 @@ Item {
     }
 
     Timer { id: resumeRemovalDelay; interval: 180 }
-    Timer { id: recentRemovalDelay; interval: 180 }
     Timer {
         id: playlistRemovalDelay
         interval: 170
@@ -115,16 +127,59 @@ Item {
         }
     }
 
+    EpisodeScrollPolicy {
+        id: episodeScrollPolicy
+        activeScopeId: root.depth === 3 ? root.seasonId : ""
+        model: root.animatedEpisodesModel
+        view: episodesList
+        ready: root.depth === 3 && root.collectionReady
+        refreshing: root.depth === 3 && root.collectionRefreshing
+    }
+
     signal playRequested(string itemId, string title, var playbackContext)
     signal settingsRequested()
     signal mediaContextRequested(var item, var sourceItem, real x, real y,
                                  bool keyboardInvocation)
 
+    function controllerDefaultFocusItem() {
+        if (!app.session.connected)
+            return disconnectedSettingsButton
+        if (root.depth === 1) {
+            const libraryCard = libraryGrid.itemAtIndex(0)
+            return libraryCard || libraryBackButton
+        }
+        if (root.depth === 0) {
+            const libraryCard = libraryPreviewList.itemAtIndex(0)
+            return libraryCard || (refreshButton.visible
+                ? refreshButton : pageBackButton)
+        }
+        if (root.depth === 2) {
+            const continueCard = seriesContinueList.itemAtIndex(0)
+            const seasonCard = seasonsList.itemAtIndex(0)
+            return continueCard || seasonCard || pageBackButton
+        }
+        if (root.depth === 3)
+            return episodesList.itemAtIndex(0) || pageBackButton
+        return pageBackButton
+    }
+
+    function firstLatestMediaItem() {
+        if (animatedLatestSectionsModel.count <= 0)
+            return null
+        const section = animatedLatestSectionsModel.get(0) || ({})
+        const sectionId = String(section.id || "")
+        if (sectionId.length === 0)
+            return null
+        const sectionModel = app.home.mediaStore.queryModel("latest", sectionId)
+        return sectionModel.count > 0 ? sectionModel.get(0) : null
+    }
+
     function developmentPreviewItem() {
         if (animatedResumeModel.count > 0)
             return animatedResumeModel.get(0)
-        if (animatedRecentModel.count > 0)
-            return animatedRecentModel.get(0)
+        const latestItem = root.firstLatestMediaItem()
+        if (latestItem)
+            return latestItem
         if (app.home.mediaStore.libraryModel.count > 0)
             return app.home.mediaStore.libraryModel.get(0)
         return null
@@ -171,8 +226,11 @@ Item {
 
     function openDevelopmentContextPreview() {
         let card = resumePreviewList.itemAtIndex(0)
-        if (!card)
-            card = recentPreviewList.itemAtIndex(0)
+        if (!card && latestSectionsRepeater.count > 0) {
+            const section = latestSectionsRepeater.itemAt(0)
+            if (section)
+                card = section.previewList.itemAtIndex(0)
+        }
         if (!card)
             return false
         root.mediaContextRequested(card.mediaItem, card,
@@ -197,8 +255,37 @@ Item {
         return qsTr("Name")
     }
 
+    function requestLibraryScrollReset(targetId) {
+        const normalizedId = String(targetId || "")
+        if (normalizedId.length === 0)
+            return
+        root.pendingLibraryScrollResetId = normalizedId
+        libraryGrid.resetScrollPosition()
+        Qt.callLater(root.completeLibraryScrollReset)
+    }
+
+    function completeLibraryScrollReset() {
+        if (root.pendingLibraryScrollResetId.length === 0
+                || root.depth !== 1
+                || root.libraryId !== root.pendingLibraryScrollResetId) {
+            return
+        }
+        libraryGrid.resetScrollPosition()
+        if (root.collectionReady)
+            root.pendingLibraryScrollResetId = ""
+    }
+
+    function requestEpisodeScroll(targetId) {
+        const normalizedId = String(targetId || "")
+        if (normalizedId.length === 0)
+            return
+        episodeScrollPolicy.request(normalizedId)
+    }
+
     function goHome() {
         sortMenu.close()
+        episodeScrollPolicy.cancel()
+        root.pendingLibraryScrollResetId = ""
         root.depth = 0
         root.libraryId = ""
         root.libraryTitle = ""
@@ -210,12 +297,15 @@ Item {
         root.containerTitle = ""
         root.containerType = ""
         root.detailReturnPage = -1
+        root.directExternalSeason = false
         root.seriesDetails = ({})
-        pageFlickable.contentY = 0
+        pageFlickable.revealContentY(0)
     }
 
     function openLibraryView(item) {
+        episodeScrollPolicy.cancel()
         root.detailReturnPage = -1
+        root.directExternalSeason = false
         root.libraryId = item.id
         root.libraryTitle = root.localizedLibraryTitle(item)
         root.seriesId = ""
@@ -226,17 +316,18 @@ Item {
         root.containerTitle = ""
         root.containerType = ""
         root.depth = 1
-        pageFlickable.contentY = 0
+        root.requestLibraryScrollReset(root.libraryId)
         app.home.loadCollection(item.id)
     }
 
     function openLibraryItem(item) {
+        episodeScrollPolicy.cancel()
         if (item.itemType === "Playlist") {
             root.containerId = item.id
             root.containerTitle = item.title
             root.containerType = item.itemType
             root.depth = 4
-            pageFlickable.contentY = 0
+            pageFlickable.revealContentY(0)
             app.home.loadCollection(item.id)
         } else if (item.itemType === "Series") {
             root.seriesId = item.id
@@ -245,7 +336,7 @@ Item {
             root.seasonId = ""
             root.seriesDetails = ({})
             root.depth = 2
-            pageFlickable.contentY = 0
+            pageFlickable.revealContentY(0)
             app.home.loadCollection(item.id)
         } else {
             root.playRequested(item.id, item.title, ({}))
@@ -263,17 +354,20 @@ Item {
         root.libraryId = ""
         root.libraryTitle = ""
         root.detailReturnPage = returnPage
+        root.directExternalSeason = false
         root.openLibraryItem(item)
     }
 
     function openSeason(item) {
+        root.directExternalSeason = false
         root.seriesDetails = root.collectionParent
         if (String(item.seriesId || "").length > 0)
             root.seriesId = String(item.seriesId)
         root.seasonId = item.id
         root.seasonTitle = item.title
         root.depth = 3
-        pageFlickable.contentY = 0
+        pageFlickable.revealContentY(0)
+        root.requestEpisodeScroll(root.seasonId)
         app.home.loadCollection(item.id)
     }
 
@@ -284,10 +378,12 @@ Item {
         root.seriesTitle = String(item.seriesTitle || "")
         root.seriesDetails = ({})
         root.detailReturnPage = returnPage
+        root.directExternalSeason = true
         root.seasonId = item.id
         root.seasonTitle = item.title
         root.depth = 3
-        pageFlickable.contentY = 0
+        pageFlickable.revealContentY(0)
+        root.requestEpisodeScroll(root.seasonId)
         app.home.loadCollection(item.id)
     }
 
@@ -298,7 +394,7 @@ Item {
                 root.containerId = ""
                 root.containerTitle = ""
                 root.containerType = ""
-                pageFlickable.contentY = 0
+                pageFlickable.revealContentY(0)
                 app.home.loadCollection(root.libraryId)
             } else if (root.detailReturnPage >= 0) {
                 const returnPage = root.detailReturnPage
@@ -308,11 +404,16 @@ Item {
                 root.goHome()
             }
         } else if (root.depth === 3) {
-            if (root.seriesId.length > 0) {
+            episodeScrollPolicy.cancel()
+            if (root.directExternalSeason && root.detailReturnPage >= 0) {
+                const returnPage = root.detailReturnPage
+                root.goHome()
+                root.externalReturnRequested(returnPage)
+            } else if (root.seriesId.length > 0) {
                 root.depth = 2
                 root.seasonTitle = ""
                 root.seasonId = ""
-                pageFlickable.contentY = 0
+                pageFlickable.revealContentY(0)
                 app.home.loadCollection(root.seriesId)
             } else if (root.detailReturnPage >= 0) {
                 const returnPage = root.detailReturnPage
@@ -325,7 +426,7 @@ Item {
             root.depth = 1
             root.seriesId = ""
             root.seriesTitle = ""
-            pageFlickable.contentY = 0
+            pageFlickable.revealContentY(0)
             app.home.loadCollection(root.libraryId)
         } else if (root.depth === 2 && root.detailReturnPage >= 0) {
             const returnPage = root.detailReturnPage
@@ -439,6 +540,7 @@ Item {
                 spacing: 12
 
                 AppButton {
+                    id: pageBackButton
                     visible: root.depth > 0
                     kind: "ghost"
                     iconOnly: true
@@ -483,6 +585,7 @@ Item {
                 }
 
                 AppButton {
+                    id: refreshButton
                     visible: root.depth === 0
                     kind: "ghost"
                     iconName: "refresh"
@@ -510,6 +613,7 @@ Item {
                     id: libraryPreviewList
                     Layout.fillWidth: true
                     Layout.preferredHeight: 158
+                    passVerticalWheelToParent: true
                     visible: animatedLibraryViewsModel.count > 0
                     model: animatedLibraryViewsModel
                     delegate: LibraryCard {
@@ -583,6 +687,7 @@ Item {
                     SmoothHorizontalList {
                         id: resumePreviewList
                         anchors.fill: parent
+                        passVerticalWheelToParent: true
                         visible: opacity > 0
                         opacity: animatedResumeModel.count > 0 ? 1 : 0
                         model: animatedResumeModel
@@ -620,8 +725,11 @@ Item {
                         opacity: animatedResumeModel.count === 0
                             && !app.home.libraryRefreshing && !app.home.activityRefreshing
                             && !resumeRemovalDelay.running ? 1 : 0
-                        text: qsTr("Nothing to continue yet")
-                        color: Theme.textMuted
+                        text: app.home.activityLoadFailed
+                            ? qsTr("Could not refresh Continue Watching")
+                            : qsTr("Nothing to continue yet")
+                        color: app.home.activityLoadFailed
+                            ? Theme.danger : Theme.textMuted
                         font.family: Theme.fontForText(text)
                         font.pixelSize: 13
                         Behavior on opacity { NumberAnimation { duration: 150 } }
@@ -629,37 +737,57 @@ Item {
                 }
             }
 
-            ColumnLayout {
-                visible: root.depth === 0
-                Layout.fillWidth: true
-                spacing: 12
+            Repeater {
+                id: latestSectionsRepeater
+                model: root.depth === 0 ? animatedLatestSectionsModel : null
 
-                Text {
-                    text: qsTr("Recent updates")
-                    color: Theme.text
-                    font.family: Theme.fontForText(text)
-                    font.pixelSize: 20
-                    font.weight: Font.DemiBold
-                }
+                delegate: ColumnLayout {
+                    id: latestSection
+                    required property var modelData
+                    required property int index
+                    readonly property var latestModel:
+                        app.home.mediaStore.queryModel("latest", String(modelData.id || ""))
+                    property alias previewList: latestPreviewList
 
-                Item {
+                    visible: latestModel.count > 0
                     Layout.fillWidth: true
-                    Layout.preferredHeight: root.recentSectionHeight > 0.5
-                        ? root.recentSectionHeight : emptyRecentLabel.implicitHeight
+                    Layout.preferredHeight: visible ? 346 : 0
+                    spacing: 12
+
+                    Text {
+                        text: qsTr("Latest %1").arg(
+                            root.localizedLibraryTitle(latestSection.modelData))
+                        color: Theme.text
+                        font.family: Theme.fontForText(text)
+                        font.pixelSize: 20
+                        font.weight: Font.DemiBold
+                    }
 
                     SmoothHorizontalList {
-                        id: recentPreviewList
-                        anchors.fill: parent
-                        visible: opacity > 0
-                        opacity: animatedRecentModel.count > 0 ? 1 : 0
-                        model: animatedRecentModel
-                        delegate: RecentEpisodeCard {
+                        id: latestPreviewList
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 312
+                        passVerticalWheelToParent: true
+                        spacing: 18
+                        model: latestSection.latestModel
+
+                        delegate: PosterCard {
                             required property var modelData
+                            required property int index
+                            width: 178
+                            height: 302
                             title: modelData.title
                             subtitle: LocaleText.mediaSubtitle(modelData)
-                            imageUrl: modelData.imageUrl || ""
+                            itemType: modelData.itemType
+                            posterUrl: modelData.imageUrl || ""
                             progress: modelData.progress || 0
+                            unplayedCount: Number(
+                                modelData.childCount || modelData.unplayedCount || 0)
                             mediaItem: modelData
+                            playable: root.containerItemPlayable(modelData)
+                            posterColor: ["#405E7B", "#6A536F", "#526B5D", "#755358",
+                                          "#59647C", "#6B6250"][Math.max(0, index) % 6]
+                            onActivated: root.openLibraryItem(modelData)
                             onPlayRequested: root.playRequested(
                                 modelData.id, modelData.title, ({}))
                             onContextMenuRequested: (item, sourceItem, x, y,
@@ -667,32 +795,45 @@ Item {
                                 root.mediaContextRequested(
                                     item, sourceItem, x, y, keyboardInvocation)
                         }
-                        Behavior on opacity { NumberAnimation { duration: 150 } }
                     }
+                }
+            }
 
-                    LoadingStrip {
-                        anchors.fill: parent
-                        visible: opacity > 0
-                        opacity: animatedRecentModel.count === 0
-                            && (app.home.libraryRefreshing || app.home.activityRefreshing)
-                            && !recentRemovalDelay.running ? 1 : 0
-                        Behavior on opacity { NumberAnimation { duration: 150 } }
-                    }
+            ColumnLayout {
+                visible: root.depth === 0 && animatedLatestSectionsModel.count === 0
+                Layout.fillWidth: true
+                Layout.preferredHeight: visible ? implicitHeight : 0
+                spacing: 12
 
-                    Text {
-                        id: emptyRecentLabel
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: opacity > 0
-                        opacity: animatedRecentModel.count === 0
-                            && !app.home.libraryRefreshing && !app.home.activityRefreshing
-                            && !recentRemovalDelay.running ? 1 : 0
-                        text: qsTr("No recent updates")
-                        color: Theme.textMuted
-                        font.family: Theme.fontForText(text)
-                        font.pixelSize: 13
-                        Behavior on opacity { NumberAnimation { duration: 150 } }
-                    }
+                Text {
+                    visible: app.home.libraryRefreshing || app.home.activityRefreshing
+                    text: qsTr("Latest media")
+                    color: Theme.text
+                    font.family: Theme.fontForText(text)
+                    font.pixelSize: 20
+                    font.weight: Font.DemiBold
+                }
+
+                LoadingStrip {
+                    visible: app.home.libraryRefreshing || app.home.activityRefreshing
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: visible ? 302 : 0
+                    cardWidth: 178
+                    cardHeight: 302
+                    cardRadius: 18
+                    structuredCards: true
+                    artworkHeight: 238
+                }
+
+                Text {
+                    visible: !app.home.libraryRefreshing && !app.home.activityRefreshing
+                    text: app.home.libraryLoadFailed || app.home.activityLoadFailed
+                        ? qsTr("Could not refresh latest media")
+                        : qsTr("No recently added media")
+                    color: app.home.libraryLoadFailed || app.home.activityLoadFailed
+                        ? Theme.danger : Theme.textMuted
+                    font.family: Theme.fontForText(text)
+                    font.pixelSize: 13
                 }
             }
 
@@ -707,6 +848,8 @@ Item {
                 subtitle: LocaleText.parentSubtitle(root.collectionParent)
                 overview: root.collectionParent.overview || root.seriesDetails.overview || ""
                 continueLabel: root.collectionParent.continueLabel || ""
+                playButtonVisible: root.depth !== 2
+                    || animatedSeriesContinueModel.count > 0
                 posterUrl: root.collectionParent.imageUrl || root.seriesDetails.imageUrl || ""
                 backdropUrl: root.collectionParent.backdropUrl || root.seriesDetails.backdropUrl || ""
                 onPlayRequested: {
@@ -834,6 +977,50 @@ Item {
                         text: qsTr("Try again")
                         onClicked: app.home.loadCollection(root.routeCollectionId)
                     }
+                }
+            }
+
+            RowLayout {
+                visible: root.depth === 2 && root.collectionReady
+                    && animatedSeriesContinueModel.count > 0
+                Layout.fillWidth: true
+
+                Text {
+                    text: qsTr("Continue watching")
+                    color: Theme.text
+                    font.family: Theme.fontForText(text)
+                    font.pixelSize: 20
+                    font.weight: Font.DemiBold
+                }
+                Item { Layout.fillWidth: true }
+            }
+
+            SmoothHorizontalList {
+                id: seriesContinueList
+                visible: root.depth === 2 && root.collectionReady
+                    && animatedSeriesContinueModel.count > 0
+                Layout.fillWidth: true
+                Layout.preferredHeight: visible ? 186 : 0
+                spacing: 18
+                model: animatedSeriesContinueModel
+                delegate: RecentEpisodeCard {
+                    required property var modelData
+                    width: 292
+                    height: 176
+                    title: modelData.title
+                    subtitle: LocaleText.mediaSubtitle(modelData)
+                    imageUrl: modelData.imageUrl || ""
+                    progress: modelData.progress || 0
+                    mediaItem: modelData
+                    onPlayRequested: root.playRequested(
+                        modelData.id, modelData.title,
+                        root.seriesPlaybackContext())
+                    onContextMenuRequested: (item, sourceItem, x, y,
+                                             keyboardInvocation) =>
+                        root.mediaContextRequested(
+                            root.itemWithPlaybackContext(
+                                item, root.seriesPlaybackContext()),
+                            sourceItem, x, y, keyboardInvocation)
                 }
             }
 
@@ -1159,6 +1346,7 @@ Item {
             spacing: 12
 
             AppButton {
+                id: libraryBackButton
                 kind: "ghost"
                 iconOnly: true
                 iconName: "back"
@@ -1361,6 +1549,7 @@ Item {
                 }
 
                 AppButton {
+                    id: disconnectedSettingsButton
                     Layout.alignment: Qt.AlignHCenter
                     kind: "primary"
                     iconName: "settings"

@@ -32,6 +32,8 @@ AppTransientPopup {
     signal interactionStarted()
     signal interactionEnded()
 
+    initialFocusTarget: queueList
+
     function contextText(keys) {
         const context = root.playbackContext || ({})
         for (let index = 0; index < keys.length; ++index) {
@@ -86,6 +88,40 @@ AppTransientPopup {
         }
         if (modelIndex >= 0)
             queueList.positionViewAtIndex(modelIndex, ListView.Center)
+    }
+
+    function currentModelIndex() {
+        if (root.entryCount === 0)
+            return -1
+        for (let index = 0; index < root.entryCount; ++index) {
+            if (root.queueIndexFor(root.queueItems[index], index)
+                    === root.currentIndex)
+                return index
+        }
+        return 0
+    }
+
+    function focusQueue() {
+        if (!root.opened || root.entryCount === 0)
+            return
+        let modelIndex = root.currentModelIndex()
+        if (modelIndex < 0)
+            modelIndex = 0
+        queueList.currentIndex = modelIndex
+        queueList.positionViewAtIndex(modelIndex, ListView.Contain)
+        queueList.forceActiveFocus(Qt.PopupFocusReason)
+    }
+
+    function activateHighlighted() {
+        const index = queueList.currentIndex
+        if (index < 0 || index >= root.entryCount || root.switching)
+            return false
+        const item = root.queueItems[index] || ({})
+        const queueIndex = root.queueIndexFor(item, index)
+        if (queueIndex === root.currentIndex || String(item.id || "").length === 0)
+            return false
+        root.itemRequested(item, queueIndex)
+        return true
     }
 
     width: 404
@@ -196,6 +232,43 @@ AppTransientPopup {
             pixelAligned: false
             reuseItems: true
             cacheBuffer: 128
+            activeFocusOnTab: true
+            keyNavigationEnabled: false
+            currentIndex: -1
+            Accessible.role: Accessible.List
+            Accessible.name: qsTr("Play queue")
+
+            Keys.onPressed: event => {
+                if (root.entryCount === 0)
+                    return
+                let next = queueList.currentIndex < 0
+                    ? root.currentModelIndex() : queueList.currentIndex
+                const page = Math.max(1, Math.floor(queueList.height / 64) - 1)
+                if (event.key === Qt.Key_Up) {
+                    next = Math.max(0, next - 1)
+                } else if (event.key === Qt.Key_Down) {
+                    next = Math.min(root.entryCount - 1, next + 1)
+                } else if (event.key === Qt.Key_PageUp) {
+                    next = Math.max(0, next - page)
+                } else if (event.key === Qt.Key_PageDown) {
+                    next = Math.min(root.entryCount - 1, next + page)
+                } else if (event.key === Qt.Key_Home) {
+                    next = 0
+                } else if (event.key === Qt.Key_End) {
+                    next = root.entryCount - 1
+                } else if (event.key === Qt.Key_Return
+                        || event.key === Qt.Key_Enter
+                        || event.key === Qt.Key_Space) {
+                    root.activateHighlighted()
+                    event.accepted = true
+                    return
+                } else {
+                    return
+                }
+                queueList.currentIndex = next
+                queueList.positionViewAtIndex(next, ListView.Contain)
+                event.accepted = true
+            }
 
             WheelHandler {
                 target: null
@@ -241,6 +314,7 @@ AppTransientPopup {
                 transform: Translate { x: Theme.scrollBarGutter }
                 width: Math.max(0, queueList.width - 2 * Theme.scrollBarGutter)
                 height: 64
+                activeFocusOnTab: false
                 Accessible.role: Accessible.ListItem
                 Accessible.name: root.entryTitle(modelData)
                     + (current ? ", " + qsTr("Playing") : "")
@@ -256,9 +330,13 @@ AppTransientPopup {
                         ? "#2AFFFFFF"
                         : (queueMouse.containsMouse && queueRow.canActivate
                             ? "#18FFFFFF"
-                            : (queueRow.current ? "#18FF6687" : "transparent"))
-                    border.width: queueRow.current ? 1 : 0
-                    border.color: "#42FF6687"
+                            : (queueList.currentIndex === queueRow.index
+                                    && queueList.activeFocus ? "#20FFFFFF"
+                            : (queueRow.current ? "#18FF6687" : "transparent")))
+                    border.width: queueList.currentIndex === queueRow.index
+                            && queueList.activeFocus ? 2 : (queueRow.current ? 1 : 0)
+                    border.color: queueList.currentIndex === queueRow.index
+                            && queueList.activeFocus ? Theme.accent : "#42FF6687"
 
                     Behavior on color { ColorAnimation { duration: 130 } }
                     Behavior on border.color { ColorAnimation { duration: 130 } }
@@ -384,6 +462,7 @@ AppTransientPopup {
 
     onOpened: {
         Qt.callLater(root.revealCurrent)
+        Qt.callLater(root.focusQueue)
         root.interactionStarted()
     }
     onCurrentIndexChanged: {
@@ -392,8 +471,10 @@ AppTransientPopup {
     }
     onQueueItemsChanged: {
         wheelAnimation.stop()
-        if (opened)
+        if (opened) {
             Qt.callLater(root.revealCurrent)
+            Qt.callLater(root.focusQueue)
+        }
     }
     onClosed: {
         wheelAnimation.stop()

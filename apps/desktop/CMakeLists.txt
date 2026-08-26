@@ -59,6 +59,16 @@ set(CMAKE_AUTOMOC ON)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Gui Network Quick QuickControls2 OpenGL LinguistTools)
 get_filename_component(YANAMI_QT_PREFIX "${Qt6_DIR}/../../.." ABSOLUTE)
+if(WIN32)
+    # SDL is the primary gamepad backend for the Windows release. XInput stays
+    # linked below as an exclusive runtime fallback when SDL initialization
+    # fails or is explicitly selected for diagnostics.
+    find_package(SDL3 3.2 CONFIG REQUIRED)
+else()
+    # Controller support outside the primary Windows target is experimental;
+    # keep those builders working when SDL3 is not installed.
+    find_package(SDL3 3.2 CONFIG QUIET)
+endif()
 
 # The MSYS2 build of pkg-config may expose POSIX paths such as
 # /ucrt64/include to native Windows CMake. Locate the import library directly
@@ -97,6 +107,12 @@ if(WIN32)
     # of allowing find_file() to fall back to System32.
     find_file(VULKAN_RUNTIME_DLL
         NAMES vulkan-1.dll
+        HINTS "${YANAMI_QT_PREFIX}/bin"
+        NO_DEFAULT_PATH
+        REQUIRED
+    )
+    find_file(SDL3_RUNTIME_DLL
+        NAMES SDL3.dll
         HINTS "${YANAMI_QT_PREFIX}/bin"
         NO_DEFAULT_PATH
         REQUIRED
@@ -188,6 +204,8 @@ qt_add_executable(yanami-desktop
     native/BackendInfrastructure.hpp
     native/DesktopBackendServices.cpp
     native/DesktopBackendServices.hpp
+    native/DiagnosticsViewModel.cpp
+    native/DiagnosticsViewModel.hpp
     native/SessionCoordinator.cpp
     native/SessionCoordinator.hpp
     native/CatalogCoordinator.cpp
@@ -195,6 +213,10 @@ qt_add_executable(yanami-desktop
     native/CatalogCoordinatorNavigation.cpp
     native/CatalogCoordinatorStore.cpp
     native/CatalogCoordinatorCache.cpp
+    native/SearchCoordinator.cpp
+    native/SearchCoordinator.hpp
+    native/SearchResultRowsModel.cpp
+    native/SearchResultRowsModel.hpp
     native/MediaCoordinator.cpp
     native/MediaCoordinator.hpp
     native/MediaCoordinatorInteractive.cpp
@@ -221,6 +243,8 @@ qt_add_executable(yanami-desktop
     native/LocaleController.hpp
     native/MpvVideoItem.cpp
     native/MpvVideoItem.hpp
+    native/PlaybackCompletionGate.hpp
+    native/PlaybackStallWatchdog.hpp
     native/PlaybackTrackMapper.cpp
     native/PlaybackTrackMapper.hpp
     native/PlaybackDescriptor.cpp
@@ -231,6 +255,8 @@ qt_add_executable(yanami-desktop
     native/PlaybackReportQueue.hpp
     native/PlaybackTelemetry.cpp
     native/PlaybackTelemetry.hpp
+    native/PerformanceTrace.cpp
+    native/PerformanceTrace.hpp
     native/RustBridgeRuntime.cpp
     native/RustBridgeRuntime.hpp
     native/RustBridgeError.cpp
@@ -239,6 +265,18 @@ qt_add_executable(yanami-desktop
     native/RuntimeLogger.hpp
     native/UpdateChecker.cpp
     native/UpdateChecker.hpp
+    native/UpscalingAssetManager.cpp
+    native/UpscalingAssetManager.hpp
+    native/UpscalingCapabilityProbe.cpp
+    native/UpscalingCapabilityProbe.hpp
+    native/UpscalingCatalog.cpp
+    native/UpscalingCatalog.hpp
+    native/UpscalingPerformancePolicy.cpp
+    native/UpscalingPerformancePolicy.hpp
+    native/UpscalingRuntimeConfig.cpp
+    native/UpscalingRuntimeConfig.hpp
+    native/UpscalingViewModel.cpp
+    native/UpscalingViewModel.hpp
     native/WindowController.cpp
     native/WindowController.hpp
 )
@@ -288,6 +326,10 @@ qt_add_qml_module(yanami-ui
     SOURCES
         native/ControllerNavigation.cpp
         native/ControllerNavigation.hpp
+        native/DanmakuRenderItem.cpp
+        native/DanmakuRenderItem.hpp
+        native/DanmakuTimelineModel.cpp
+        native/DanmakuTimelineModel.hpp
         native/InputModalityController.cpp
         native/InputModalityController.hpp
     QML_FILES
@@ -309,10 +351,13 @@ qt_add_qml_module(yanami-ui
         qml/components/AppTextField.qml
         qml/components/AppToolTip.qml
         qml/components/BrandMark.qml
+        qml/components/CardProgressStrip.qml
+        qml/components/ControllerInputTestScope.qml
         qml/components/DanmakuMenu.qml
         qml/components/DanmakuOverlay.qml
         qml/components/DetailHero.qml
         qml/components/EpisodeCard.qml
+        qml/components/EpisodeScrollPolicy.qml
         qml/components/GlassPanel.qml
         qml/components/LibraryCard.qml
         qml/components/LoadingIndicator.qml
@@ -326,14 +371,23 @@ qt_add_qml_module(yanami-ui
         qml/components/ImageEditorDialog.qml
         qml/components/NavButton.qml
         qml/components/PosterCard.qml
+        qml/components/PlaybackAdvancePolicy.qml
+        qml/components/PlaybackControllerPolicy.qml
+        qml/components/PlaybackEndOverlay.qml
+        qml/components/PlaybackSettingsMenu.qml
+        qml/components/StatusToast.qml
         qml/components/PlaybackQueueMenu.qml
         qml/components/PlaybackHost.qml
+        qml/components/PopupControllerNavigator.qml
         qml/components/RecentEpisodeCard.qml
         qml/components/RefreshMetadataDialog.qml
         qml/components/RoundedImage.qml
+        qml/components/SearchSubmissionPolicy.qml
         qml/components/SmoothFlickable.qml
         qml/components/SmoothGridView.qml
         qml/components/SmoothHorizontalList.qml
+        qml/components/SmoothListView.qml
+        qml/components/SpatialFocusNavigator.qml
         qml/components/TrackMenu.qml
         qml/components/VolumeControl.qml
         qml/components/WindowResizeHandles.qml
@@ -346,6 +400,10 @@ target_link_libraries(yanami-ui PRIVATE
     Qt6::Gui
     Qt6::Quick
 )
+if(SDL3_FOUND)
+    target_compile_definitions(yanami-ui PRIVATE YANAMI_HAS_SDL3=1)
+    target_link_libraries(yanami-ui PRIVATE SDL3::SDL3)
+endif()
 if(WIN32)
     # Yanami supports Windows 10/11, where XInput 1.4 is a system component.
     # The generic MinGW import library targets the legacy XINPUT1_3.dll,
@@ -410,6 +468,7 @@ if(WIN32)
             "-DYANAMI_WINDEPLOYQT=${WINDEPLOYQT_EXECUTABLE}"
             "-DYANAMI_MPV_RUNTIME=${MPV_RUNTIME_DLL}"
             "-DYANAMI_VULKAN_RUNTIME=${VULKAN_RUNTIME_DLL}"
+            "-DYANAMI_SDL3_RUNTIME=${SDL3_RUNTIME_DLL}"
             "-DYANAMI_PACMAN=${PACMAN_EXECUTABLE}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/DeployWindowsRuntime.cmake"
         DEPENDS yanami-desktop yanami-deploy-rust-bridge
@@ -529,9 +588,94 @@ if(APPLE)
     install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/InstallMacRuntime.cmake")
 endif()
 
+if(UNIX AND NOT APPLE)
+    configure_file(
+        cmake/InstallLinuxRuntime.cmake.in
+        "${CMAKE_CURRENT_BINARY_DIR}/InstallLinuxRuntime.cmake"
+        @ONLY
+    )
+    install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/InstallLinuxRuntime.cmake")
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.8 REQUIRED COMPONENTS QuickTest Test)
+
+    add_test(
+        NAME yanami-package-manifest-policy-tests
+        COMMAND "${CMAKE_COMMAND}"
+            "-DYANAMI_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/package-manifest-policy-test"
+            "-DYANAMI_CMAKE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/PackageManifestPolicyTests.cmake"
+    )
+    set_tests_properties(yanami-package-manifest-policy-tests PROPERTIES
+        LABELS "package;policy"
+        TIMEOUT 15
+    )
+
+    if(NOT YANAMI_ENABLE_DEV_HOOKS)
+        if(WIN32)
+            set(YANAMI_INSTALL_SMOKE_EXECUTABLE "bin/yanami-desktop.exe")
+            set(YANAMI_INSTALL_SMOKE_BRIDGE
+                "bin/${YANAMI_RUST_BRIDGE_NAME}")
+        elseif(APPLE)
+            set(YANAMI_INSTALL_SMOKE_EXECUTABLE
+                "Yanami.app/Contents/MacOS/Yanami")
+            set(YANAMI_INSTALL_SMOKE_BRIDGE
+                "Yanami.app/Contents/MacOS/${YANAMI_RUST_BRIDGE_NAME}")
+        else()
+            set(YANAMI_INSTALL_SMOKE_EXECUTABLE "bin/yanami-desktop")
+            set(YANAMI_INSTALL_SMOKE_BRIDGE
+                "bin/${YANAMI_RUST_BRIDGE_NAME}")
+        endif()
+        add_custom_target(yanami-pr-install-smoke
+            COMMAND "${CMAKE_COMMAND}"
+                "-DYANAMI_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+                "-DYANAMI_STAGE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/pr-install-smoke/$<CONFIG>"
+                "-DYANAMI_CONFIG=$<CONFIG>"
+                "-DYANAMI_PLATFORM=${YANAMI_PACKAGE_PLATFORM}"
+                "-DYANAMI_EXECUTABLE_RELATIVE=${YANAMI_INSTALL_SMOKE_EXECUTABLE}"
+                "-DYANAMI_BRIDGE_RELATIVE=${YANAMI_INSTALL_SMOKE_BRIDGE}"
+                "-DYANAMI_QT_PREFIX=${YANAMI_QT_PREFIX}"
+                "-DYANAMI_EXPECTED_VERSION=${YANAMI_BUILD_VERSION}"
+                "-DYANAMI_EXPECTED_SOURCE_VERSION=${YANAMI_SOURCE_VERSION}"
+                "-DYANAMI_EXPECTED_COMMIT=${YANAMI_BUILD_COMMIT}"
+                "-DYANAMI_EXPECTED_RUN_ID=${YANAMI_BUILD_RUN_ID}"
+                "-DYANAMI_EXPECTED_ARCHITECTURE=${YANAMI_PACKAGE_ARCHITECTURE}"
+                "-DYANAMI_CMAKE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/InstallTreeSmoke.cmake"
+            DEPENDS yanami-desktop yanami-deploy-rust-bridge
+            COMMENT "Auditing and launching the isolated PR install tree"
+            VERBATIM
+        )
+    endif()
+
+    set_source_files_properties(
+        tests/manual/StatusFeedbackShowcase.qml
+        PROPERTIES QT_RESOURCE_ALIAS StatusFeedbackShowcase.qml
+    )
+    qt_add_executable(yanami-status-feedback-showcase EXCLUDE_FROM_ALL
+        tests/manual/StatusFeedbackShowcaseMain.cpp
+    )
+    qt_add_qml_module(yanami-status-feedback-showcase
+        URI Yanami.StatusFeedbackShowcase
+        VERSION 1.0
+        IMPORTS
+            TARGET yanami-ui
+        QML_FILES
+            tests/manual/StatusFeedbackShowcase.qml
+    )
+    target_link_libraries(yanami-status-feedback-showcase PRIVATE
+        Qt6::Gui
+        Qt6::Quick
+        Qt6::QuickControls2
+        yanami-uiplugin
+    )
+    if(WIN32)
+        set_target_properties(yanami-status-feedback-showcase PROPERTIES
+            WIN32_EXECUTABLE TRUE
+        )
+    endif()
 
     add_executable(yanami-runtime-logger-tests
         tests/RuntimeLoggerTests.cpp
@@ -580,6 +724,12 @@ if(BUILD_TESTING)
         Qt6::Gui
         Qt6::Test
     )
+    if(SDL3_FOUND)
+        target_compile_definitions(
+            yanami-input-modality-tests PRIVATE YANAMI_HAS_SDL3=1)
+        target_link_libraries(
+            yanami-input-modality-tests PRIVATE SDL3::SDL3)
+    endif()
     if(WIN32)
         target_link_libraries(yanami-input-modality-tests PRIVATE xinput1_4)
     endif()
@@ -590,6 +740,35 @@ if(BUILD_TESTING)
     set_tests_properties(yanami-input-modality-tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
+    if(WIN32 AND SDL3_FOUND)
+        add_executable(yanami-sdl-virtual-controller-tests
+            tests/SdlVirtualControllerIntegrationTests.cpp
+            native/ControllerNavigation.cpp
+            native/ControllerNavigation.hpp
+            native/InputModalityController.cpp
+            native/InputModalityController.hpp
+        )
+        target_compile_definitions(
+            yanami-sdl-virtual-controller-tests PRIVATE YANAMI_HAS_SDL3=1)
+        target_include_directories(
+            yanami-sdl-virtual-controller-tests PRIVATE native)
+        target_link_libraries(yanami-sdl-virtual-controller-tests PRIVATE
+            Qt6::Gui
+            Qt6::Test
+            SDL3::SDL3
+            xinput1_4
+        )
+        add_test(
+            NAME yanami-sdl-virtual-controller-tests
+            COMMAND $<TARGET_FILE:yanami-sdl-virtual-controller-tests>
+        )
+        set_tests_properties(yanami-sdl-virtual-controller-tests PROPERTIES
+            ENVIRONMENT
+                "QT_QPA_PLATFORM=offscreen;QT_PLUGIN_PATH=${YANAMI_QT_PREFIX}/share/qt6/plugins"
+            LABELS "controller;integration;sdl"
+            TIMEOUT 15
+        )
+    endif()
     if(NOT YANAMI_ENABLE_DEV_HOOKS)
         add_test(
             NAME yanami-production-artifact-policy
@@ -614,6 +793,42 @@ if(BUILD_TESTING)
         NAME yanami-media-store-tests
         COMMAND $<TARGET_FILE:yanami-media-store-tests>
     )
+    add_executable(yanami-danmaku-coordinator-tests
+        tests/DanmakuCoordinatorTests.cpp
+        native/DanmakuCoordinator.cpp
+        native/DanmakuCoordinator.hpp
+        native/BackendPorts.hpp
+        native/RustBridgeRuntime.cpp
+        native/RustBridgeRuntime.hpp
+        native/RustBridgeError.cpp
+        native/RustBridgeError.hpp
+        native/PlaybackTelemetry.cpp
+        native/PlaybackTelemetry.hpp
+    )
+    target_include_directories(yanami-danmaku-coordinator-tests PRIVATE native)
+    target_link_libraries(yanami-danmaku-coordinator-tests PRIVATE
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Test
+    )
+    add_test(
+        NAME yanami-danmaku-coordinator-tests
+        COMMAND $<TARGET_FILE:yanami-danmaku-coordinator-tests>
+    )
+    add_executable(yanami-danmaku-timeline-tests
+        tests/DanmakuTimelineModelTests.cpp
+        native/DanmakuTimelineModel.cpp
+        native/DanmakuTimelineModel.hpp
+    )
+    target_include_directories(yanami-danmaku-timeline-tests PRIVATE native)
+    target_link_libraries(yanami-danmaku-timeline-tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+    )
+    add_test(
+        NAME yanami-danmaku-timeline-tests
+        COMMAND $<TARGET_FILE:yanami-danmaku-timeline-tests>
+    )
     add_executable(yanami-playback-track-mapper-tests
         tests/PlaybackTrackMapperTests.cpp
         native/PlaybackTrackMapper.cpp
@@ -628,6 +843,20 @@ if(BUILD_TESTING)
         NAME yanami-playback-track-mapper-tests
         COMMAND $<TARGET_FILE:yanami-playback-track-mapper-tests>
     )
+    add_executable(yanami-playback-stall-watchdog-tests
+        tests/PlaybackStallWatchdogTests.cpp
+        native/PlaybackStallWatchdog.hpp
+    )
+    target_include_directories(
+        yanami-playback-stall-watchdog-tests PRIVATE native)
+    target_link_libraries(yanami-playback-stall-watchdog-tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+    )
+    add_test(
+        NAME yanami-playback-stall-watchdog-tests
+        COMMAND $<TARGET_FILE:yanami-playback-stall-watchdog-tests>
+    )
     add_executable(yanami-playback-reporter-tests
         tests/PlaybackReporterTests.cpp
         native/BackendPorts.hpp
@@ -637,8 +866,16 @@ if(BUILD_TESTING)
         native/PlaybackTrackMapper.hpp
         native/MpvVideoItem.cpp
         native/MpvVideoItem.hpp
+        native/PlaybackCompletionGate.hpp
+        native/PlaybackStallWatchdog.hpp
         native/DevelopmentHooks.cpp
         native/DevelopmentHooks.hpp
+        native/PerformanceTrace.cpp
+        native/PerformanceTrace.hpp
+        native/UpscalingPerformancePolicy.cpp
+        native/UpscalingPerformancePolicy.hpp
+        native/UpscalingRuntimeConfig.cpp
+        native/UpscalingRuntimeConfig.hpp
     )
     target_include_directories(yanami-playback-reporter-tests PRIVATE native)
     target_link_libraries(yanami-playback-reporter-tests PRIVATE
@@ -731,6 +968,34 @@ if(BUILD_TESTING)
         NAME yanami-qml-architecture-tests
         COMMAND $<TARGET_FILE:yanami-qml-architecture-tests>
     )
+    add_executable(yanami-search-coordinator-tests
+        tests/SearchCoordinatorTests.cpp
+        native/BackendInfrastructure.cpp
+        native/BackendInfrastructure.hpp
+        native/BackendPorts.hpp
+        native/MediaStore.cpp
+        native/MediaStore.hpp
+        native/PlaybackTelemetry.cpp
+        native/PlaybackTelemetry.hpp
+        native/RustBridgeError.cpp
+        native/RustBridgeError.hpp
+        native/RustBridgeRuntime.cpp
+        native/RustBridgeRuntime.hpp
+        native/SearchCoordinator.cpp
+        native/SearchCoordinator.hpp
+        native/SearchResultRowsModel.cpp
+        native/SearchResultRowsModel.hpp
+    )
+    target_include_directories(yanami-search-coordinator-tests PRIVATE native)
+    target_link_libraries(yanami-search-coordinator-tests PRIVATE
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Test
+    )
+    add_test(
+        NAME yanami-search-coordinator-tests
+        COMMAND $<TARGET_FILE:yanami-search-coordinator-tests>
+    )
     add_executable(yanami-backend-architecture-tests
         tests/BackendArchitectureTests.cpp
     )
@@ -812,6 +1077,10 @@ if(BUILD_TESTING)
         native/AsyncOperationState.hpp
         native/AsyncResourceState.cpp
         native/AsyncResourceState.hpp
+        native/DiagnosticsViewModel.cpp
+        native/DiagnosticsViewModel.hpp
+        native/DevelopmentHooks.cpp
+        native/DevelopmentHooks.hpp
         native/ImageEditorViewModel.cpp
         native/ImageEditorViewModel.hpp
         native/MetadataEditorViewModel.cpp
@@ -820,18 +1089,200 @@ if(BUILD_TESTING)
         native/MediaTargetFlowViewModel.hpp
         native/MediaStore.cpp
         native/MediaStore.hpp
+        native/RuntimeLogger.cpp
+        native/RuntimeLogger.hpp
         native/UpdateChecker.cpp
         native/UpdateChecker.hpp
+        native/UpscalingAssetManager.cpp
+        native/UpscalingAssetManager.hpp
+        native/UpscalingCapabilityProbe.cpp
+        native/UpscalingCapabilityProbe.hpp
+        native/UpscalingCatalog.cpp
+        native/UpscalingCatalog.hpp
+        native/UpscalingViewModel.cpp
+        native/UpscalingViewModel.hpp
     )
     target_include_directories(yanami-application-view-model-tests PRIVATE native)
     target_link_libraries(yanami-application-view-model-tests PRIVATE
         Qt6::Core
+        Qt6::Concurrent
+        Qt6::Gui
         Qt6::Network
+        Qt6::Quick
         Qt6::Test
     )
     add_test(
         NAME yanami-application-view-model-tests
         COMMAND $<TARGET_FILE:yanami-application-view-model-tests>
+    )
+    add_executable(yanami-upscaling-performance-policy-tests
+        tests/UpscalingPerformancePolicyTests.cpp
+        native/UpscalingPerformancePolicy.cpp
+        native/UpscalingPerformancePolicy.hpp
+    )
+    target_include_directories(
+        yanami-upscaling-performance-policy-tests PRIVATE native)
+    target_link_libraries(
+        yanami-upscaling-performance-policy-tests PRIVATE Qt6::Core Qt6::Test)
+    add_test(
+        NAME yanami-upscaling-performance-policy-tests
+        COMMAND $<TARGET_FILE:yanami-upscaling-performance-policy-tests>
+    )
+    add_executable(yanami-upscaling-asset-manager-tests
+        tests/UpscalingAssetManagerTests.cpp
+        native/UpscalingAssetManager.cpp
+        native/UpscalingAssetManager.hpp
+        native/UpscalingCatalog.hpp
+    )
+    target_include_directories(
+        yanami-upscaling-asset-manager-tests PRIVATE native)
+    target_link_libraries(yanami-upscaling-asset-manager-tests PRIVATE
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+    )
+    add_test(
+        NAME yanami-upscaling-asset-manager-tests
+        COMMAND $<TARGET_FILE:yanami-upscaling-asset-manager-tests>
+    )
+    add_executable(yanami-upscaling-catalog-tests
+        tests/UpscalingCatalogTests.cpp
+        native/UpscalingCatalog.cpp
+        native/UpscalingCatalog.hpp
+    )
+    target_include_directories(yanami-upscaling-catalog-tests PRIVATE native)
+    target_link_libraries(
+        yanami-upscaling-catalog-tests PRIVATE Qt6::Core Qt6::Test)
+    add_test(
+        NAME yanami-upscaling-catalog-tests
+        COMMAND $<TARGET_FILE:yanami-upscaling-catalog-tests>
+    )
+    add_executable(yanami-upscaling-runtime-config-tests
+        tests/UpscalingRuntimeConfigTests.cpp
+        native/UpscalingRuntimeConfig.cpp
+        native/UpscalingRuntimeConfig.hpp
+    )
+    target_include_directories(
+        yanami-upscaling-runtime-config-tests PRIVATE native)
+    target_link_libraries(
+        yanami-upscaling-runtime-config-tests PRIVATE Qt6::Core Qt6::Test)
+    add_test(
+        NAME yanami-upscaling-runtime-config-tests
+        COMMAND $<TARGET_FILE:yanami-upscaling-runtime-config-tests>
+    )
+    add_executable(yanami-upscaling-capability-probe-tests
+        tests/UpscalingCapabilityProbeTests.cpp
+        native/UpscalingCapabilityProbe.cpp
+        native/UpscalingCapabilityProbe.hpp
+    )
+    target_include_directories(
+        yanami-upscaling-capability-probe-tests PRIVATE native)
+    target_link_libraries(yanami-upscaling-capability-probe-tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Quick
+        Qt6::Test
+    )
+    add_test(
+        NAME yanami-upscaling-capability-probe-tests
+        COMMAND $<TARGET_FILE:yanami-upscaling-capability-probe-tests>
+    )
+    add_executable(yanami-upscaling-perf-probe
+        tests/performance/UpscalingPerfProbe.cpp
+        native/UpscalingCapabilityProbe.cpp
+        native/UpscalingCapabilityProbe.hpp
+        native/UpscalingCatalog.cpp
+        native/UpscalingCatalog.hpp
+        native/UpscalingPerformancePolicy.cpp
+        native/UpscalingPerformancePolicy.hpp
+    )
+    target_include_directories(yanami-upscaling-perf-probe PRIVATE native)
+    target_link_libraries(yanami-upscaling-perf-probe PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Quick
+    )
+    add_test(
+        NAME yanami-upscaling-perf-collect
+        COMMAND $<TARGET_FILE:yanami-upscaling-perf-probe>
+            --fixture
+                "${YANAMI_WORKSPACE}/perf/fixtures/upscaling-capability-v1.json"
+            --fixture-manifest
+                "${YANAMI_WORKSPACE}/perf/fixtures/upscaling-capability-v1.manifest.json"
+            --output
+                "${CMAKE_CURRENT_BINARY_DIR}/perf/upscaling-hosted-run-manifest.json"
+            --mode collect
+    )
+    set_tests_properties(yanami-upscaling-perf-collect PROPERTIES
+        LABELS "performance;collect"
+        TIMEOUT 60
+    )
+    add_executable(yanami-upscaling-download-smoke
+        tests/integration/UpscalingDownloadSmoke.cpp
+        tests/integration/OfflineNetworkAccessManager.hpp
+        native/UpscalingAssetManager.cpp
+        native/UpscalingAssetManager.hpp
+        native/UpscalingCatalog.cpp
+        native/UpscalingCatalog.hpp
+    )
+    target_include_directories(yanami-upscaling-download-smoke PRIVATE native)
+    target_link_libraries(yanami-upscaling-download-smoke PRIVATE
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Network
+    )
+    add_test(
+        NAME yanami-upscaling-download-offline-smoke
+        COMMAND $<TARGET_FILE:yanami-upscaling-download-smoke>
+            anime4k performance offline
+    )
+    set_tests_properties(yanami-upscaling-download-offline-smoke PROPERTIES
+        LABELS "integration;offline;upscaling"
+        TIMEOUT 15
+    )
+    add_executable(yanami-upscaling-mpv-smoke
+        tests/integration/UpscalingMpvSmoke.cpp
+        tests/integration/OfflineNetworkAccessManager.hpp
+        native/DevelopmentHooks.cpp
+        native/DevelopmentHooks.hpp
+        native/MpvVideoItem.cpp
+        native/MpvVideoItem.hpp
+        native/PerformanceTrace.cpp
+        native/PerformanceTrace.hpp
+        native/PlaybackCompletionGate.hpp
+        native/PlaybackStallWatchdog.hpp
+        native/UpscalingAssetManager.cpp
+        native/UpscalingAssetManager.hpp
+        native/UpscalingCapabilityProbe.cpp
+        native/UpscalingCapabilityProbe.hpp
+        native/UpscalingCatalog.cpp
+        native/UpscalingCatalog.hpp
+        native/UpscalingPerformancePolicy.cpp
+        native/UpscalingPerformancePolicy.hpp
+        native/UpscalingRuntimeConfig.cpp
+        native/UpscalingRuntimeConfig.hpp
+    )
+    target_include_directories(yanami-upscaling-mpv-smoke PRIVATE native)
+    target_link_libraries(yanami-upscaling-mpv-smoke PRIVATE
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Network
+        Qt6::OpenGL
+        Qt6::Quick
+        MPV::MPV
+    )
+    add_test(
+        NAME yanami-upscaling-mpv-offline-smoke
+        COMMAND $<TARGET_FILE:yanami-upscaling-mpv-smoke>
+            anime4k performance offline
+    )
+    set_tests_properties(yanami-upscaling-mpv-offline-smoke PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QT_OPENGL=software;LIBGL_ALWAYS_SOFTWARE=1"
+        LABELS "integration;mpv;offline;upscaling"
+        TIMEOUT 30
     )
     add_executable(yanami-update-checker-tests
         tests/UpdateCheckerTests.cpp
@@ -846,6 +1297,79 @@ if(BUILD_TESTING)
     add_test(
         NAME yanami-update-checker-tests
         COMMAND $<TARGET_FILE:yanami-update-checker-tests>
+    )
+
+    add_executable(yanami-performance-trace-tests
+        tests/performance/PerformanceTraceTests.cpp
+        native/PerformanceTrace.cpp
+        native/PerformanceTrace.hpp
+    )
+    target_include_directories(yanami-performance-trace-tests PRIVATE native)
+    target_link_libraries(yanami-performance-trace-tests PRIVATE Qt6::Core)
+    add_test(
+        NAME yanami-performance-trace-tests
+        COMMAND $<TARGET_FILE:yanami-performance-trace-tests>
+    )
+
+    add_executable(yanami-desktop-perf-probe
+        tests/performance/DesktopPerfProbe.cpp
+        native/BackendInfrastructure.cpp
+        native/BackendInfrastructure.hpp
+        native/BackendPorts.hpp
+        native/MediaStore.cpp
+        native/MediaStore.hpp
+        native/PlaybackTelemetry.cpp
+        native/PlaybackTelemetry.hpp
+        native/RequestCoordinator.hpp
+        native/RustBridgeError.cpp
+        native/RustBridgeError.hpp
+        native/RustBridgeRuntime.cpp
+        native/RustBridgeRuntime.hpp
+        native/SearchCoordinator.cpp
+        native/SearchCoordinator.hpp
+        native/SearchResultRowsModel.cpp
+        native/SearchResultRowsModel.hpp
+    )
+    target_include_directories(yanami-desktop-perf-probe PRIVATE native)
+    target_compile_definitions(yanami-desktop-perf-probe PRIVATE
+        "YANAMI_PERF_BUILD_TYPE=\"$<CONFIG>\""
+        "YANAMI_PERF_VERSION=\"${YANAMI_BUILD_VERSION}\""
+    )
+    target_link_libraries(yanami-desktop-perf-probe PRIVATE
+        Qt6::Concurrent
+        Qt6::Core
+    )
+    add_test(
+        NAME yanami-desktop-perf-collect
+        COMMAND $<TARGET_FILE:yanami-desktop-perf-probe>
+            --profile pull-request
+            --mode collect
+            --output "${CMAKE_CURRENT_BINARY_DIR}/perf/desktop-media-store.json"
+    )
+    set_tests_properties(yanami-desktop-perf-collect PROPERTIES
+        LABELS "performance;collect"
+        TIMEOUT 180
+    )
+
+    qt_add_executable(yanami-danmaku-perf-probe
+        tests/performance/DanmakuPerfProbe.cpp
+    )
+    qt_add_qml_module(yanami-danmaku-perf-probe
+        URI Yanami.DanmakuPerfProbe
+        VERSION 1.0
+        IMPORTS
+            TARGET yanami-ui
+        QML_FILES
+            tests/performance/DanmakuPerfHarness.qml
+    )
+    target_compile_definitions(yanami-danmaku-perf-probe PRIVATE
+        "YANAMI_PERF_BUILD_TYPE=\"$<CONFIG>\""
+        "YANAMI_PERF_VERSION=\"${YANAMI_BUILD_VERSION}\""
+    )
+    target_link_libraries(yanami-danmaku-perf-probe PRIVATE
+        Qt6::Gui
+        Qt6::Quick
+        yanami-uiplugin
     )
 
     qt_add_executable(yanami-popup-quicktests
@@ -869,6 +1393,14 @@ if(BUILD_TESTING)
     )
 
     if(WIN32)
+        add_test(
+            NAME yanami-desktop-build-runtime-smoke
+            COMMAND $<TARGET_FILE:yanami-desktop> --runtime-smoke-test
+        )
+        set_tests_properties(yanami-desktop-build-runtime-smoke PROPERTIES
+            ENVIRONMENT
+                "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QML_IMPORT_PATH=;QML2_IMPORT_PATH="
+        )
         set_property(TEST yanami-input-modality-tests APPEND PROPERTY ENVIRONMENT
             "QT_PLUGIN_PATH=${YANAMI_QT_PREFIX}/share/qt6/plugins"
         )
@@ -882,6 +1414,7 @@ if(BUILD_TESTING)
             yanami-input-modality-tests
             yanami-media-store-tests
             yanami-playback-track-mapper-tests
+            yanami-playback-stall-watchdog-tests
             yanami-playback-reporter-tests
             yanami-playback-telemetry-tests
             yanami-playback-report-queue-tests
@@ -894,7 +1427,10 @@ if(BUILD_TESTING)
             yanami-keyed-mutation-scheduler-tests
             yanami-image-editor-view-model-tests
             yanami-application-view-model-tests
+            yanami-upscaling-perf-collect
             yanami-update-checker-tests
+            yanami-performance-trace-tests
+            yanami-desktop-perf-collect
             yanami-popup-quicktests
             PROPERTIES
             ENVIRONMENT_MODIFICATION

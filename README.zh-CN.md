@@ -21,11 +21,14 @@
 > *Yanami 仍处于早期开发阶段，正在快速迭代中。不同预发布版本之间的功能、
 > 界面和兼容性都可能发生变化。*
 
-## 特点
+## 亮点
 
-- **现代化体验** —— 提供现代化且流畅的应用使用体验。
+- **现代化体验** —— 提供现代化、流畅、跨平台的应用使用体验。
 - **弹幕功能** —— 基于 [DanDanPlay（弹弹play）](https://www.dandanplay.com/)
   提供弹幕匹配与播放功能。
+- **动画超分** —— 基于 [Anime4K](https://github.com/bloc97/Anime4K)
+  提供实时的动画超分能力。
+- **支持手柄控制** —— 躺着也能拥有不亚于鼠标控制的应用体验。
 
 ## 快速开始
 
@@ -36,7 +39,7 @@
 > **平台状态：** Windows 是当前主要开发平台。Linux 和 macOS 桌面版本
 > **尚未经过真机测试**，相关说明和后续二进制产物均应视为实验性支持。
 
-开发候选版本使用类似 `0.1.0-dev.42` 的版本号。请根据操作系统和 CPU 架构选择
+开发候选版本使用类似 `0.2.0-dev.42` 的版本号。请根据操作系统和 CPU 架构选择
 对应资源。
 
 ### Windows 10/11
@@ -88,6 +91,7 @@ DMG 已随包携带 Qt 和 libmpv，运行时无需安装 Homebrew。早期预�
 | C++ 编译器 | 支持 C++20 |
 | Qt | 6.8 或更高版本，包含 Qt Quick、Quick Controls、OpenGL 和 Linguist Tools |
 | libmpv | 开发头文件和库；Linux/macOS 通过 `pkg-config` 查找 |
+| SDL3 | Windows 的主要控制器后端；Linux/macOS 的实验性控制器支持可选使用 |
 
 首先克隆仓库：
 
@@ -105,7 +109,7 @@ cd Yanami
 .\scripts\run-windows.ps1
 ```
 
-引导脚本会安装或配置 MSYS2 UCRT64、Qt、libmpv、CMake、Ninja 和匹配的 Rust
+引导脚本会安装或配置 MSYS2 UCRT64、Qt、SDL3、libmpv、CMake、Ninja 和匹配的 Rust
 GNU 工具链。脚本会优先使用 Scoop，否则回退到 `winget`。
 
 其他常用方式：

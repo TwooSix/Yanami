@@ -7,6 +7,8 @@
 #include <QVariantMap>
 
 class MediaStore;
+class MediaQueryModel;
+class QAbstractItemModel;
 
 class SessionPort : public QObject
 {
@@ -72,6 +74,7 @@ public:
     virtual bool collectionLoading() const = 0;
     virtual bool collectionFetching() const = 0;
     virtual bool libraryLoadFailed() const = 0;
+    virtual bool activityLoadFailed() const = 0;
     virtual bool favoritesRefreshing() const = 0;
     virtual bool favoritesLoadFailed() const = 0;
     virtual QString collectionDisplayedId() const = 0;
@@ -80,11 +83,43 @@ public:
     virtual QVariantMap collectionParent() const = 0;
 
     virtual RequestDisposition loadLibrary() = 0;
+    virtual void invalidateActivity() = 0;
+    virtual void invalidateSeriesContinue(const QString &seriesId) = 0;
+    virtual RequestDisposition ensureActivityFresh() = 0;
     virtual RequestDisposition refreshActivity() = 0;
     virtual RequestDisposition loadFavorites() = 0;
     virtual RequestDisposition refreshFavorites() = 0;
     virtual RequestDisposition loadCollection(const QString &parentId) = 0;
     virtual RequestDisposition refreshCollection(const QString &parentId) = 0;
+
+signals:
+    void stateChanged();
+};
+
+class SearchPort : public QObject
+{
+    Q_OBJECT
+
+public:
+    using QObject::QObject;
+
+    virtual MediaQueryModel *resultsModel() const = 0;
+    virtual MediaQueryModel *titleResultsModel() const = 0;
+    virtual MediaQueryModel *episodeResultsModel() const = 0;
+    virtual QAbstractItemModel *resultRowsModel() const = 0;
+    virtual QString query() const = 0;
+    virtual bool searching() const = 0;
+    virtual bool syncing() const = 0;
+    virtual bool complete() const = 0;
+    virtual qint64 cachedCount() const = 0;
+    virtual qint64 totalCount() const = 0;
+    virtual qint64 totalMatches() const = 0;
+    virtual bool hasMore() const = 0;
+    virtual QString error() const = 0;
+
+    virtual void inputPending() = 0;
+    virtual void requestSearch(const QString &query) = 0;
+    virtual void refresh() = 0;
 
 signals:
     void stateChanged();
@@ -365,6 +400,7 @@ struct BackendPortSet
 {
     SessionPort *session = nullptr;
     CatalogPort *catalog = nullptr;
+    SearchPort *search = nullptr;
     PlaybackPort *playback = nullptr;
     PlaybackReporterPort *playbackReporter = nullptr;
     DanmakuPort *danmaku = nullptr;

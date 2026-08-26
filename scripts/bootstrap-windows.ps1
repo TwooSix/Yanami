@@ -70,9 +70,10 @@ $packages = @(
     "mingw-w64-ucrt-x86_64-qt6-base",
     "mingw-w64-ucrt-x86_64-qt6-declarative",
     "mingw-w64-ucrt-x86_64-qt6-tools",
+    "mingw-w64-ucrt-x86_64-sdl3",
     "mingw-w64-ucrt-x86_64-mpv"
 ) -join " "
-Write-Host "Installing Qt, libmpv, and the native compiler..."
+Write-Host "Installing Qt, SDL3, libmpv, and the native compiler..."
 Invoke-Msys $msysRoot "pacman -S --needed --noconfirm $packages"
 
 $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"

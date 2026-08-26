@@ -62,10 +62,15 @@ Menu {
         // Plain open() preserves the caller's x/y; focusPreferredItem() owns
         // the semantic current-item hand-off after the popup is visible.
         root._keyboardInvocation = Boolean(keyboardInvocation)
-        if (root._keyboardInvocation)
-            InputModality.noteKeyboardNavigation()
-        else
+        // A semantic controller/remote Menu action has already selected a
+        // focus-navigation modality. Preserve it so prompt glyphs and focus
+        // styling do not briefly switch to keyboard while the menu opens.
+        if (root._keyboardInvocation) {
+            if (!InputModality.focusNavigationActive)
+                InputModality.noteKeyboardNavigation()
+        } else {
             InputModality.notePointerInput()
+        }
         root.currentIndex = -1
         root.open()
     }

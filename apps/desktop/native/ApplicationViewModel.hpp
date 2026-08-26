@@ -3,11 +3,13 @@
 #include "BackendPorts.hpp"
 #include "AsyncOperationState.hpp"
 #include "AsyncResourceState.hpp"
+#include "DiagnosticsViewModel.hpp"
 #include "ImageEditorViewModel.hpp"
 #include "MediaTargetFlowViewModel.hpp"
 #include "MetadataEditorViewModel.hpp"
 #include "MediaStore.hpp"
 #include "UpdateChecker.hpp"
+#include "UpscalingViewModel.hpp"
 
 #include <QObject>
 #include <QHash>
@@ -88,6 +90,7 @@ class HomeViewModel final : public QObject
     Q_PROPERTY(bool collectionLoading READ collectionLoading NOTIFY stateChanged)
     Q_PROPERTY(bool collectionFetching READ collectionFetching NOTIFY stateChanged)
     Q_PROPERTY(bool libraryLoadFailed READ libraryLoadFailed NOTIFY stateChanged)
+    Q_PROPERTY(bool activityLoadFailed READ activityLoadFailed NOTIFY stateChanged)
     Q_PROPERTY(QString collectionDisplayedId READ collectionDisplayedId NOTIFY stateChanged)
     Q_PROPERTY(QString collectionTargetId READ collectionTargetId NOTIFY stateChanged)
     Q_PROPERTY(QString collectionErrorId READ collectionErrorId NOTIFY stateChanged)
@@ -107,6 +110,7 @@ public:
     bool collectionLoading() const;
     bool collectionFetching() const;
     bool libraryLoadFailed() const;
+    bool activityLoadFailed() const;
     QString collectionDisplayedId() const;
     QString collectionTargetId() const;
     QString collectionErrorId() const;
@@ -116,6 +120,7 @@ public:
     AsyncResourceState *collectionState() const { return m_collectionState; }
 
     Q_INVOKABLE void loadLibrary();
+    Q_INVOKABLE void ensureActivityFresh();
     Q_INVOKABLE void refreshActivity();
     Q_INVOKABLE void loadCollection(const QString &parentId);
     Q_INVOKABLE void refreshCollection(const QString &parentId);
@@ -130,6 +135,53 @@ private:
     AsyncResourceState *m_libraryState = nullptr;
     AsyncResourceState *m_activityState = nullptr;
     AsyncResourceState *m_collectionState = nullptr;
+};
+
+class SearchViewModel final : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(MediaQueryModel *results READ results CONSTANT)
+    Q_PROPERTY(MediaQueryModel *titleResults READ titleResults CONSTANT)
+    Q_PROPERTY(MediaQueryModel *episodeResults READ episodeResults CONSTANT)
+    Q_PROPERTY(QAbstractItemModel *resultRows READ resultRows CONSTANT)
+    Q_PROPERTY(QString query READ query NOTIFY stateChanged)
+    Q_PROPERTY(bool searching READ searching NOTIFY stateChanged)
+    Q_PROPERTY(bool syncing READ syncing NOTIFY stateChanged)
+    Q_PROPERTY(bool complete READ complete NOTIFY stateChanged)
+    Q_PROPERTY(qint64 cachedCount READ cachedCount NOTIFY stateChanged)
+    Q_PROPERTY(qint64 totalCount READ totalCount NOTIFY stateChanged)
+    Q_PROPERTY(qint64 totalMatches READ totalMatches NOTIFY stateChanged)
+    Q_PROPERTY(bool hasMore READ hasMore NOTIFY stateChanged)
+    Q_PROPERTY(QString error READ error NOTIFY stateChanged)
+
+public:
+    explicit SearchViewModel(
+        SearchPort *port,
+        QObject *parent = nullptr);
+
+    MediaQueryModel *results() const;
+    MediaQueryModel *titleResults() const;
+    MediaQueryModel *episodeResults() const;
+    QAbstractItemModel *resultRows() const;
+    QString query() const;
+    bool searching() const;
+    bool syncing() const;
+    bool complete() const;
+    qint64 cachedCount() const;
+    qint64 totalCount() const;
+    qint64 totalMatches() const;
+    bool hasMore() const;
+    QString error() const;
+
+    Q_INVOKABLE void inputPending();
+    Q_INVOKABLE void submit(const QString &query);
+    Q_INVOKABLE void refresh();
+
+signals:
+    void stateChanged();
+
+private:
+    QPointer<SearchPort> m_port;
 };
 
 class FavoritesViewModel final : public QObject
@@ -396,6 +448,8 @@ class PreferencesViewModel final : public QObject
     Q_OBJECT
     Q_PROPERTY(QVariantMap danmakuStyle READ danmakuStyle
             NOTIFY danmakuStyleChanged)
+    Q_PROPERTY(QVariantMap upscalingSettings READ upscalingSettings
+            NOTIFY upscalingSettingsChanged)
     Q_PROPERTY(int librarySortMode READ librarySortMode
             WRITE setLibrarySortMode NOTIFY librarySortModeChanged)
 
@@ -403,15 +457,19 @@ public:
     explicit PreferencesViewModel(QObject *parent = nullptr);
 
     QVariantMap danmakuStyle() const;
+    QVariantMap upscalingSettings() const { return m_upscalingSettings; }
     int librarySortMode() const { return m_librarySortMode; }
     Q_INVOKABLE void saveDanmakuStyle(const QVariantMap &style);
+    Q_INVOKABLE void saveUpscalingSettings(const QVariantMap &settings);
     void setLibrarySortMode(int sortMode);
 
 signals:
     void danmakuStyleChanged();
+    void upscalingSettingsChanged();
     void librarySortModeChanged();
 
 private:
+    QVariantMap m_upscalingSettings;
     int m_librarySortMode = 1;
 };
 
@@ -444,6 +502,7 @@ class ApplicationViewModel final : public QObject
     Q_OBJECT
     Q_PROPERTY(SessionViewModel *session READ session CONSTANT)
     Q_PROPERTY(HomeViewModel *home READ home CONSTANT)
+    Q_PROPERTY(SearchViewModel *search READ search CONSTANT)
     Q_PROPERTY(FavoritesViewModel *favorites READ favorites CONSTANT)
     Q_PROPERTY(PlaybackViewModel *playback READ playback CONSTANT)
     Q_PROPERTY(DanmakuViewModel *danmaku READ danmaku CONSTANT)
@@ -452,6 +511,8 @@ class ApplicationViewModel final : public QObject
     Q_PROPERTY(MetadataEditorViewModel *metadataEditor READ metadataEditor CONSTANT)
     Q_PROPERTY(MediaTargetFlowViewModel *mediaTarget READ mediaTarget CONSTANT)
     Q_PROPERTY(PreferencesViewModel *preferences READ preferences CONSTANT)
+    Q_PROPERTY(UpscalingViewModel *upscaling READ upscaling CONSTANT)
+    Q_PROPERTY(DiagnosticsViewModel *diagnostics READ diagnostics CONSTANT)
     Q_PROPERTY(ApplicationStatusViewModel *status READ status CONSTANT)
     Q_PROPERTY(UpdateChecker *updates READ updates CONSTANT)
 
@@ -462,6 +523,7 @@ public:
 
     SessionViewModel *session() const { return m_session; }
     HomeViewModel *home() const { return m_home; }
+    SearchViewModel *search() const { return m_search; }
     FavoritesViewModel *favorites() const { return m_favorites; }
     PlaybackViewModel *playback() const { return m_playback; }
     DanmakuViewModel *danmaku() const { return m_danmaku; }
@@ -470,6 +532,8 @@ public:
     MetadataEditorViewModel *metadataEditor() const { return m_metadataEditor; }
     MediaTargetFlowViewModel *mediaTarget() const { return m_mediaTarget; }
     PreferencesViewModel *preferences() const { return m_preferences; }
+    UpscalingViewModel *upscaling() const { return m_upscaling; }
+    DiagnosticsViewModel *diagnostics() const { return m_diagnostics; }
     ApplicationStatusViewModel *status() const { return m_status; }
     UpdateChecker *updates() const { return m_updates; }
 
@@ -478,6 +542,7 @@ private:
 
     SessionViewModel *m_session = nullptr;
     HomeViewModel *m_home = nullptr;
+    SearchViewModel *m_search = nullptr;
     FavoritesViewModel *m_favorites = nullptr;
     PlaybackViewModel *m_playback = nullptr;
     DanmakuViewModel *m_danmaku = nullptr;
@@ -486,7 +551,11 @@ private:
     MetadataEditorViewModel *m_metadataEditor = nullptr;
     MediaTargetFlowViewModel *m_mediaTarget = nullptr;
     PreferencesViewModel *m_preferences = nullptr;
+    UpscalingViewModel *m_upscaling = nullptr;
+    DiagnosticsViewModel *m_diagnostics = nullptr;
     ApplicationStatusViewModel *m_status = nullptr;
     UpdateChecker *m_updates = nullptr;
     quint64 m_sessionGeneration = 0;
+    quint64 m_playbackActivityReconcileRevision = 0;
+    QString m_playbackSeriesId;
 };

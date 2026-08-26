@@ -18,7 +18,7 @@ use yanami_danmaku::{
     DandanClient, DandanCredentials, DandanError, bundled_credentials,
     bundled_credentials_available,
 };
-use yanami_emby::{ClientIdentity, EmbyClient};
+use yanami_emby::{ClientIdentity, EmbyClient, EmbyNotification};
 use yanami_storage::{AppStorage, CredentialVault, SystemCredentialVault};
 
 use crate::{
@@ -124,7 +124,7 @@ impl Application {
             }
         });
 
-        Ok(Self {
+        let application = Self {
             background,
             cancellation,
             data_dir: data_dir.to_owned(),
@@ -136,12 +136,30 @@ impl Application {
             refresh_progress: Arc::new(Mutex::new(std::collections::BTreeMap::new())),
             refresh_monitor: Mutex::new(None),
             background_tasks: Mutex::new(vec![crate::RegisteredTask::global(cache_prune_task)]),
+            media_catalog: Arc::new(Mutex::new(None)),
+            catalog_notifications: Arc::new(
+                Mutex::new(crate::CatalogNotificationBuffer::default()),
+            ),
+            catalog_wake: Arc::new(tokio::sync::Notify::new()),
             image_downloads: Arc::new(Mutex::new(std::collections::HashSet::new())),
             image_download_slots: Arc::new(tokio::sync::Semaphore::new(
                 crate::images::IMAGE_DOWNLOAD_CONCURRENCY,
             )),
             image_mutation_generations: Mutex::new(std::collections::BTreeMap::new()),
-        })
+        };
+        if application
+            .active_session
+            .lock()
+            .is_ok_and(|active| active.is_some())
+        {
+            if let Err(error) = application.start_refresh_monitor() {
+                tracing::warn!(error = %error, "Emby notification monitor will retry on demand");
+            }
+            if let Err(error) = application.ensure_media_catalog_supervisor_background() {
+                tracing::warn!(error = %error, "media catalog supervisor will retry on demand");
+            }
+        }
+        Ok(application)
     }
 
     pub(crate) fn block_on<F, T, E>(&self, future: F) -> Result<T, ApplicationError>
@@ -233,6 +251,9 @@ impl Application {
         };
         self.stop_refresh_monitor();
         self.cancel_background_tasks();
+        if let Ok(mut catalog) = self.media_catalog.lock() {
+            *catalog = None;
+        }
         *self
             .active_session
             .lock()
@@ -249,6 +270,9 @@ impl Application {
         if let Err(error) = self.start_refresh_monitor() {
             tracing::warn!(error = %error, "Emby refresh monitor will retry on demand");
         }
+        if let Err(error) = self.ensure_media_catalog_supervisor_background() {
+            tracing::warn!(error = %error, "media catalog supervisor will retry on demand");
+        }
         Ok(outcome)
     }
 
@@ -256,7 +280,7 @@ impl Application {
         self.active_client_snapshot().map(|(client, _)| client)
     }
 
-    fn active_client_snapshot(&self) -> Result<(EmbyClient, Uuid), ApplicationError> {
+    pub(crate) fn active_client_snapshot(&self) -> Result<(EmbyClient, Uuid), ApplicationError> {
         let (profile, session) = {
             let active = self
                 .active_session
@@ -311,6 +335,7 @@ impl Application {
 
     pub(crate) fn start_refresh_monitor(&self) -> Result<(), ApplicationError> {
         let (client, session_device_id) = self.active_client_snapshot()?;
+        let (catalog_session_key, active_user_id) = self.active_catalog_notification_context()?;
         let mut monitor = self
             .refresh_monitor
             .lock()
@@ -334,23 +359,53 @@ impl Application {
             previous.abort();
         }
         let progress = Arc::clone(&self.refresh_progress);
+        let catalog_notifications = Arc::clone(&self.catalog_notifications);
+        let catalog_wake = Arc::clone(&self.catalog_wake);
         *monitor = Some(self.background.spawn(async move {
             let mut retry_delay = Duration::from_secs(1);
+            if let Ok(mut pending) = catalog_notifications.lock() {
+                // The application may have been offline before its first
+                // socket attempt. Persist a reconnect-style repair even when
+                // opening the socket itself fails.
+                pending.mark_gap(&catalog_session_key);
+            } else {
+                return;
+            }
+            catalog_wake.notify_one();
             loop {
                 let mut stable_connection = false;
-                match client.refresh_progress_stream().await {
+                match client.notification_stream().await {
                     Ok(stream) => {
-                        let connected_at = Instant::now();
-                        let mut received_progress = false;
-                        futures_util::pin_mut!(stream);
-                        while let Some(update) = stream.next().await {
-                            received_progress = true;
-                            let Ok(mut state) = progress.lock() else {
-                                return;
-                            };
-                            state.insert(update.item_id.clone(), update);
+                        if let Ok(mut pending) = catalog_notifications.lock() {
+                            pending.mark_gap(&catalog_session_key);
+                        } else {
+                            return;
                         }
-                        stable_connection = received_progress
+                        catalog_wake.notify_one();
+                        let connected_at = Instant::now();
+                        let mut received_notification = false;
+                        futures_util::pin_mut!(stream);
+                        while let Some(notification) = stream.next().await {
+                            received_notification = true;
+                            match route_notification(
+                                notification,
+                                &active_user_id,
+                                &catalog_session_key,
+                                &progress,
+                                &catalog_notifications,
+                            ) {
+                                Ok(true) => catalog_wake.notify_one(),
+                                Ok(false) => {}
+                                Err(()) => return,
+                            }
+                        }
+                        if let Ok(mut pending) = catalog_notifications.lock() {
+                            pending.mark_gap(&catalog_session_key);
+                        } else {
+                            return;
+                        }
+                        catalog_wake.notify_one();
+                        stable_connection = received_notification
                             || connected_at.elapsed() >= REFRESH_CONNECTION_STABLE_AFTER;
                     }
                     Err(_) => {
@@ -374,6 +429,9 @@ impl Application {
         self.abort_and_drain_tasks(task.into_iter().collect());
         if let Ok(mut progress) = self.refresh_progress.lock() {
             progress.clear();
+        }
+        if let Ok(mut pending) = self.catalog_notifications.lock() {
+            pending.clear();
         }
     }
 
@@ -434,6 +492,9 @@ impl Application {
 
     pub fn logout_emby(&self) -> Result<(), ApplicationError> {
         self.cancel_background_tasks();
+        if let Ok(mut catalog) = self.media_catalog.lock() {
+            *catalog = None;
+        }
         let mut active = self
             .active_session
             .lock()
@@ -579,6 +640,46 @@ impl Application {
     }
 }
 
+fn route_notification(
+    notification: EmbyNotification,
+    active_user_id: &str,
+    catalog_session_key: &str,
+    progress: &Mutex<std::collections::BTreeMap<String, yanami_emby::RefreshProgress>>,
+    catalog_notifications: &Mutex<crate::CatalogNotificationBuffer>,
+) -> Result<bool, ()> {
+    match notification {
+        EmbyNotification::RefreshProgress(update) => {
+            let mut state = progress.lock().map_err(|_| ())?;
+            state.insert(update.item_id.clone(), update);
+            Ok(false)
+        }
+        EmbyNotification::LibraryChanged(change) => {
+            let upsert_ids = change.items_added.into_iter().chain(change.items_updated);
+            catalog_notifications.lock().map_err(|_| ())?.enqueue(
+                catalog_session_key,
+                upsert_ids,
+                change.items_removed,
+                change.requires_membership,
+            );
+            Ok(true)
+        }
+        EmbyNotification::UserDataChanged(change) if change.user_id == active_user_id => {
+            let mut pending = catalog_notifications.lock().map_err(|_| ())?;
+            pending.enqueue(
+                catalog_session_key,
+                change.item_ids,
+                std::iter::empty(),
+                false,
+            );
+            if change.requires_catchup {
+                pending.mark_catchup(catalog_session_key);
+            }
+            Ok(true)
+        }
+        EmbyNotification::UserDataChanged(_) => Ok(false),
+    }
+}
+
 fn refresh_retry_schedule(current: Duration, stable_connection: bool) -> (Duration, Duration) {
     let wait = if stable_connection {
         Duration::from_secs(1)
@@ -642,11 +743,11 @@ mod tests {
     use uuid::Uuid;
     use yanami_core::{ServerProfile, UserSession};
     use yanami_danmaku::DandanError;
-    use yanami_emby::RefreshProgress;
+    use yanami_emby::{EmbyNotification, LibraryChange, RefreshProgress, UserDataChange};
     use yanami_storage::{AppStorage, CredentialVault, MemoryCredentialVault};
 
     use super::{
-        ActiveSession, dandan_credential_error, refresh_retry_schedule,
+        ActiveSession, dandan_credential_error, refresh_retry_schedule, route_notification,
         take_refresh_progress_snapshot,
     };
     use crate::{Application, ApplicationErrorCode};
@@ -686,6 +787,11 @@ mod tests {
             refresh_progress: Arc::new(Mutex::new(BTreeMap::new())),
             refresh_monitor: Mutex::new(None),
             background_tasks: Mutex::new(Vec::new()),
+            media_catalog: Arc::new(Mutex::new(None)),
+            catalog_notifications: Arc::new(
+                Mutex::new(crate::CatalogNotificationBuffer::default()),
+            ),
+            catalog_wake: Arc::new(tokio::sync::Notify::new()),
             image_downloads: Arc::new(Mutex::new(HashSet::new())),
             image_download_slots: Arc::new(tokio::sync::Semaphore::new(
                 crate::images::IMAGE_DOWNLOAD_CONCURRENCY,
@@ -727,6 +833,140 @@ mod tests {
             message: "same server wording".to_owned(),
         });
         assert_eq!(error.code(), ApplicationErrorCode::Network);
+    }
+
+    #[test]
+    fn notification_router_fences_user_and_session_generation() {
+        let progress = Mutex::new(BTreeMap::new());
+        let pending = Mutex::new(crate::CatalogNotificationBuffer::default());
+        assert!(
+            !route_notification(
+                EmbyNotification::UserDataChanged(UserDataChange {
+                    user_id: "other-user".to_owned(),
+                    item_ids: vec!["foreign".to_owned()],
+                    requires_catchup: false,
+                }),
+                "active-user",
+                "session-a",
+                &progress,
+                &pending,
+            )
+            .unwrap()
+        );
+        assert!(
+            route_notification(
+                EmbyNotification::UserDataChanged(UserDataChange {
+                    user_id: "active-user".to_owned(),
+                    item_ids: vec!["same".to_owned()],
+                    requires_catchup: false,
+                }),
+                "active-user",
+                "session-a",
+                &progress,
+                &pending,
+            )
+            .unwrap()
+        );
+        route_notification(
+            EmbyNotification::LibraryChanged(LibraryChange {
+                items_removed: vec!["same".to_owned()],
+                ..LibraryChange::default()
+            }),
+            "active-user",
+            "session-a",
+            &progress,
+            &pending,
+        )
+        .unwrap();
+        let first = pending.lock().unwrap().drain("session-a");
+        assert!(first.upsert_ids.is_empty());
+        assert_eq!(first.removed_ids, ["same"]);
+
+        route_notification(
+            EmbyNotification::UserDataChanged(UserDataChange {
+                user_id: "active-user".to_owned(),
+                item_ids: vec!["stale-session-item".to_owned()],
+                requires_catchup: false,
+            }),
+            "active-user",
+            "session-a",
+            &progress,
+            &pending,
+        )
+        .unwrap();
+        route_notification(
+            EmbyNotification::LibraryChanged(LibraryChange {
+                items_added: vec!["new-session-item".to_owned()],
+                ..LibraryChange::default()
+            }),
+            "active-user",
+            "session-b",
+            &progress,
+            &pending,
+        )
+        .unwrap();
+        let second = pending.lock().unwrap().drain("session-b");
+        assert_eq!(second.upsert_ids, ["new-session-item"]);
+        assert!(
+            !second
+                .upsert_ids
+                .iter()
+                .any(|id| id == "stale-session-item")
+        );
+    }
+
+    #[test]
+    fn active_malformed_user_data_marks_catchup_without_membership_reconciliation() {
+        let progress = Mutex::new(BTreeMap::new());
+        let pending = Mutex::new(crate::CatalogNotificationBuffer::default());
+
+        assert!(
+            route_notification(
+                EmbyNotification::UserDataChanged(UserDataChange {
+                    user_id: "active-user".to_owned(),
+                    item_ids: vec!["valid-item".to_owned()],
+                    requires_catchup: true,
+                }),
+                "active-user",
+                "session-a",
+                &progress,
+                &pending,
+            )
+            .unwrap()
+        );
+
+        let batch = pending.lock().unwrap().drain("session-a");
+        assert_eq!(batch.upsert_ids, ["valid-item"]);
+        assert!(batch.catchup_required);
+        assert!(!batch.membership_required);
+    }
+
+    #[test]
+    fn notification_buffer_merge_preserves_newer_remove_over_older_upsert() {
+        let mut pending = crate::CatalogNotificationBuffer::default();
+        pending.enqueue("session-a", ["same".to_owned()], [], false);
+        let older = pending.drain("session-a");
+
+        pending.enqueue("session-a", [], ["same".to_owned()], false);
+        pending.merge("session-a", older);
+
+        let merged = pending.drain("session-a");
+        assert!(merged.upsert_ids.is_empty());
+        assert_eq!(merged.removed_ids, ["same"]);
+    }
+
+    #[test]
+    fn notification_buffer_merge_preserves_newer_upsert_over_older_remove() {
+        let mut pending = crate::CatalogNotificationBuffer::default();
+        pending.enqueue("session-a", [], ["same".to_owned()], false);
+        let older = pending.drain("session-a");
+
+        pending.enqueue("session-a", ["same".to_owned()], [], false);
+        pending.merge("session-a", older);
+
+        let merged = pending.drain("session-a");
+        assert_eq!(merged.upsert_ids, ["same"]);
+        assert!(merged.removed_ids.is_empty());
     }
 
     #[test]

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0",
+  "id": "UpscalingCapability-v1",
+  "description": "Deterministic renderer-compatibility inputs for the native Anime4K capability, catalog, and performance-protection hosted probe.",
+  "file": "upscaling-capability-v1.json",
+  "sha256": "62c13b2eb45e500bec8e78af66241173bde4bfd1796be21be848dc7c2f473ef0",
+  "hostedOnly": true,
+  "gpuCertified": false,
+  "presentCertified": false,
+  "notes": "The sole production provider ID is anime4k. The current production path supports Anime4K on a hardware OpenGL 4.3+ renderer with a 4096+ texture limit. Direct3D 11, Vulkan, Metal, software rendering, and insufficient OpenGL remain unsupported. Cases exercise only the active renderer API, OpenGL version, texture limit, and software-renderer classification. The capability result must not expose GPU adapter identity, hardware classification, or preset recommendation fields. The executable also links the production catalog resolver and performance-protection state machine; it never certifies a shader, GPU workload, displayed pixel, or native Present."
+}

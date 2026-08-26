@@ -172,7 +172,7 @@ void CatalogCoordinator::applyInvalidationEvent(const QVariantMap &event)
         } else if (kind == QStringLiteral("activity")) {
             requestKeys.push_back(activityRequestKey);
             m_mediaStore->markQueryStale(QStringLiteral("resume"));
-            m_mediaStore->markQueryStale(QStringLiteral("recent"));
+            markLatestMediaQueriesStale();
         } else if (kind == QStringLiteral("favorites")) {
             requestKeys.push_back(favoritesRequestKey);
             m_mediaStore->markQueryStale(QStringLiteral("favorites"));
@@ -182,6 +182,13 @@ void CatalogCoordinator::applyInvalidationEvent(const QVariantMap &event)
                 collectionRequestKey(m_collectionTargetId));
             m_mediaStore->markQueryStale(
                 QStringLiteral("collection"), m_collectionTargetId);
+            const QVariantMap parent = m_mediaStore->queryParent(
+                QStringLiteral("collection"), m_collectionTargetId);
+            if (parent.value(QStringLiteral("itemType")).toString()
+                == QStringLiteral("Series")) {
+                m_mediaStore->markQueryStale(
+                    QStringLiteral("seriesContinue"), m_collectionTargetId);
+            }
         }
     }
     requestKeys.removeDuplicates();

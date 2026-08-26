@@ -7,6 +7,31 @@ ToolTip {
 
     property real maximumWidth: 360
     property real verticalGap: 9
+    property bool keepOpenOnHover: false
+    property bool selectableText: false
+    property bool coordinatePopupLifecycle: false
+    property int popupRole: PopupCoordinator.transientRole
+    property int stackOrder: 0
+    property bool exclusiveWithinScope: false
+    property var exclusiveScope: null
+    property var popupWindow: null
+    property bool blocksShortcuts: false
+    property bool dismissOnEscape: true
+    readonly property bool hovered: keepOpenOnHover
+        && (contentHoverHandler.hovered || backgroundHoverHandler.hovered)
+    readonly property bool textHasActiveFocus: selectableText
+        && toolTipText.activeFocus
+    signal escapeRequested
+
+    function requestDismiss(reason) {
+        control.escapeRequested()
+        return true
+    }
+
+    function forceDismiss() {
+        control.escapeRequested()
+        return true
+    }
 
     x: parent ? Math.round((parent.width - implicitWidth) / 2) : 0
     y: -implicitHeight - verticalGap
@@ -25,6 +50,26 @@ ToolTip {
     font.family: Theme.fontForText(text)
     font.pixelSize: 12
     font.weight: Font.Medium
+
+    onVisibleChanged: {
+        if (coordinatePopupLifecycle) {
+            if (visible)
+                PopupCoordinator.registerPopup(control)
+            else
+                PopupCoordinator.unregisterPopup(control)
+        }
+        if (!visible) {
+            toolTipText.focus = false
+            toolTipText.deselect()
+        }
+    }
+    onCoordinatePopupLifecycleChanged: {
+        if (coordinatePopupLifecycle && visible)
+            PopupCoordinator.registerPopup(control)
+        else
+            PopupCoordinator.unregisterPopup(control)
+    }
+    Component.onDestruction: PopupCoordinator.unregisterPopup(control)
 
     enter: Transition {
         ParallelAnimation {
@@ -64,17 +109,67 @@ ToolTip {
         }
     }
 
-    contentItem: Text {
-        text: control.text
-        color: Theme.text
-        font: control.font
-        wrapMode: Text.Wrap
-        verticalAlignment: Text.AlignVCenter
-        lineHeight: 1.08
-        lineHeightMode: Text.ProportionalHeight
+    contentItem: Item {
+        implicitWidth: control.selectableText
+                       ? toolTipText.implicitWidth : toolTipLabel.implicitWidth
+        implicitHeight: control.selectableText
+                        ? toolTipText.implicitHeight : toolTipLabel.implicitHeight
+
+        Text {
+            id: toolTipLabel
+
+            anchors.fill: parent
+            visible: !control.selectableText
+            text: control.text
+            color: Theme.text
+            font: control.font
+            wrapMode: Text.Wrap
+            verticalAlignment: Text.AlignVCenter
+            lineHeight: 1.08
+            lineHeightMode: Text.ProportionalHeight
+        }
+
+        TextEdit {
+            id: toolTipText
+
+            anchors.fill: parent
+            visible: control.selectableText
+            text: control.text
+            color: Theme.text
+            font: control.font
+            wrapMode: TextEdit.Wrap
+            verticalAlignment: TextEdit.AlignVCenter
+            readOnly: true
+            selectByMouse: control.selectableText
+            persistentSelection: true
+            activeFocusOnPress: control.selectableText
+            activeFocusOnTab: false
+            selectionColor: Theme.accent
+            selectedTextColor: Theme.text
+
+            onActiveFocusChanged: {
+                if (activeFocus)
+                    PopupCoordinator.notePopupContentPress()
+            }
+
+            Keys.onEscapePressed: event => {
+                control.escapeRequested()
+                event.accepted = true
+            }
+        }
+
+        HoverHandler {
+            id: contentHoverHandler
+            enabled: control.keepOpenOnHover
+        }
     }
 
     background: Item {
+        HoverHandler {
+            id: backgroundHoverHandler
+            enabled: control.keepOpenOnHover
+        }
+
         Rectangle {
             x: 2
             y: 4

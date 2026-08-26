@@ -22,6 +22,7 @@ Item {
     property var playbackContext: ({})
     property var playbackQueue: []
     property int currentQueueIndex: -1
+    property bool queueResolutionSucceeded: false
     readonly property var previousQueueItem: queueEntryAt(currentQueueIndex - 1)
     readonly property var nextQueueItem: queueEntryAt(currentQueueIndex + 1)
     property double resumeTicks: 0
@@ -36,6 +37,18 @@ Item {
     property bool introOfferDismissed: false
     property bool switchingEpisode: false
     property bool preparingPlayback: false
+    property bool playbackEndVisible: false
+    property bool playbackEndRetryMode: false
+    property string playbackEndMessage: ""
+    property string playbackEndRetryAction: ""
+    property bool automaticAdvancePending: false
+    property bool automaticAdvanceOpening: false
+    property bool automaticQueueRefreshPending: false
+    property bool naturalCompletionHandled: false
+    property bool playbackTimeoutActive: false
+    property real globalToastBottom: 0
+    property var pendingAutomaticQueueItem: ({})
+    property int pendingAutomaticQueueIndex: -1
     property bool developmentRenderDiagnostics: false
     property bool developmentDanmakuPreview: false
     property bool developmentPlaybackQueuePreview: false
@@ -48,13 +61,22 @@ Item {
     property int developmentDanmakuToggleStressCount: 0
     property bool developmentDanmakuStyleTriggered: false
     property double initialPlaybackTargetSeconds: 0
+    // Controller playback has two deliberately separate modes. Ambient mode
+    // keeps the transport shortcuts immediate; control-bar mode turns the
+    // same directions into normal focus navigation until Menu or Back exits.
+    readonly property bool controlBarFocusMode:
+        playbackControllerPolicy.controlBarFocusMode
+    property double lastSemanticMenuTimestamp: 0
     readonly property bool chromeVisible: controls.opacity > 0.05
         || topChrome.opacity > 0.05
-    readonly property bool popupOpened: subtitleMenu.opened
+    readonly property bool blockingPopupOpened: subtitleMenu.opened
         || audioMenu.opened || qualityMenu.opened || danmakuMenu.opened
-        || queueMenu.opened || volumeControl.opened
+        || queueMenu.opened || playbackSettingsMenu.opened
+    readonly property bool popupOpened: blockingPopupOpened
+        || volumeControl.opened
     readonly property bool chromeInteractionActive: controlsHover.hovered
         || topChromeHover.hovered || skipIntroButton.hovered || popupOpened
+        || controlBarFocusMode
     readonly property bool playbackShortcutsEnabled: root.visible
         && root.playbackActive
         && !PopupCoordinator.blocksApplicationShortcuts
@@ -63,19 +85,128 @@ Item {
         && !qualityMenu.opened
         && !danmakuMenu.opened
         && !queueMenu.opened
+        && !playbackSettingsMenu.opened
         && !volumeControl.keyboardInteractionActive
+        && !root.controlBarFocusMode
+    readonly property bool quickUpscalingAvailable:
+        app.upscaling.capabilityReady
+        && String(app.upscaling.resolvedProviderId || "").length > 0
+        && String((app.upscaling.selectedAssets || {}).phase || "")
+            === "ready"
+    readonly property bool quickUpscalingControlAvailable:
+        quickUpscalingAvailable || player.upscalingActive
+        || player.upscalingConfigurationPending
+        || Boolean((app.upscaling.settings || {}).enabled)
     readonly property bool canSkipIntro: introOfferArmed
         && !introOfferDismissed
         && introStartSeconds >= 0
         && introEndSeconds > introStartSeconds
         && player.position >= Math.max(0, introStartSeconds - 2)
         && player.position < introEndSeconds
+    readonly property bool blockingPlaybackOperation: loadingPreview
+        || preparingPlayback || switchingEpisode || automaticAdvancePending
+    readonly property bool playbackBusy: blockingPlaybackOperation
+        || player.playbackState === MpvVideoItem.Loading
+        || player.playbackState === MpvVideoItem.Buffering
+    readonly property real restingStatusToastTopMargin:
+        Math.max(156, Math.min(200, height * 0.18))
+    readonly property real statusToastTopMargin: globalToastBottom > 0
+        ? globalToastBottom + 8 : restingStatusToastTopMargin
     signal closeRequested()
     signal toggleFullScreenRequested()
-    signal errorOccurred(string message)
     signal playbackLoaded()
     signal episodeSwitchRequested(string itemId, var context,
                                   double positionSeconds, bool paused)
+    signal replayRequested(string itemId, var context, string title)
+    signal queueRefreshRequested(string itemId, var context)
+
+    focus: visible && !root.playbackEndVisible
+
+    Keys.priority: Keys.AfterItem
+    Keys.onPressed: event => {
+        if (!root.visible || root.playbackEndVisible
+                || root.blockingPopupOpened)
+            return
+        if (event.key === Qt.Key_Menu || event.key === Qt.Key_F10) {
+            // Menu is normally semantic-only. Keep this compatibility path
+            // for keyboards and remote profiles while suppressing a duplicate
+            // event should a platform also surface the physical Menu key.
+            if (Date.now() - root.lastSemanticMenuTimestamp >= 100)
+                root.toggleControlBarFocusMode()
+            event.accepted = true
+            return
+        }
+        if (root.controlBarFocusMode
+                && (event.key === Qt.Key_Escape || event.key === Qt.Key_Back)) {
+            // A non-blocking meter still belongs to the popup stack. Let the
+            // application Escape route dismiss it before leaving control-bar
+            // mode; it must not block other transport/controller actions.
+            if (root.popupOpened || PopupCoordinator.hasOpenPopup)
+                return
+            event.accepted = root.consumeBack()
+            return
+        }
+        if (playbackControllerPolicy.activateTargetsPlayback
+                && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+            root.togglePlayback()
+            event.accepted = true
+        }
+    }
+
+    Connections {
+        target: InputModality
+
+        function onModalityChanged() {
+            if (InputModality.modality === InputModality.Pointer
+                    && root.controlBarFocusMode) {
+                if (playbackControllerPolicy.handlePointerTakeover())
+                    root.revealChrome()
+                return
+            }
+            if (root.visible && !root.controlBarFocusMode
+                    && !root.blockingPopupOpened
+                    && InputModality.focusNavigationActive)
+                root.forceActiveFocus(Qt.OtherFocusReason)
+        }
+
+        function onActionPressed(action, repeated) {
+            if (!root.visible || root.playbackEndVisible)
+                return
+            if (action === InputModality.Menu) {
+                if (!repeated && !root.blockingPopupOpened) {
+                    root.lastSemanticMenuTimestamp = Date.now()
+                    root.toggleControlBarFocusMode()
+                }
+                return
+            }
+            if (root.blockingPopupOpened
+                    || PopupCoordinator.blocksApplicationShortcuts)
+                return
+            if (action === InputModality.PlayPause) {
+                if (!repeated)
+                    root.togglePlayback()
+            } else if (action === InputModality.SeekBackward) {
+                root.seekBy(-10)
+            } else if (action === InputModality.SeekForward) {
+                root.seekBy(10)
+            } else if (action === InputModality.VolumeUp) {
+                root.adjustVolume(5)
+            } else if (action === InputModality.VolumeDown) {
+                root.adjustVolume(-5)
+            } else if (action === InputModality.Search) {
+                if (!repeated)
+                    root.togglePlayerFullScreen()
+            } else if (action === InputModality.PreviousItem
+                       || action === InputModality.PagePrevious) {
+                if (!repeated)
+                    previousEpisodeButton.click()
+            } else if (action === InputModality.NextItem
+                       || action === InputModality.PageNext) {
+                if (!repeated)
+                    nextEpisodeButton.click()
+            }
+        }
+    }
 
     onPlaybackQueueChanged: {
         if (developmentPlaybackQueuePreview && playbackQueue
@@ -85,15 +216,76 @@ Item {
 
     Rectangle { anchors.fill: parent; color: "black" }
 
+    PlaybackAdvancePolicy { id: playbackAdvancePolicy }
+    PlaybackControllerPolicy {
+        id: playbackControllerPolicy
+        available: root.visible && !root.playbackEndVisible
+    }
+
     MpvVideoItem {
         id: player
         anchors.fill: parent
         Component.onCompleted: app.playback.attachPlayer(player)
         onPlaybackError: message => {
-            errorLabel.text = message
-            root.errorOccurred(message)
+            // closePlayback() clears identity before the Loader is destroyed;
+            // discard any libmpv event already queued for that closed load.
+            if (root.mediaUrl.toString().length === 0
+                    || root.currentItemId.length === 0)
+                return
+            root.playbackTimeoutActive = false
+            if (root.automaticAdvanceOpening) {
+                root.automaticAdvanceOpening = false
+                root.switchingEpisode = false
+                root.showPlaybackEndState(true, message)
+                return
+            }
+            playerStatusToast.show(message, "error", 6500)
+        }
+        onPlaybackTimedOut: message => {
+            // A timeout is recoverable: libmpv keeps the same read alive while
+            // the UI makes the stalled state and its cause explicit.
+            if (root.mediaUrl.toString().length === 0
+                    || root.currentItemId.length === 0)
+                return
+            root.playbackTimeoutActive = true
+            playerStatusToast.show(message, "warning", 5200)
+        }
+        onPlaybackRecovered: {
+            if (!root.playbackTimeoutActive)
+                return
+            root.playbackTimeoutActive = false
+            playerStatusToast.dismiss()
+        }
+        onUpscalingFallback: (profileId, errorCode, message) => {
+            if (root.mediaUrl.toString().length === 0)
+                return
+            playerStatusToast.show(message, "warning", 5200)
+        }
+        onUpscalingTierChanged: (fromProfile, toProfile, reason) => {
+            if (root.mediaUrl.toString().length === 0
+                    || toProfile === "original")
+                return
+            playerStatusToast.show(
+                qsTr("Upscaling was reduced to %1 to keep playback smooth.")
+                    .arg(toProfile),
+                "info", 4200)
         }
         onFileLoaded: {
+            if (root.mediaUrl.toString().length === 0
+                    || root.currentItemId.length === 0) {
+                player.stop()
+                return
+            }
+            const automaticOpenCompleted = root.automaticAdvanceOpening
+            root.automaticAdvanceOpening = false
+            if (automaticOpenCompleted) {
+                // keep-open and any stale runtime pause must never strand the
+                // automatically selected entry on its first frame.
+                player.paused = false
+                root.automaticAdvancePending = false
+                root.pendingAutomaticQueueItem = ({})
+                root.pendingAutomaticQueueIndex = -1
+            }
             root.introOfferArmed = false
             root.initialPlaybackTargetSeconds = root.developmentSeekSeconds > 0
                 ? root.developmentSeekSeconds
@@ -149,6 +341,7 @@ Item {
         onFileEnded: {
             root.playbackActive = false
         }
+        onPlaybackCompleted: root.handlePlaybackCompleted()
     }
 
     DanmakuOverlay {
@@ -159,6 +352,7 @@ Item {
         danmakuEnabled: root.danmakuEnabled
         mediaPosition: player.position
         paused: player.paused
+        playbackRate: player.rate
         buffering: player.playbackState === MpvVideoItem.Loading
             || player.playbackState === MpvVideoItem.Buffering
         fontSize: danmakuMenu.fontSize
@@ -224,8 +418,8 @@ Item {
         anchors.top: parent.top
         height: 96
         z: 3
-        visible: opacity > 0
-        enabled: opacity > 0.05
+        visible: opacity > 0 || root.controlBarFocusMode
+        enabled: opacity > 0.05 || root.controlBarFocusMode
 
         HoverHandler {
             id: topChromeHover
@@ -233,6 +427,7 @@ Item {
         }
 
         AppButton {
+            id: closePlayerButton
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             anchors.leftMargin: 28
@@ -241,6 +436,8 @@ Item {
             iconName: "back"
             controlSize: 46
             onClicked: root.closeRequested()
+
+            KeyNavigation.down: timelineSlider
         }
 
         Text {
@@ -258,22 +455,46 @@ Item {
         Behavior on opacity { NumberAnimation { duration: 180 } }
     }
 
-    Text {
-        id: errorLabel
-        anchors.centerIn: parent
-        color: Theme.danger
-        font.family: Theme.fontForText(text)
-        font.pixelSize: 14
-        z: 3
-    }
-
     LoadingOverlay {
         anchors.fill: parent
         z: 2
-        active: root.loadingPreview || root.preparingPlayback
-            || root.switchingEpisode
-            || player.playbackState === MpvVideoItem.Loading
-            || player.playbackState === MpvVideoItem.Buffering
+        active: root.playbackBusy
+        blocksInput: root.blockingPlaybackOperation
+        showPanel: false
+        indicatorOutlineColor: "#8A000000"
+        indicatorOutlineWidth: 0.45
+    }
+
+    StatusToast {
+        id: playerStatusToast
+        objectName: "playerStatusToast"
+        z: 4
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: root.statusToastTopMargin
+        minimumWidth: Math.min(300, maximumWidth)
+        maximumWidth: Math.max(260, Math.min(520, parent.width - 48))
+        autoDismiss: true
+        dismissible: true
+        timeout: 5200
+
+        Behavior on anchors.topMargin {
+            enabled: root.globalToastBottom <= 0
+            NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+        }
+    }
+
+    PlaybackEndOverlay {
+        id: playbackEndOverlay
+        z: 20
+        anchors.fill: parent
+        shown: root.playbackEndVisible
+        retryMode: root.playbackEndRetryMode
+        heading: root.playbackEndHeading()
+        detail: root.playbackEndDetail()
+        onDoneRequested: root.closeRequested()
+        onReplayRequested: root.replayCurrentItem()
+        onRetryRequested: root.retryAutomaticAdvance()
     }
 
     AppButton {
@@ -286,9 +507,15 @@ Item {
         text: qsTr("Skip Intro")
         controlSize: 44
         enabled: root.canSkipIntro
-        visible: opacity > 0
+        // Make the offer focusable on the same frame it becomes valid; the
+        // fade-in must never create a short controller-only dead zone.
+        visible: root.canSkipIntro || opacity > 0
         opacity: root.canSkipIntro ? 1 : 0
         onClicked: root.skipIntro()
+
+        KeyNavigation.left: closePlayerButton
+        KeyNavigation.right: closePlayerButton
+        KeyNavigation.down: timelineSlider
 
         Behavior on opacity { NumberAnimation { duration: 180 } }
     }
@@ -304,8 +531,8 @@ Item {
         radius: 26
         color: "#E213151C"
         border.color: "#32FFFFFF"
-        visible: opacity > 0
-        enabled: opacity > 0.05
+        visible: opacity > 0 || root.controlBarFocusMode
+        enabled: opacity > 0.05 || root.controlBarFocusMode
 
         HoverHandler {
             id: controlsHover
@@ -321,6 +548,7 @@ Item {
             spacing: 10
 
             AppSlider {
+                id: timelineSlider
                 Layout.fillWidth: true
                 from: 0
                 to: Math.max(1, player.duration)
@@ -328,6 +556,10 @@ Item {
                 bufferedValue: Math.max(player.position, player.bufferedPosition)
                 Accessible.name: qsTr("Playback position")
                 onMoved: player.seek(value)
+
+                KeyNavigation.down: playPauseButton
+                KeyNavigation.up: root.canSkipIntro
+                    ? skipIntroButton : closePlayerButton
             }
 
             RowLayout {
@@ -335,6 +567,7 @@ Item {
                 spacing: 9
 
                 AppButton {
+                    id: previousEpisodeButton
                     kind: "ghost"
                     iconOnly: true
                     iconName: "previous-track"
@@ -348,12 +581,20 @@ Item {
                         : Accessible.name
                     onClicked: root.playQueueEntry(root.previousQueueItem,
                                                    root.currentQueueIndex - 1)
+                    KeyNavigation.left: fullScreenButton
+                    KeyNavigation.right: playPauseButton
+                    KeyNavigation.up: timelineSlider
                 }
                 MediaPlayButton {
+                    id: playPauseButton
                     paused: player.paused
                     onClicked: player.paused = !player.paused
+                    KeyNavigation.left: previousEpisodeButton
+                    KeyNavigation.right: nextEpisodeButton
+                    KeyNavigation.up: timelineSlider
                 }
                 AppButton {
+                    id: nextEpisodeButton
                     kind: "ghost"
                     iconOnly: true
                     iconName: "next-track"
@@ -367,6 +608,9 @@ Item {
                         : Accessible.name
                     onClicked: root.playQueueEntry(root.nextQueueItem,
                                                    root.currentQueueIndex + 1)
+                    KeyNavigation.left: playPauseButton
+                    KeyNavigation.right: seekBackwardButton
+                    KeyNavigation.up: timelineSlider
                 }
                 AppButton {
                     id: seekBackwardButton
@@ -374,12 +618,19 @@ Item {
                     text: "−10"
                     controlSize: 38
                     onClicked: player.seek(Math.max(0, player.position - 10))
+                    KeyNavigation.left: nextEpisodeButton
+                    KeyNavigation.right: seekForwardButton
+                    KeyNavigation.up: timelineSlider
                 }
                 AppButton {
+                    id: seekForwardButton
                     kind: "ghost"
                     text: "+10"
                     controlSize: 38
                     onClicked: player.seek(Math.min(player.duration, player.position + 10))
+                    KeyNavigation.left: seekBackwardButton
+                    KeyNavigation.right: danmakuButton
+                    KeyNavigation.up: timelineSlider
                 }
                 Text {
                     Layout.leftMargin: 4
@@ -427,6 +678,9 @@ Item {
                         PopupCoordinator.registerOverlayClickTarget(danmakuButton)
                     Component.onDestruction:
                         PopupCoordinator.unregisterOverlayClickTarget(danmakuButton)
+                    KeyNavigation.left: seekForwardButton
+                    KeyNavigation.right: subtitleButton
+                    KeyNavigation.up: timelineSlider
                 }
                 AppPopupButton {
                     id: subtitleButton
@@ -436,11 +690,15 @@ Item {
                         : qsTr("Subtitles")
                     controlSize: 38
                     popupTarget: subtitleMenu
-                    peerPopups: [audioMenu, qualityMenu, queueMenu, danmakuMenu]
+                    peerPopups: [audioMenu, qualityMenu, queueMenu,
+                        danmakuMenu, playbackSettingsMenu]
                     onPopupActivated: {
                         root.revealChrome()
                         volumeControl.closePopup()
                     }
+                    KeyNavigation.left: danmakuButton
+                    KeyNavigation.right: audioButton
+                    KeyNavigation.up: timelineSlider
                 }
                 AppPopupButton {
                     id: audioButton
@@ -450,11 +708,15 @@ Item {
                         : qsTr("Audio")
                     controlSize: 38
                     popupTarget: audioMenu
-                    peerPopups: [subtitleMenu, qualityMenu, queueMenu, danmakuMenu]
+                    peerPopups: [subtitleMenu, qualityMenu, queueMenu,
+                        danmakuMenu, playbackSettingsMenu]
                     onPopupActivated: {
                         root.revealChrome()
                         volumeControl.closePopup()
                     }
+                    KeyNavigation.left: subtitleButton
+                    KeyNavigation.right: qualityButton
+                    KeyNavigation.up: timelineSlider
                 }
                 AppPopupButton {
                     id: qualityButton
@@ -462,11 +724,15 @@ Item {
                     text: qsTr("Original")
                     controlSize: 38
                     popupTarget: qualityMenu
-                    peerPopups: [subtitleMenu, audioMenu, queueMenu, danmakuMenu]
+                    peerPopups: [subtitleMenu, audioMenu, queueMenu,
+                        danmakuMenu, playbackSettingsMenu]
                     onPopupActivated: {
                         root.revealChrome()
                         volumeControl.closePopup()
                     }
+                    KeyNavigation.left: audioButton
+                    KeyNavigation.right: queueButton
+                    KeyNavigation.up: timelineSlider
                 }
                 AppPopupButton {
                     id: queueButton
@@ -477,7 +743,8 @@ Item {
                     controlSize: 38
                     enabled: root.playbackQueue && root.playbackQueue.length > 0
                     popupTarget: queueMenu
-                    peerPopups: [subtitleMenu, audioMenu, qualityMenu, danmakuMenu]
+                    peerPopups: [subtitleMenu, audioMenu, qualityMenu,
+                        danmakuMenu, playbackSettingsMenu]
                     Accessible.name: qsTr("Play queue")
                     toolTipVisible: hovered && !queueMenu.opened
                     toolTipText: root.currentQueueIndex >= 0
@@ -489,12 +756,19 @@ Item {
                         root.revealChrome()
                         volumeControl.closePopup()
                     }
+                    KeyNavigation.left: qualityButton
+                    KeyNavigation.right: volumeControl.focusTarget
+                    KeyNavigation.up: timelineSlider
                 }
                 VolumeControl {
                     id: volumeControl
                     Layout.preferredWidth: 38
                     Layout.preferredHeight: 38
                     volume: player.volume
+                    popupHost: player
+                    navigationLeft: queueButton
+                    navigationRight: playbackSettingsButton
+                    navigationUp: timelineSlider
                     onVolumeRequested: value => player.setVolume(value)
                     onOpenedChanged: {
                         if (opened) {
@@ -503,6 +777,27 @@ Item {
                             root.revealChrome()
                         }
                     }
+                }
+                AppPopupButton {
+                    id: playbackSettingsButton
+                    kind: "ghost"
+                    iconOnly: true
+                    iconName: "gear"
+                    iconSize: 18
+                    controlSize: 38
+                    popupTarget: playbackSettingsMenu
+                    peerPopups: [subtitleMenu, audioMenu, qualityMenu,
+                        queueMenu, danmakuMenu]
+                    Accessible.name: qsTr("Playback settings")
+                    toolTipVisible: hovered && !playbackSettingsMenu.opened
+                    toolTipText: Accessible.name
+                    onPopupActivated: {
+                        root.revealChrome()
+                        volumeControl.closePopup()
+                    }
+                    KeyNavigation.left: volumeControl.focusTarget
+                    KeyNavigation.right: fullScreenButton
+                    KeyNavigation.up: timelineSlider
                 }
                 AppButton {
                     id: fullScreenButton
@@ -514,11 +809,12 @@ Item {
                     Accessible.name: root.windowFullScreen
                         ? qsTr("Exit fullscreen")
                         : qsTr("Enter fullscreen")
-                    toolTipText: Accessible.name
-                    onClicked: {
-                        root.revealChrome()
-                        root.toggleFullScreenRequested()
-                    }
+                    toolTipText: Accessible.name + " · "
+                        + InputModality.promptForAction(InputModality.Search)
+                    onClicked: root.togglePlayerFullScreen()
+                    KeyNavigation.left: playbackSettingsButton
+                    KeyNavigation.right: previousEpisodeButton
+                    KeyNavigation.up: timelineSlider
                 }
             }
         }
@@ -597,6 +893,22 @@ Item {
             }
         }
 
+        PlaybackSettingsMenu {
+            id: playbackSettingsMenu
+            parent: playbackSettingsButton
+            x: playbackSettingsButton.width - width
+            y: -height - 14
+            // This switch represents the user's persisted intent. Runtime
+            // protection may temporarily fall back to original without
+            // silently changing that intent.
+            upscalingEnabled: Boolean((app.upscaling.settings || {}).enabled)
+            upscalingAvailable: root.quickUpscalingControlAvailable
+            onOpened: hideTimer.stop()
+            onClosed: root.revealChrome()
+            onUpscalingToggleRequested: enabled =>
+                root.setQuickUpscalingEnabled(enabled)
+        }
+
         Timer {
             id: developmentQueuePreviewTimer
             interval: 500
@@ -621,6 +933,7 @@ Item {
                 audioMenu.close()
                 qualityMenu.close()
                 queueMenu.close()
+                playbackSettingsMenu.close()
                 volumeControl.closePopup()
                 danmakuHoverClose.stop()
                 hideTimer.stop()
@@ -755,12 +1068,6 @@ Item {
     }
 
     Timer {
-        id: introOfferTimeout
-        interval: 8000
-        onTriggered: root.introOfferDismissed = true
-    }
-
-    Timer {
         id: developmentSkipIntroTimer
         interval: 400
         onTriggered: root.skipIntro()
@@ -819,13 +1126,17 @@ Item {
         developmentDanmakuStylePreview.stop()
         developmentDanmakuStyleTriggered = false
         if (mediaUrl.toString().length > 0) {
+            const openingAutomatically = automaticAdvancePending
+            resetPlaybackEndState(openingAutomatically)
+            automaticAdvanceOpening = openingAutomatically
             switchingEpisode = false
             introOfferArmed = false
             introOfferDismissed = false
             introActivationTimer.stop()
-            introOfferTimeout.stop()
-            errorLabel.text = ""
-            player.open(mediaUrl, requestHeaders)
+            playerStatusToast.dismiss()
+            playbackTimeoutActive = false
+            player.openWithUpscaling(
+                mediaUrl, requestHeaders, app.upscaling.effectiveRuntimeConfig)
         }
     }
 
@@ -838,15 +1149,23 @@ Item {
     }
 
     onCanSkipIntroChanged: {
-        if (canSkipIntro)
-            introOfferTimeout.restart()
-        else
-            introOfferTimeout.stop()
+        // Keep the offer available for the complete server-authored intro
+        // marker.  A wall-clock timeout makes controller access depend on how
+        // quickly a viewer can enter and traverse control-bar focus mode.
+        if (!canSkipIntro && skipIntroButton.activeFocus)
+            timelineSlider.forceActiveFocus(Qt.OtherFocusReason)
     }
 
     onVisibleChanged: {
-        if (!visible)
+        if (!visible) {
+            playbackControllerPolicy.reset()
             PopupCoordinator.closeScope(root, true)
+        } else if (InputModality.focusNavigationActive) {
+            Qt.callLater(function() {
+                if (root.visible && !root.controlBarFocusMode)
+                    root.forceActiveFocus(Qt.OtherFocusReason)
+            })
+        }
     }
 
     onChromeInteractionActiveChanged: {
@@ -868,6 +1187,41 @@ Item {
             hideTimer.stop()
         else
             hideTimer.restart()
+    }
+
+    function enterControlBarFocusMode() {
+        if (!playbackControllerPolicy.enterControlBar())
+            return false
+        root.revealChrome()
+        Qt.callLater(function() {
+            if (root.controlBarFocusMode && playPauseButton.visible
+                    && playPauseButton.enabled)
+                playPauseButton.forceActiveFocus(Qt.TabFocusReason)
+        })
+        return true
+    }
+
+    function exitControlBarFocusMode() {
+        if (!playbackControllerPolicy.handleBack())
+            return false
+        root.forceActiveFocus(Qt.BacktabFocusReason)
+        root.revealChrome()
+        return true
+    }
+
+    // Main's application-wide Escape shortcut calls this before leaving the
+    // player. Popups remain the PopupCoordinator's first layer; this consumes
+    // exactly the control-bar layer and lets a second Back leave playback.
+    function consumeBack() {
+        if (root.popupOpened || PopupCoordinator.hasOpenPopup)
+            return false
+        return root.exitControlBarFocusMode()
+    }
+
+    function toggleControlBarFocusMode() {
+        return root.controlBarFocusMode
+            ? root.exitControlBarFocusMode()
+            : root.enterControlBarFocusMode()
     }
 
     function requestAutomaticDanmaku() {
@@ -928,6 +1282,8 @@ Item {
     }
 
     function hideChrome() {
+        if (root.controlBarFocusMode)
+            return
         hideTimer.stop()
         controls.opacity = 0
         topChrome.opacity = 0
@@ -945,15 +1301,29 @@ Item {
 
     function adjustVolume(amount) {
         player.setVolume(Math.max(0, Math.min(100, player.volume + amount)))
+        volumeControl.showTransientVolume()
+        revealChrome()
+    }
+
+    function togglePlayerFullScreen() {
+        revealChrome()
+        root.toggleFullScreenRequested()
+    }
+
+    function setQuickUpscalingEnabled(enabled) {
+        if (enabled && !quickUpscalingAvailable)
+            return
+        app.upscaling.saveSettings({ "enabled": Boolean(enabled) })
+        player.configureUpscaling(app.upscaling.effectiveRuntimeConfig)
         revealChrome()
     }
 
     function closePlayback() {
+        playbackControllerPolicy.reset()
         if (playbackActive && !developmentSyntheticDanmaku)
             app.playback.stopSession()
         playbackActive = false
         introActivationTimer.stop()
-        introOfferTimeout.stop()
         developmentSkipIntroTimer.stop()
         player.stop()
         mediaUrl = ""
@@ -980,9 +1350,13 @@ Item {
         playbackContext = ({})
         playbackQueue = []
         currentQueueIndex = -1
+        queueResolutionSucceeded = false
         switchingEpisode = false
         preparingPlayback = false
-        errorLabel.text = ""
+        automaticAdvanceOpening = false
+        resetPlaybackEndState()
+        playbackTimeoutActive = false
+        playerStatusToast.dismiss()
     }
 
     function beginPreparation(itemId, title) {
@@ -992,7 +1366,7 @@ Item {
         if (mediaTitle.length === 0)
             mediaTitle = qsTr("Preparing playback")
         preparingPlayback = true
-        errorLabel.text = ""
+        playerStatusToast.dismiss()
         revealChrome()
     }
 
@@ -1000,8 +1374,209 @@ Item {
         if (!preparingPlayback)
             return
         preparingPlayback = false
-        errorLabel.text = String(message || qsTr("Playback could not be prepared."))
+        playerStatusToast.show(
+            String(message || qsTr("Playback could not be prepared.")),
+            "error", 5200)
         revealChrome()
+    }
+
+    function resetPlaybackEndState(preserveAutomaticAdvance) {
+        const preserveAutomatic = preserveAutomaticAdvance === true
+        playbackEndVisible = false
+        playbackEndRetryMode = false
+        playbackEndMessage = ""
+        playbackEndRetryAction = ""
+        automaticQueueRefreshPending = false
+        naturalCompletionHandled = false
+        if (!preserveAutomatic) {
+            automaticAdvancePending = false
+            pendingAutomaticQueueItem = ({})
+            pendingAutomaticQueueIndex = -1
+        }
+    }
+
+    function playbackEndHeading() {
+        if (playbackEndRetryMode
+                && playbackEndRetryAction === "resolve-next")
+            return qsTr("Could not check for another item")
+        if (playbackEndRetryMode)
+            return qsTr("The next item could not be played")
+        const kind = String((playbackContext || {}).kind || "").toLowerCase()
+        if (kind === "series")
+            return qsTr("You’ve reached the final episode")
+        if (kind === "playlist")
+            return qsTr("The play queue has ended")
+        return qsTr("Playback complete")
+    }
+
+    function playbackEndDetail() {
+        if (playbackEndRetryMode)
+            return playbackEndMessage
+        return String(mediaTitle || "").trim()
+    }
+
+    function showPlaybackEndState(retryMode, message, retryAction) {
+        playbackActive = false
+        preparingPlayback = false
+        playbackTimeoutActive = false
+        automaticAdvancePending = false
+        automaticAdvanceOpening = false
+        automaticQueueRefreshPending = false
+        playbackEndRetryMode = retryMode === true
+        playbackEndMessage = String(message || "")
+        playbackEndRetryAction = playbackEndRetryMode
+            ? String(retryAction || "open-next") : ""
+        if (!playbackEndRetryMode
+                || playbackEndRetryAction !== "open-next") {
+            pendingAutomaticQueueItem = ({})
+            pendingAutomaticQueueIndex = -1
+        }
+        playerStatusToast.dismiss()
+        introActivationTimer.stop()
+        PopupCoordinator.closeScope(root, true)
+        playbackControllerPolicy.reset()
+        hideChrome()
+        playbackEndVisible = true
+    }
+
+    function startAutomaticAdvance(decision) {
+        const item = (decision || {}).item || ({})
+        const itemId = String(item.id || "")
+        if (itemId.length === 0)
+            return false
+        const queueIndex = Number((decision || {}).queueIndex)
+        pendingAutomaticQueueItem = item
+        pendingAutomaticQueueIndex = Number.isInteger(queueIndex)
+            ? queueIndex : -1
+        automaticAdvancePending = true
+        playbackEndVisible = false
+        playbackEndRetryMode = false
+        playbackEndMessage = ""
+        playbackEndRetryAction = ""
+        PopupCoordinator.closeScope(root, true)
+        playbackControllerPolicy.reset()
+        hideChrome()
+        const completedItemId = currentItemId
+        Qt.callLater(function() {
+            if (!root.automaticAdvancePending
+                    || root.currentItemId !== completedItemId)
+                return
+            if (!root.playQueueEntry(item,
+                                     root.pendingAutomaticQueueIndex, true)) {
+                root.showPlaybackEndState(
+                    true, qsTr("The next item could not be played."),
+                    "open-next")
+            }
+        })
+        return true
+    }
+
+    function requestAutomaticQueueRefresh() {
+        const itemId = String(currentItemId || "")
+        if (itemId.length === 0 || automaticQueueRefreshPending)
+            return false
+        automaticQueueRefreshPending = true
+        automaticAdvancePending = true
+        preparingPlayback = true
+        playbackEndVisible = false
+        playbackEndRetryMode = false
+        playbackEndMessage = ""
+        playbackEndRetryAction = ""
+        PopupCoordinator.closeScope(root, true)
+        playbackControllerPolicy.reset()
+        hideChrome()
+        const requestedContext = playbackContext || ({})
+        Qt.callLater(function() {
+            if (root.automaticQueueRefreshPending
+                    && root.currentItemId === itemId)
+                root.queueRefreshRequested(itemId, requestedContext)
+        })
+        return true
+    }
+
+    function consumeQueueRefresh(descriptor) {
+        if (!automaticQueueRefreshPending)
+            return false
+        automaticQueueRefreshPending = false
+        automaticAdvancePending = false
+        preparingPlayback = false
+        previousItem = descriptor.previousItem || ({})
+        nextItem = descriptor.nextItem || ({})
+        playbackContext = descriptor.playbackContext || playbackContext || ({})
+        playbackQueue = descriptor.playbackQueue || []
+        currentQueueIndex = Number.isInteger(descriptor.currentQueueIndex)
+            ? descriptor.currentQueueIndex : -1
+        queueResolutionSucceeded = descriptor.queueResolutionSucceeded === true
+        const decision = playbackAdvancePolicy.decide(
+            playbackQueue, currentQueueIndex, nextItem,
+            queueResolutionSucceeded)
+        if (decision.action === "open-next")
+            startAutomaticAdvance(decision)
+        else if (decision.action === "complete")
+            showPlaybackEndState(false, "", "")
+        else
+            showPlaybackEndState(
+                true,
+                qsTr("Try again to check whether another item is available."),
+                "resolve-next")
+        return true
+    }
+
+    function recoverQueueRefreshFailure(message) {
+        if (!automaticQueueRefreshPending)
+            return
+        queueResolutionSucceeded = false
+        showPlaybackEndState(
+            true,
+            String(message
+                   || qsTr("Try again to check whether another item is available.")),
+            "resolve-next")
+    }
+
+    function handlePlaybackCompleted() {
+        if (mediaUrl.toString().length === 0 || currentItemId.length === 0
+                || naturalCompletionHandled || switchingEpisode
+                || preparingPlayback)
+            return
+        naturalCompletionHandled = true
+        playbackActive = false
+        introActivationTimer.stop()
+        const decision = playbackAdvancePolicy.decide(
+            playbackQueue, currentQueueIndex, nextItem,
+            queueResolutionSucceeded)
+        if (decision.action === "open-next")
+            startAutomaticAdvance(decision)
+        else if (decision.action === "refresh-queue")
+            requestAutomaticQueueRefresh()
+        else
+            showPlaybackEndState(false, "", "")
+    }
+
+    function retryAutomaticAdvance() {
+        if (playbackEndRetryAction === "resolve-next") {
+            requestAutomaticQueueRefresh()
+            return
+        }
+        const item = pendingAutomaticQueueItem || ({})
+        const itemId = String(item.id || "")
+        if (itemId.length === 0) {
+            showPlaybackEndState(false, "", "")
+            return
+        }
+        if (!playQueueEntry(item, pendingAutomaticQueueIndex, true)) {
+            showPlaybackEndState(
+                true, qsTr("The next item could not be played."),
+                "open-next")
+        }
+    }
+
+    function replayCurrentItem() {
+        const itemId = String(currentItemId || "")
+        if (itemId.length === 0)
+            return
+        resetPlaybackEndState()
+        player.paused = false
+        replayRequested(itemId, playbackContext || ({}), mediaTitle)
     }
 
     function playAdjacent(item) {
@@ -1032,10 +1607,28 @@ Item {
             ? qsTr("Next episode") : qsTr("Next item")
     }
 
-    function playQueueEntry(item, queueIndex) {
+    function playQueueEntry(item, queueIndex, automaticAdvance) {
         const itemId = String(item && item.id ? item.id : "")
         if (itemId.length === 0 || switchingEpisode)
-            return
+            return false
+        const automatic = automaticAdvance === true
+        if (automatic) {
+            pendingAutomaticQueueItem = item || ({})
+            pendingAutomaticQueueIndex = Number.isInteger(queueIndex)
+                ? queueIndex : -1
+            automaticAdvancePending = true
+            automaticAdvanceOpening = false
+        } else {
+            automaticAdvancePending = false
+            automaticAdvanceOpening = false
+            pendingAutomaticQueueItem = ({})
+            pendingAutomaticQueueIndex = -1
+        }
+        playbackEndVisible = false
+        playbackEndRetryMode = false
+        playbackEndMessage = ""
+        playbackTimeoutActive = false
+        playerStatusToast.dismiss()
         const baseContext = (item && item.playbackContext)
             ? item.playbackContext : (playbackContext || ({}))
         const requestedContext = ({})
@@ -1048,22 +1641,41 @@ Item {
         if (entryId.length > 0)
             requestedContext.playlistEntryId = entryId
         const lastPosition = player.position
-        const wasPaused = player.paused
+        const wasPaused = automatic ? false : player.paused
+        if (automatic)
+            player.paused = false
         playbackActive = false
         introActivationTimer.stop()
-        introOfferTimeout.stop()
         switchingEpisode = true
-        player.stop()
+        // Fence the old episode immediately. A no-match or slow danmaku
+        // response for the next item must never leave the previous timeline
+        // rendered over the new video.
+        danmakuComments = []
+        // A naturally completed file is kept open by libmpv so its final
+        // frame can remain behind preparation and any recoverable error UI.
+        if (player.playbackState !== MpvVideoItem.Ended)
+            player.stop()
         mediaUrl = ""
         episodeSwitchRequested(itemId, requestedContext, lastPosition, wasPaused)
+        return true
     }
 
     function recoverFromPlaybackSwitchFailure(message) {
         if (!switchingEpisode)
             return
+        const automatic = automaticAdvancePending
         switchingEpisode = false
-        errorLabel.text = String(message || "")
-        revealChrome()
+        automaticAdvanceOpening = false
+        automaticAdvancePending = false
+        if (automatic) {
+            showPlaybackEndState(
+                true,
+                String(message || qsTr("The next item could not be played.")),
+                "open-next")
+        } else {
+            playerStatusToast.show(String(message || ""), "error", 5200)
+            revealChrome()
+        }
     }
 
     function skipIntro() {

@@ -11,7 +11,7 @@
 
 namespace {
 
-constexpr quint32 expectedAbiVersion = 2;
+constexpr quint32 expectedAbiVersion = 3;
 
 QByteArray compactJson(const QVariantMap &value)
 {
@@ -69,6 +69,10 @@ bool RustBridgeRuntime::load(
     m_favorites = resolve<JsonOperation>("yanami_backend_favorites_json");
     m_collection = resolve<ItemJsonOperation>(
         "yanami_backend_collection_json");
+    m_catalogSearch = resolve<ItemJsonOperation>(
+        "yanami_backend_catalog_search_json");
+    m_catalogSearchHydrateImages = resolve<ItemStatusOperation>(
+        "yanami_backend_catalog_search_hydrate_images");
     m_metadata = resolve<ItemJsonOperation>("yanami_backend_metadata_json");
     m_updateMetadata = resolve<ItemPayloadJsonOperation>(
         "yanami_backend_update_metadata_json");
@@ -116,6 +120,7 @@ bool RustBridgeRuntime::load(
         && m_configureDandanplay && m_clearDandanplay && m_loginEmby
         && m_logoutEmby && m_embySettings && m_refreshProgress
         && m_libraryJson && m_activity && m_favorites && m_collection
+        && m_catalogSearch && m_catalogSearchHydrateImages
         && m_metadata && m_updateMetadata
         && m_playlistTargets && m_addToPlaylist && m_removeFromPlaylist
         && m_imageEditor && m_imageProviders && m_imageSearch
@@ -126,7 +131,7 @@ bool RustBridgeRuntime::load(
         && m_reportPlayback;
     if (!complete) {
         if (errorMessage)
-            *errorMessage = QStringLiteral("incomplete ABI v2 symbol set");
+            *errorMessage = QStringLiteral("incomplete ABI v3 symbol set");
         close();
         return false;
     }
@@ -191,6 +196,8 @@ void RustBridgeRuntime::resetResolvedSymbols()
     m_activity = nullptr;
     m_favorites = nullptr;
     m_collection = nullptr;
+    m_catalogSearch = nullptr;
+    m_catalogSearchHydrateImages = nullptr;
     m_metadata = nullptr;
     m_updateMetadata = nullptr;
     m_playlistTargets = nullptr;
@@ -310,6 +317,22 @@ YanamiOperationResult RustBridgeRuntime::catalog(
         return itemJson(m_collection, parentId);
     }
     return {};
+}
+
+YanamiOperationResult RustBridgeRuntime::searchCatalog(
+    const QString &query) const
+{
+    return itemJson(m_catalogSearch, query);
+}
+
+YanamiOperationResult RustBridgeRuntime::hydrateCatalogSearchImages(
+    const QVariantMap &request) const
+{
+    const QByteArray encodedRequest = compactJson(request);
+    char *error = nullptr;
+    const int status = m_catalogSearchHydrateImages(
+        m_backend, encodedRequest.constData(), &error);
+    return finish(status, nullptr, error);
 }
 
 YanamiOperationResult RustBridgeRuntime::media(

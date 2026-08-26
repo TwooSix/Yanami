@@ -8,6 +8,7 @@ AppModalPopup {
     property string heading: ""
     property string message: ""
     property string confirmText: qsTr("Confirm")
+    property string confirmKind: "danger"
     property bool closeOnConfirm: true
     property bool submitting: false
     property string inlineError: ""
@@ -50,6 +51,8 @@ AppModalPopup {
         border.color: "#4AFFFFFF"
     }
 
+    PopupControllerNavigator { popup: root }
+
     contentItem: ColumnLayout {
         id: contentColumn
         spacing: 16
@@ -90,9 +93,14 @@ AppModalPopup {
                 text: qsTr("Cancel")
                 enabled: !root.submitting
                 onClicked: root.requestDismiss("cancel")
+                KeyNavigation.left: confirmButton
+                KeyNavigation.right: confirmButton
+                KeyNavigation.tab: confirmButton
+                KeyNavigation.backtab: confirmButton
             }
             AppButton {
-                kind: "danger"
+                id: confirmButton
+                kind: root.confirmKind
                 text: root.submitting ? qsTr("Working…") : root.confirmText
                 enabled: !root.submitting
                 onClicked: {
@@ -104,6 +112,10 @@ AppModalPopup {
                     }
                     root.confirmed()
                 }
+                KeyNavigation.left: cancelButton
+                KeyNavigation.right: cancelButton
+                KeyNavigation.tab: cancelButton
+                KeyNavigation.backtab: cancelButton
             }
         }
     }

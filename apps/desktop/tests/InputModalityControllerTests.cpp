@@ -11,6 +11,8 @@
 #include <QWheelEvent>
 #include <QWindow>
 
+#include <limits>
+
 class KeyEventReceiver final : public QObject
 {
 public:
@@ -41,8 +43,24 @@ private slots:
     void stationaryPointerDoesNotOverrideKeyboard();
     void realPointerInputOverridesFocusNavigation();
     void modifierOnlyKeyDoesNotOverridePointer();
+    void ordinaryArrowRemainsKeyboardWithoutRemoteEvidence();
+    void remoteMediaKeysUseSemanticPipelineWithoutReinjection();
+    void remoteKeysNormalizeOrStaySemanticOnly();
+    void rawRemoteCorrelationRequiresExactFreshDeviceMatch();
+    void remoteActionThenKeyboardArrowSwitchesImmediately();
     void controllerStateMapsDirectionsButtonsAndRepeat();
+    void controllerNeutralGateRejectsHeldInputUntilReleased();
+    void controllerSemanticActionsIncludeReleaseAndScroll();
+    void controllerFamilyClassificationCoversEverySdlBoundary();
+    void enumerationSuccessPolicyDistinguishesEmptyFromFailure();
+    void controllerFaceButtonsFollowPlatformConvention();
+    void verticalAxisInversionSaturatesAtNativeMinimum();
     void controllerDispatchUsesKeyEventsAndPreservesModality();
+    void semanticActionUpdatesDeviceAndDiagnostics();
+    void controllerInputTestOwnershipIsExclusiveAndOwnerBound();
+    void controllerInputTestSuppressesGlobalAndLegacyDispatch();
+    void controllerInputTestKeepsCapturedSequenceNeutralUntilRelease();
+    void controllerInputTestConsumesRemoteKeysWithoutReinjection();
     void multipleFacadesShareOneDispatchAndState();
 };
 
@@ -152,6 +170,176 @@ void InputModalityControllerTests::modifierOnlyKeyDoesNotOverridePointer()
 }
 
 void InputModalityControllerTests::
+    ordinaryArrowRemainsKeyboardWithoutRemoteEvidence()
+{
+    InputModalityController controller;
+    QWindow window;
+    controller.notePointerInput();
+    QSignalSpy actionSpy(&controller,
+                         &InputModalityController::actionPressed);
+    QKeyEvent arrowPress(QEvent::KeyPress, Qt::Key_Up, Qt::NoModifier);
+    QCoreApplication::sendEvent(&window, &arrowPress);
+
+    QCOMPARE(controller.modality(),
+             InputModalityController::Modality::Keyboard);
+    QCOMPARE(actionSpy.count(), 0);
+}
+
+void InputModalityControllerTests::
+    remoteMediaKeysUseSemanticPipelineWithoutReinjection()
+{
+    InputModalityController controller;
+    KeyEventReceiver receiver;
+    controller.notePointerInput();
+    QSignalSpy pressedSpy(&controller,
+                          &InputModalityController::actionPressed);
+    QSignalSpy releasedSpy(&controller,
+                           &InputModalityController::actionReleased);
+
+    QKeyEvent mediaPress(QEvent::KeyPress,
+                         Qt::Key_MediaTogglePlayPause,
+                         Qt::NoModifier);
+    QCoreApplication::sendEvent(&receiver, &mediaPress);
+    QKeyEvent mediaRelease(QEvent::KeyRelease,
+                           Qt::Key_MediaTogglePlayPause,
+                           Qt::NoModifier);
+    QCoreApplication::sendEvent(&receiver, &mediaRelease);
+
+    QCOMPARE(controller.modality(),
+             InputModalityController::Modality::Remote);
+    QCOMPARE(controller.activeDeviceFamily(), QStringLiteral("remote"));
+    QCOMPARE(controller.activeSupportTier(),
+             QStringLiteral("experimental"));
+    QCOMPARE(controller.lastActionName(), QStringLiteral("playPause"));
+    QCOMPARE(pressedSpy.count(), 1);
+    QCOMPARE(pressedSpy.at(0).at(0).value<InputModalityController::Action>(),
+             InputModalityController::Action::PlayPause);
+    QCOMPARE(releasedSpy.count(), 1);
+    // Semantic-only media keys are consumed and never re-injected.
+    QVERIFY(receiver.pressedKeys.isEmpty());
+    QVERIFY(receiver.releasedKeys.isEmpty());
+
+    bool foundVirtualRemote = false;
+    for (const QVariant &value : controller.connectedDevices()) {
+        const QVariantMap descriptor = value.toMap();
+        if (descriptor.value(QStringLiteral("id")).toString()
+            == QStringLiteral("remote:qt-key")) {
+            foundVirtualRemote = true;
+        }
+    }
+    QVERIFY(!foundVirtualRemote);
+
+    QKeyEvent ordinaryArrow(QEvent::KeyPress, Qt::Key_Right,
+                            Qt::NoModifier);
+    QCoreApplication::sendEvent(&receiver, &ordinaryArrow);
+    QCOMPARE(controller.modality(),
+             InputModalityController::Modality::Keyboard);
+    QCOMPARE(pressedSpy.count(), 1);
+}
+
+void InputModalityControllerTests::remoteKeysNormalizeOrStaySemanticOnly()
+{
+    InputModalityController controller;
+    KeyEventReceiver receiver;
+    QSignalSpy pressedSpy(&controller,
+                          &InputModalityController::actionPressed);
+
+    auto sendKey = [&receiver](int key) {
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(&receiver, &press);
+        QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(&receiver, &release);
+    };
+
+    sendKey(Qt::Key_Select);
+    QCOMPARE(receiver.pressedKeys, QVector<int>{Qt::Key_Return});
+    QCOMPARE(receiver.releasedKeys, QVector<int>{Qt::Key_Return});
+    QCOMPARE(pressedSpy.takeFirst().at(0)
+                 .value<InputModalityController::Action>(),
+             InputModalityController::Action::Activate);
+
+    receiver.pressedKeys.clear();
+    receiver.releasedKeys.clear();
+    sendKey(Qt::Key_Back);
+    QCOMPARE(receiver.pressedKeys, QVector<int>{Qt::Key_Escape});
+    QCOMPARE(receiver.releasedKeys, QVector<int>{Qt::Key_Escape});
+    QCOMPARE(pressedSpy.takeFirst().at(0)
+                 .value<InputModalityController::Action>(),
+             InputModalityController::Action::Back);
+
+    receiver.pressedKeys.clear();
+    receiver.releasedKeys.clear();
+    sendKey(Qt::Key_Info);
+    QCOMPARE(receiver.pressedKeys, QVector<int>{Qt::Key_Menu});
+    QCOMPARE(receiver.releasedKeys, QVector<int>{Qt::Key_Menu});
+    QCOMPARE(pressedSpy.takeFirst().at(0)
+                 .value<InputModalityController::Action>(),
+             InputModalityController::Action::Context);
+
+    receiver.pressedKeys.clear();
+    receiver.releasedKeys.clear();
+    sendKey(Qt::Key_Menu);
+    QVERIFY(receiver.pressedKeys.isEmpty());
+    QVERIFY(receiver.releasedKeys.isEmpty());
+    QCOMPARE(pressedSpy.takeFirst().at(0)
+                 .value<InputModalityController::Action>(),
+             InputModalityController::Action::Menu);
+}
+
+void InputModalityControllerTests::
+    rawRemoteCorrelationRequiresExactFreshDeviceMatch()
+{
+    QVERIFY(InputModalityService::rawKeyEventMatchesRemote(
+        QStringLiteral("raw:remote"), 0x26, true, 0x26, true, 0));
+    QVERIFY(InputModalityService::rawKeyEventMatchesRemote(
+        QStringLiteral("raw:remote"), 0x26, true, 0x26, true, 120));
+    QVERIFY(!InputModalityService::rawKeyEventMatchesRemote(
+        {}, 0x26, true, 0x26, true, 0));
+    QVERIFY(!InputModalityService::rawKeyEventMatchesRemote(
+        QStringLiteral("raw:remote"), 0x26, true, 0x28, true, 0));
+    QVERIFY(!InputModalityService::rawKeyEventMatchesRemote(
+        QStringLiteral("raw:remote"), 0x26, true, 0x26, false, 0));
+    QVERIFY(!InputModalityService::rawKeyEventMatchesRemote(
+        QStringLiteral("raw:remote"), 0x26, true, 0x26, true, -1));
+    QVERIFY(!InputModalityService::rawKeyEventMatchesRemote(
+        QStringLiteral("raw:remote"), 0x26, true, 0x26, true, 121));
+    QVERIFY(!InputModalityService::rawKeyEventMatchesRemote(
+        QStringLiteral("raw:remote"), 0x26, true, 0, true, 0));
+}
+
+void InputModalityControllerTests::
+    remoteActionThenKeyboardArrowSwitchesImmediately()
+{
+    InputModalityController controller;
+    KeyEventReceiver receiver;
+    const QVariantMap remoteDevice{
+        {QStringLiteral("id"), QStringLiteral("test:associated-remote")},
+        {QStringLiteral("name"), QStringLiteral("Associated TV Remote")},
+        {QStringLiteral("family"), QStringLiteral("remote")},
+        {QStringLiteral("supportTier"), QStringLiteral("experimental")},
+        {QStringLiteral("backend"), QStringLiteral("raw-input")},
+        {QStringLiteral("connected"), true},
+    };
+    QSignalSpy actionSpy(&controller,
+                         &InputModalityController::actionPressed);
+    controller.dispatchActionForTest(
+        InputModalityController::Action::NavigateUp,
+        false,
+        remoteDevice);
+    QCOMPARE(controller.modality(),
+             InputModalityController::Modality::Remote);
+    QCOMPARE(actionSpy.count(), 1);
+
+    QKeyEvent keyboardArrow(QEvent::KeyPress, Qt::Key_Down,
+                            Qt::NoModifier);
+    QCoreApplication::sendEvent(&receiver, &keyboardArrow);
+    QCOMPARE(controller.modality(),
+             InputModalityController::Modality::Keyboard);
+    QCOMPARE(actionSpy.count(), 1);
+    QCOMPARE(receiver.pressedKeys, QVector<int>{Qt::Key_Down});
+}
+
+void InputModalityControllerTests::
     controllerStateMapsDirectionsButtonsAndRepeat()
 {
     ControllerNavigationState state;
@@ -196,6 +384,179 @@ void InputModalityControllerTests::
 }
 
 void InputModalityControllerTests::
+    controllerNeutralGateRejectsHeldInputUntilReleased()
+{
+    ControllerNavigationState state;
+    ControllerNavigationState::Snapshot snapshot{
+        .connected = true,
+        .confirm = true,
+    };
+    QVERIFY(state.updateActions(snapshot, 0).isEmpty());
+    QVERIFY(state.updateActions(snapshot, 1'000).isEmpty());
+
+    snapshot.confirm = false;
+    QVERIFY(state.updateActions(snapshot, 1'001).isEmpty());
+    snapshot.confirm = true;
+    const auto events = state.updateActions(snapshot, 1'002);
+    QCOMPARE(events.size(), 1);
+    QCOMPARE(events.first().action, ControllerInputAction::Activate);
+    QVERIFY(events.first().pressed);
+    QVERIFY(!events.first().repeated);
+}
+
+void InputModalityControllerTests::
+    controllerSemanticActionsIncludeReleaseAndScroll()
+{
+    ControllerNavigationState state;
+    ControllerNavigationState::Snapshot snapshot{.connected = true};
+    QVERIFY(state.updateActions(snapshot, 0).isEmpty());
+
+    snapshot.context = true;
+    auto events = state.updateActions(snapshot, 1);
+    QCOMPARE(events.size(), 1);
+    QCOMPARE(events.first().action, ControllerInputAction::Context);
+    QVERIFY(events.first().pressed);
+
+    snapshot.context = false;
+    events = state.updateActions(snapshot, 2);
+    QCOMPARE(events.size(), 1);
+    QCOMPARE(events.first().action, ControllerInputAction::Context);
+    QVERIFY(!events.first().pressed);
+
+    snapshot.rightThumbY = ControllerNavigationState::RightStickThreshold;
+    events = state.updateActions(snapshot, 3);
+    QCOMPARE(events.size(), 1);
+    QCOMPARE(events.first().action, ControllerInputAction::ScrollUp);
+    QVERIFY(events.first().pressed);
+    QVERIFY(state.updateActions(snapshot, 352).isEmpty());
+    events = state.updateActions(snapshot, 353);
+    QCOMPARE(events.size(), 1);
+    QCOMPARE(events.first().action, ControllerInputAction::ScrollUp);
+    QVERIFY(events.first().repeated);
+
+    snapshot.connected = false;
+    events = state.updateActions(snapshot, 354);
+    QCOMPARE(events.size(), 1);
+    QCOMPARE(events.first().action, ControllerInputAction::ScrollUp);
+    QVERIFY(!events.first().pressed);
+}
+
+void InputModalityControllerTests::
+    controllerFamilyClassificationCoversEverySdlBoundary()
+{
+    using Source = ControllerNavigationSource;
+    for (const int type : {2, 3}) {
+        const auto classification = Source::classifyGamepad(type, 0, {});
+        QCOMPARE(classification.family, QStringLiteral("xbox"));
+        QCOMPARE(classification.supportTier,
+                 QStringLiteral("hardware-pending"));
+    }
+    for (const int type : {4, 5, 6}) {
+        const auto classification = Source::classifyGamepad(type, 0, {});
+        QCOMPARE(classification.family, QStringLiteral("playstation"));
+        QCOMPARE(classification.supportTier,
+                 QStringLiteral("experimental"));
+    }
+    for (const int type : {7, 8, 9, 10}) {
+        const auto classification = Source::classifyGamepad(type, 0, {});
+        QCOMPARE(classification.family, QStringLiteral("nintendo"));
+        QCOMPARE(classification.supportTier,
+                 QStringLiteral("experimental"));
+    }
+    // Unknown, Standard, GameCube, and future Steam-style values do not get
+    // promoted to a tested console family without vendor/name evidence.
+    for (const int type : {0, 1, 11, 12}) {
+        const auto classification = Source::classifyGamepad(type, 0, {});
+        QCOMPARE(classification.family, QStringLiteral("generic"));
+        QCOMPARE(classification.supportTier, QStringLiteral("generic"));
+    }
+
+    QCOMPARE(Source::classifyGamepad(0, 0x045e, {}).family,
+             QStringLiteral("xbox"));
+    QCOMPARE(Source::classifyGamepad(0, 0x054c, {}).family,
+             QStringLiteral("playstation"));
+    QCOMPARE(Source::classifyGamepad(0, 0x057e, {}).family,
+             QStringLiteral("nintendo"));
+    QCOMPARE(Source::classifyRawInputDevice(0x0c, 0x01, 0, 0, {}).family,
+             QStringLiteral("generic"));
+    QCOMPARE(Source::classifyRawInputDevice(
+                 0x0c, 0x01, 0x20a0, 0x0006, {}).family,
+             QStringLiteral("remote"));
+    QCOMPARE(Source::classifyRawInputDevice(
+                 0x01, 0x06, 0, 0,
+                 QStringLiteral("RC6 infrared remote")).family,
+             QStringLiteral("remote"));
+    QCOMPARE(Source::classifyRawInputDevice(0x01, 0x06, 0, 0,
+                                            QStringLiteral("Keyboard")).family,
+             QStringLiteral("generic"));
+    QCOMPARE(Source::rawInputPhysicalPathKey(
+                 QStringLiteral("HID#VID_20A0&PID_0006&COL01#ABC")),
+             Source::rawInputPhysicalPathKey(
+                 QStringLiteral("hid#vid_20a0&pid_0006&col02#abc")));
+    const auto genericKeyboard = Source::classifyRawInputDevice(
+        0x01, 0x06, 0, 0, QStringLiteral("Keyboard"));
+    QVERIFY(Source::shouldAssociateRawKeyboard(genericKeyboard, true));
+    QVERIFY(!Source::shouldAssociateRawKeyboard(genericKeyboard, false));
+}
+
+void InputModalityControllerTests::
+    controllerFaceButtonsFollowPlatformConvention()
+{
+    using Source = ControllerNavigationSource;
+    const auto xbox = Source::classifyGamepad(2, 0, {});
+    const auto playStation = Source::classifyGamepad(6, 0, {});
+    const auto nintendo = Source::classifyGamepad(7, 0, {});
+
+    auto buttons = Source::mapFaceButtons(xbox, true, false);
+    QVERIFY(buttons.confirm);
+    QVERIFY(!buttons.back);
+    buttons = Source::mapFaceButtons(playStation, true, false);
+    QVERIFY(buttons.confirm);
+    QVERIFY(!buttons.back);
+    buttons = Source::mapFaceButtons(nintendo, true, false);
+    QVERIFY(!buttons.confirm);
+    QVERIFY(buttons.back);
+    buttons = Source::mapFaceButtons(nintendo, false, true);
+    QVERIFY(buttons.confirm);
+    QVERIFY(!buttons.back);
+}
+
+void InputModalityControllerTests::
+    enumerationSuccessPolicyDistinguishesEmptyFromFailure()
+{
+    using Source = ControllerNavigationSource;
+
+    // A successful empty SDL result still returns its 0-terminated buffer;
+    // null is failure regardless of the output count and must not commit an
+    // empty device snapshot.
+    QVERIFY(Source::sdlEnumerationSucceeded(true));
+    QVERIFY(!Source::sdlEnumerationSucceeded(false));
+
+    QVERIFY(Source::rawRemoteEnumerationSucceeded({}));
+    QVERIFY(!Source::rawRemoteEnumerationSucceeded(
+        QStringLiteral("GetRawInputDeviceList failed")));
+}
+
+void InputModalityControllerTests::
+    verticalAxisInversionSaturatesAtNativeMinimum()
+{
+    QCOMPARE(ControllerNavigationState::invertVerticalAxis(0), qint16(0));
+    QCOMPARE(ControllerNavigationState::invertVerticalAxis(12'345),
+             qint16(-12'345));
+    QCOMPARE(ControllerNavigationState::invertVerticalAxis(-12'345),
+             qint16(12'345));
+    QCOMPARE(ControllerNavigationState::invertVerticalAxis(
+                 std::numeric_limits<qint16>::min()),
+             std::numeric_limits<qint16>::max());
+
+    ControllerNavigationState::Snapshot snapshot;
+    snapshot.leftThumbY = ControllerNavigationState::invertVerticalAxis(
+        std::numeric_limits<qint16>::min());
+    QCOMPARE(ControllerNavigationState::directionFor(snapshot),
+             ControllerNavigationState::Direction::Up);
+}
+
+void InputModalityControllerTests::
     controllerDispatchUsesKeyEventsAndPreservesModality()
 {
     InputModalityController controller;
@@ -211,6 +572,238 @@ void InputModalityControllerTests::
     QCOMPARE(controller.modality(),
              InputModalityController::Modality::Controller);
     QVERIFY(controller.focusNavigationActive());
+}
+
+void InputModalityControllerTests::semanticActionUpdatesDeviceAndDiagnostics()
+{
+    InputModalityController controller;
+    controller.notePointerInput();
+    const QVariantMap xboxDevice{
+        {QStringLiteral("id"), QStringLiteral("test:xbox")},
+        {QStringLiteral("name"), QStringLiteral("Test Xbox Controller")},
+        {QStringLiteral("family"), QStringLiteral("xbox")},
+        {QStringLiteral("supportTier"), QStringLiteral("hardware-pending")},
+        {QStringLiteral("backend"), QStringLiteral("test")},
+        {QStringLiteral("connected"), true},
+    };
+    QSignalSpy actionSpy(&controller,
+                         &InputModalityController::actionPressed);
+    QSignalSpy activeSpy(&controller,
+                         &InputModalityController::activeDeviceChanged);
+    QSignalSpy lastActionSpy(&controller,
+                             &InputModalityController::lastActionChanged);
+
+    controller.dispatchActionForTest(
+        InputModalityController::Action::Search, false, xboxDevice);
+    QCOMPARE(controller.modality(),
+             InputModalityController::Modality::Controller);
+    QCOMPARE(controller.activeDeviceName(),
+             QStringLiteral("Test Xbox Controller"));
+    QCOMPARE(controller.activeDeviceFamily(), QStringLiteral("xbox"));
+    QCOMPARE(controller.activeSupportTier(),
+             QStringLiteral("hardware-pending"));
+    QCOMPARE(controller.lastActionName(), QStringLiteral("search"));
+    QCOMPARE(controller.promptForAction(
+                 InputModalityController::Action::Activate),
+             QStringLiteral("A"));
+    QCOMPARE(actionSpy.count(), 1);
+    QCOMPARE(activeSpy.count(), 1);
+    QCOMPARE(lastActionSpy.count(), 1);
+
+    // Repeats are activity but do not spuriously change the active device.
+    controller.dispatchActionForTest(
+        InputModalityController::Action::Search, true, xboxDevice);
+    QCOMPARE(actionSpy.count(), 2);
+    QVERIFY(actionSpy.at(1).at(1).toBool());
+    QCOMPARE(activeSpy.count(), 1);
+    QCOMPARE(lastActionSpy.count(), 2);
+
+    const QStringList supportedBackends{
+        QStringLiteral("sdl"),
+        QStringLiteral("xinput"),
+        QStringLiteral("none"),
+    };
+    QVERIFY(supportedBackends.contains(controller.controllerBackend()));
+}
+
+void InputModalityControllerTests::
+    controllerInputTestOwnershipIsExclusiveAndOwnerBound()
+{
+    InputModalityController controller;
+    QObject competingOwner;
+    auto *owner = new QObject;
+    QSignalSpy activeSpy(
+        &controller,
+        &InputModalityController::controllerInputTestActiveChanged);
+
+    QVERIFY(!controller.controllerInputTestActive());
+    QVERIFY(!controller.acquireControllerInputTest(nullptr));
+    QVERIFY(controller.acquireControllerInputTest(owner));
+    QVERIFY(controller.controllerInputTestActive());
+    QCOMPARE(activeSpy.count(), 1);
+
+    // Re-acquiring the same lease is idempotent; another component cannot
+    // silently steal the diagnostic stream.
+    QVERIFY(controller.acquireControllerInputTest(owner));
+    QVERIFY(!controller.acquireControllerInputTest(&competingOwner));
+    controller.releaseControllerInputTest(&competingOwner);
+    QVERIFY(controller.controllerInputTestActive());
+    QCOMPARE(activeSpy.count(), 1);
+
+    delete owner;
+    QVERIFY(!controller.controllerInputTestActive());
+    QCOMPARE(activeSpy.count(), 2);
+}
+
+void InputModalityControllerTests::
+    controllerInputTestSuppressesGlobalAndLegacyDispatch()
+{
+    InputModalityController controller;
+    QObject owner;
+    KeyEventReceiver receiver;
+    const QVariantMap xboxDevice{
+        {QStringLiteral("id"), QStringLiteral("test:capture-xbox")},
+        {QStringLiteral("name"), QStringLiteral("Captured Xbox Controller")},
+        {QStringLiteral("family"), QStringLiteral("xbox")},
+        {QStringLiteral("supportTier"), QStringLiteral("verified")},
+        {QStringLiteral("backend"), QStringLiteral("test")},
+        {QStringLiteral("connected"), true},
+    };
+    QSignalSpy globalSpy(&controller,
+                         &InputModalityController::actionPressed);
+    QSignalSpy diagnosticSpy(
+        &controller,
+        &InputModalityController::controllerInputTestAction);
+
+    QVERIFY(controller.acquireControllerInputTest(&owner));
+    controller.dispatchActionForTest(
+        InputModalityController::Action::Activate,
+        false,
+        xboxDevice,
+        &receiver);
+
+    QCOMPARE(diagnosticSpy.count(), 1);
+    QCOMPARE(diagnosticSpy.at(0).at(0)
+                 .value<InputModalityController::Action>(),
+             InputModalityController::Action::Activate);
+    QVERIFY(!diagnosticSpy.at(0).at(1).toBool());
+    QCOMPARE(globalSpy.count(), 0);
+    QVERIFY(receiver.pressedKeys.isEmpty());
+    QVERIFY(receiver.releasedKeys.isEmpty());
+    QCOMPARE(controller.lastActionName(), QStringLiteral("activate"));
+    QCOMPARE(controller.activeDeviceName(),
+             QStringLiteral("Captured Xbox Controller"));
+    QCOMPARE(controller.modality(),
+             InputModalityController::Modality::Controller);
+
+    controller.dispatchActionForTest(
+        InputModalityController::Action::Back,
+        false,
+        xboxDevice,
+        &receiver);
+    QCOMPARE(diagnosticSpy.count(), 2);
+    QCOMPARE(diagnosticSpy.at(1).at(0)
+                 .value<InputModalityController::Action>(),
+             InputModalityController::Action::Back);
+    QCOMPARE(globalSpy.count(), 0);
+    QVERIFY(receiver.pressedKeys.isEmpty());
+    QVERIFY(receiver.releasedKeys.isEmpty());
+
+    controller.releaseControllerInputTest(&owner);
+    controller.dispatchActionForTest(
+        InputModalityController::Action::Activate,
+        false,
+        xboxDevice,
+        &receiver);
+    QCOMPARE(globalSpy.count(), 1);
+    QCOMPARE(receiver.pressedKeys, QVector<int>{Qt::Key_Return});
+    QCOMPARE(receiver.releasedKeys, QVector<int>{Qt::Key_Return});
+}
+
+void InputModalityControllerTests::
+    controllerInputTestKeepsCapturedSequenceNeutralUntilRelease()
+{
+    InputModalityController controller;
+    InputModalityService &service = InputModalityService::instance();
+    QObject owner;
+    constexpr auto Activate = InputModalityController::Action::Activate;
+    const int activate = static_cast<int>(Activate);
+    const QString deviceId = QStringLiteral("test:held-capture-xbox");
+    QSignalSpy globalPressSpy(&controller,
+                              &InputModalityController::actionPressed);
+    QSignalSpy globalReleaseSpy(&controller,
+                                &InputModalityController::actionReleased);
+    QSignalSpy diagnosticSpy(
+        &controller,
+        &InputModalityController::controllerInputTestAction);
+
+    QVERIFY(controller.acquireControllerInputTest(&owner));
+    service.handleControllerActionPressed(activate, false, deviceId);
+    QCOMPARE(diagnosticSpy.count(), 1);
+    QCOMPARE(globalPressSpy.count(), 0);
+
+    // Releasing the lease while the physical control is held must not turn
+    // its repeat or eventual release into an unmatched global sequence.
+    controller.releaseControllerInputTest(&owner);
+    service.handleControllerActionPressed(activate, true, deviceId);
+    service.handleControllerActionReleased(activate, deviceId);
+    QCOMPARE(globalPressSpy.count(), 0);
+    QCOMPARE(globalReleaseSpy.count(), 0);
+
+    service.handleControllerActionPressed(activate, false, deviceId);
+    service.handleControllerActionReleased(activate, deviceId);
+    QCOMPARE(globalPressSpy.count(), 1);
+    QCOMPARE(globalReleaseSpy.count(), 1);
+}
+
+void InputModalityControllerTests::
+    controllerInputTestConsumesRemoteKeysWithoutReinjection()
+{
+    InputModalityController controller;
+    QObject owner;
+    KeyEventReceiver receiver;
+    QSignalSpy globalPressSpy(&controller,
+                              &InputModalityController::actionPressed);
+    QSignalSpy globalReleaseSpy(&controller,
+                                &InputModalityController::actionReleased);
+    QSignalSpy diagnosticSpy(
+        &controller,
+        &InputModalityController::controllerInputTestAction);
+
+    QVERIFY(controller.acquireControllerInputTest(&owner));
+    QKeyEvent press(QEvent::KeyPress,
+                    Qt::Key_MediaTogglePlayPause,
+                    Qt::NoModifier);
+    QCoreApplication::sendEvent(&receiver, &press);
+    controller.releaseControllerInputTest(&owner);
+    QKeyEvent release(QEvent::KeyRelease,
+                      Qt::Key_MediaTogglePlayPause,
+                      Qt::NoModifier);
+    QCoreApplication::sendEvent(&receiver, &release);
+
+    QCOMPARE(diagnosticSpy.count(), 1);
+    QCOMPARE(diagnosticSpy.at(0).at(0)
+                 .value<InputModalityController::Action>(),
+             InputModalityController::Action::PlayPause);
+    QCOMPARE(globalPressSpy.count(), 0);
+    QCOMPARE(globalReleaseSpy.count(), 0);
+    QVERIFY(receiver.pressedKeys.isEmpty());
+    QVERIFY(receiver.releasedKeys.isEmpty());
+
+    // The captured-key neutral gate clears on release; the next physical
+    // sequence follows the ordinary semantic-only remote path.
+    QKeyEvent nextPress(QEvent::KeyPress,
+                        Qt::Key_MediaTogglePlayPause,
+                        Qt::NoModifier);
+    QCoreApplication::sendEvent(&receiver, &nextPress);
+    QKeyEvent nextRelease(QEvent::KeyRelease,
+                          Qt::Key_MediaTogglePlayPause,
+                          Qt::NoModifier);
+    QCoreApplication::sendEvent(&receiver, &nextRelease);
+    QCOMPARE(globalPressSpy.count(), 1);
+    QCOMPARE(globalReleaseSpy.count(), 1);
+    QVERIFY(receiver.pressedKeys.isEmpty());
+    QVERIFY(receiver.releasedKeys.isEmpty());
 }
 
 void InputModalityControllerTests::multipleFacadesShareOneDispatchAndState()

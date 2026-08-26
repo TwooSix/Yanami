@@ -23,9 +23,13 @@
 
 ## Highlights
 
-- **Modern experience** — a modern, fluid application experience.
+- **Modern experience** — a modern, fluid, cross-platform application experience.
 - **Danmaku support** — danmaku matching and playback powered by
   [DanDanPlay](https://www.dandanplay.com/).
+- **Anime upscaling** — real-time anime upscaling powered by
+  [Anime4K](https://github.com/bloc97/Anime4K).
+- **Controller support** — a couch-friendly app experience every bit as capable
+  as mouse control.
 
 ## Quick start
 
@@ -37,7 +41,7 @@ stable release channel yet.
 > macOS desktop builds have **not** been tested on real machines yet; their
 > instructions and future binaries should be treated as experimental.
 
-Development candidates use versions such as `0.1.0-dev.42`. Choose the asset
+Development candidates use versions such as `0.2.0-dev.42`. Choose the asset
 whose platform and CPU architecture match your computer.
 
 ### Windows 10/11
@@ -94,6 +98,7 @@ repository.
 | C++ compiler | C++20 capable |
 | Qt | 6.8 or newer with Qt Quick, Quick Controls, OpenGL, and Linguist Tools |
 | libmpv | Development headers and library; `pkg-config` is used on Linux/macOS |
+| SDL3 | Primary controller backend on Windows; optional for experimental Linux/macOS controller support |
 
 Clone the repository first:
 
@@ -111,7 +116,7 @@ Open PowerShell in the repository root:
 .\scripts\run-windows.ps1
 ```
 
-The bootstrap script installs or configures MSYS2 UCRT64, Qt, libmpv, CMake,
+The bootstrap script installs or configures MSYS2 UCRT64, Qt, SDL3, libmpv, CMake,
 Ninja, and the matching Rust GNU toolchain. It uses Scoop when available and
 otherwise falls back to `winget`.
 

@@ -63,6 +63,9 @@ TestCase {
     }
 
     function cleanup() {
+        const picker = findChild(editor, "controllerImageFilePicker")
+        if (picker && picker.opened)
+            picker.forceDismiss()
         closeEditor()
     }
 
@@ -282,5 +285,33 @@ TestCase {
                 + (editor.backdropColumns - 1) * 12
             verify(backdropOccupied <= editor.overviewContentWidth)
         }
+    }
+
+    function test_controllerUploadUsesInAppDriveBrowser() {
+        editor.openFor(editorPayload("controller-upload"))
+        tryCompare(editor, "opened", true)
+        InputModality.noteControllerNavigation()
+
+        editor.beginUpload("Primary", null, "add")
+        const picker = findChild(editor, "controllerImageFilePicker")
+        const folderModel = findChild(editor, "controllerImageFolderModel")
+        const driveGrid = findChild(editor, "controllerImageDriveGrid")
+        verify(picker !== null)
+        verify(folderModel !== null)
+        verify(driveGrid !== null)
+        tryCompare(picker, "opened", true)
+
+        picker.showComputer()
+        compare(picker.driveBrowserVisible, true)
+        compare(driveGrid.count, 26)
+
+        // D: is index 3 in the explicit A:-Z: drive contract. The test checks
+        // routing state only and does not require the host to own that volume.
+        compare(picker.openDrive(3), true)
+        compare(picker.driveBrowserVisible, false)
+        compare(String(folderModel.folder).toLowerCase(), "file:///d:/")
+
+        picker.forceDismiss()
+        tryCompare(picker, "opened", false)
     }
 }

@@ -1,0 +1,152 @@
+{
+  "schemaVersion": "1.0",
+  "minimumOpenGl": { "major": 4, "minor": 3 },
+  "minimumTextureSize": 4096,
+  "softwareRendererMarkers": [
+    "llvmpipe",
+    "softpipe",
+    "swiftshader",
+    "software rasterizer",
+    "gdi generic",
+    "microsoft basic render driver",
+    "mesa offscreen"
+  ],
+  "providers": [
+    { "id": "anime4k", "requiresModelPack": true }
+  ],
+  "presets": ["performance", "balanced", "quality"],
+  "cases": [
+    {
+      "id": "opengl43-minimum-supported",
+      "graphicsApi": "OpenGL",
+      "glMajor": 4,
+      "glMinor": 3,
+      "vendor": "Test Hardware Vendor",
+      "renderer": "Test Hardware Renderer",
+      "maximumTextureSize": 4096,
+      "expectedSupportedProviders": ["anime4k"],
+      "expectedSoftwareRenderer": false,
+      "expectedUnavailableReasonContains": ""
+    },
+    {
+      "id": "opengl46-supported",
+      "graphicsApi": "OpenGL",
+      "glMajor": 4,
+      "glMinor": 6,
+      "vendor": "NVIDIA Corporation",
+      "renderer": "NVIDIA GeForce Test Adapter",
+      "maximumTextureSize": 16384,
+      "expectedSupportedProviders": ["anime4k"],
+      "expectedSoftwareRenderer": false,
+      "expectedUnavailableReasonContains": ""
+    },
+    {
+      "id": "opengl50-supported",
+      "graphicsApi": "OpenGL",
+      "glMajor": 5,
+      "glMinor": 0,
+      "vendor": "Future Hardware Vendor",
+      "renderer": "Future Hardware Renderer",
+      "maximumTextureSize": 32768,
+      "expectedSupportedProviders": ["anime4k"],
+      "expectedSoftwareRenderer": false,
+      "expectedUnavailableReasonContains": ""
+    },
+    {
+      "id": "opengl42-too-old",
+      "graphicsApi": "OpenGL",
+      "glMajor": 4,
+      "glMinor": 2,
+      "vendor": "Test Hardware Vendor",
+      "renderer": "Test Hardware Renderer",
+      "maximumTextureSize": 16384,
+      "expectedSupportedProviders": [],
+      "expectedSoftwareRenderer": false,
+      "expectedUnavailableReasonContains": "OpenGL 4.3"
+    },
+    {
+      "id": "opengl43-texture-limit-too-small",
+      "graphicsApi": "OpenGL",
+      "glMajor": 4,
+      "glMinor": 3,
+      "vendor": "Test Hardware Vendor",
+      "renderer": "Test Hardware Renderer",
+      "maximumTextureSize": 4095,
+      "expectedSupportedProviders": [],
+      "expectedSoftwareRenderer": false,
+      "expectedUnavailableReasonContains": "4096"
+    },
+    {
+      "id": "opengl-software-llvmpipe",
+      "graphicsApi": "OpenGL",
+      "glMajor": 4,
+      "glMinor": 6,
+      "vendor": "Mesa",
+      "renderer": "llvmpipe (LLVM 19.1.0, 256 bits)",
+      "maximumTextureSize": 16384,
+      "expectedSupportedProviders": [],
+      "expectedSoftwareRenderer": true,
+      "expectedUnavailableReasonContains": "Software rendering"
+    },
+    {
+      "id": "opengl-software-swiftshader",
+      "graphicsApi": "OpenGL",
+      "glMajor": 4,
+      "glMinor": 6,
+      "vendor": "Google Inc.",
+      "renderer": "Google SwiftShader",
+      "maximumTextureSize": 16384,
+      "expectedSupportedProviders": [],
+      "expectedSoftwareRenderer": true,
+      "expectedUnavailableReasonContains": "Software rendering"
+    },
+    {
+      "id": "software-api-unsupported",
+      "graphicsApi": "Software",
+      "glMajor": 4,
+      "glMinor": 6,
+      "vendor": "Software",
+      "renderer": "Qt rasterizer",
+      "maximumTextureSize": 16384,
+      "expectedSupportedProviders": [],
+      "expectedSoftwareRenderer": true,
+      "expectedUnavailableReasonContains": "Software rendering"
+    },
+    {
+      "id": "direct3d11-unsupported",
+      "graphicsApi": "Direct3D11",
+      "glMajor": 0,
+      "glMinor": 0,
+      "vendor": "NVIDIA Corporation",
+      "renderer": "NVIDIA GeForce Test Adapter",
+      "maximumTextureSize": 0,
+      "expectedSupportedProviders": [],
+      "expectedSoftwareRenderer": false,
+      "expectedUnavailableReasonContains": "OpenGL backend"
+    },
+    {
+      "id": "vulkan-unsupported",
+      "graphicsApi": "Vulkan",
+      "glMajor": 0,
+      "glMinor": 0,
+      "vendor": "AMD",
+      "renderer": "AMD Radeon Test Adapter",
+      "maximumTextureSize": 0,
+      "expectedSupportedProviders": [],
+      "expectedSoftwareRenderer": false,
+      "expectedUnavailableReasonContains": "OpenGL backend"
+    },
+    {
+      "id": "metal-unsupported",
+      "graphicsApi": "Metal",
+      "glMajor": 0,
+      "glMinor": 0,
+      "vendor": "Apple",
+      "renderer": "Apple Test GPU",
+      "maximumTextureSize": 0,
+      "expectedSupportedProviders": [],
+      "expectedSoftwareRenderer": false,
+      "expectedUnavailableReasonContains": "OpenGL backend"
+    }
+  ]
+}

@@ -64,6 +64,8 @@ public:
     QThreadPool &sessionControl() { return m_sessionControl; }
     QThreadPool &danmakuControl() { return m_danmakuControl; }
     QThreadPool &catalog() { return m_catalog; }
+    QThreadPool &search() { return m_search; }
+    QThreadPool &searchHydration() { return m_searchHydration; }
     QThreadPool &mediaRead() { return m_mediaRead; }
     QThreadPool &mediaMutation() { return m_mediaMutation; }
     QThreadPool &playbackPrepare() { return m_playbackPrepare; }
@@ -77,6 +79,8 @@ private:
     QThreadPool m_sessionControl;
     QThreadPool m_danmakuControl;
     QThreadPool m_catalog;
+    QThreadPool m_search;
+    QThreadPool m_searchHydration;
     QThreadPool m_mediaRead;
     QThreadPool m_mediaMutation;
     QThreadPool m_playbackPrepare;

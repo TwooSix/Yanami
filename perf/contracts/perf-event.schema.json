@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yanami.dev/perf/contracts/perf-event-v1.schema.json",
+  "title": "Yanami PerfEvent v1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "runId",
+    "suite",
+    "scenarioId",
+    "milestone",
+    "monotonicNs",
+    "generation",
+    "attributes"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "runId": { "type": "string", "minLength": 1 },
+    "suite": {
+      "type": "string",
+      "enum": ["search", "backend", "interaction", "playback", "danmaku", "upscaling", "startup"]
+    },
+    "scenarioId": { "type": "string", "minLength": 1 },
+    "milestone": { "type": "string", "minLength": 1 },
+    "monotonicNs": { "type": "integer", "minimum": 0 },
+    "generation": { "type": "integer", "minimum": 0 },
+    "processId": { "type": "integer", "minimum": 0 },
+    "threadId": { "type": ["string", "integer"] },
+    "wallClockUtc": { "type": "string", "format": "date-time" },
+    "attributes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["string", "number", "integer", "boolean", "null"]
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -4,8 +4,8 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 
 use crate::{
-    client::{BROWSE_FIELDS, EmbyClient, EmbyError, ItemQuery, parse_refresh_progress_message},
-    models::{ItemCreationResult, ItemsResult, RefreshProgress, UserItemData},
+    client::{BROWSE_FIELDS, EmbyClient, EmbyError, ItemQuery, parse_notification_message},
+    models::{EmbyNotification, ItemCreationResult, ItemsResult, UserItemData},
     transport::{decode, ensure_success},
 };
 
@@ -167,15 +167,16 @@ impl EmbyClient {
         .await
     }
 
-    /// Opens Emby's notification channel and streams item refresh progress.
+    /// Opens Emby's single notification channel and streams the typed events
+    /// consumed by both refresh progress and catalog synchronization.
     ///
     /// A library refresh started through `Items/{Id}/Refresh` is not a
     /// scheduled task, so polling `/ScheduledTasks` cannot reliably attribute
     /// progress to one library. Emby's own web client listens for these two
     /// messages on this channel instead.
-    pub async fn refresh_progress_stream(
+    pub async fn notification_stream(
         &self,
-    ) -> Result<impl futures_util::Stream<Item = RefreshProgress> + use<>, EmbyError> {
+    ) -> Result<impl futures_util::Stream<Item = EmbyNotification> + use<>, EmbyError> {
         let token = self.access_token().ok_or_else(|| EmbyError::Api {
             status: 401,
             message: "no Emby access token is available".to_owned(),
@@ -254,8 +255,8 @@ impl EmbyClient {
                                 }
                                 continue;
                             }
-                            if let Some(progress) = parse_refresh_progress_message(&value) {
-                                return Some((progress, socket));
+                            if let Some(notification) = parse_notification_message(&value) {
+                                return Some((notification, socket));
                             }
                         }
                         Message::Close(_) => return None,

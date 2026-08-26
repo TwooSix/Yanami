@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "id": "Bmain",
+  "state": "not-captured",
+  "window": 20,
+  "greenMainBuilds": [],
+  "metrics": {},
+  "enforcement": "trend-warning-only",
+  "notes": "A rolling trend cannot become a progressively slower acceptance threshold."
+}

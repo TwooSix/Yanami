@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include "MpvVideoItem.hpp"
+#include "PlaybackCompletionGate.hpp"
 #include "PlaybackReporter.hpp"
 
 #include <memory>
@@ -84,6 +85,42 @@ class PlaybackReporterTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void completionGateRequiresAFullVerifiedDuration()
+    {
+        YanamiPlayback::PlaybackCompletionGate gate;
+
+        const auto natural = gate.observe(true, true, 99.0, 100.0);
+        QVERIFY(natural.has_value());
+        QCOMPARE(*natural, YanamiPlayback::CompletionBoundary::Natural);
+
+        gate.reset();
+        const auto truncated = gate.observe(true, true, 72.0, 100.0);
+        QVERIFY(truncated.has_value());
+        QCOMPARE(*truncated, YanamiPlayback::CompletionBoundary::Premature);
+
+        gate.reset();
+        const auto unknownDuration = gate.observe(true, true, 72.0, 0.0);
+        QVERIFY(unknownDuration.has_value());
+        QCOMPARE(*unknownDuration,
+                 YanamiPlayback::CompletionBoundary::Premature);
+    }
+
+    void completionGateHandlesOnlyOneBoundaryPerLoad()
+    {
+        YanamiPlayback::PlaybackCompletionGate gate;
+
+        QVERIFY(!gate.observe(true, false, 100.0, 100.0).has_value());
+        gate.reset();
+        QVERIFY(gate.observe(false, true, 0.0, 100.0) == std::nullopt);
+        QVERIFY(gate.observe(true, true, 100.0, 100.0).has_value());
+        QVERIFY(!gate.observe(true, true, 100.0, 100.0).has_value());
+        QVERIFY(!gate.observe(false, true, 95.0, 100.0).has_value());
+        QVERIFY(!gate.observe(true, true, 100.0, 100.0).has_value());
+
+        gate.reset();
+        QVERIFY(gate.observe(true, true, 100.0, 100.0).has_value());
+    }
+
     void tracksChangedStartsOnceAndCapturesDefaultSnapshot()
     {
         FakePlaybackPort port;
@@ -171,6 +208,29 @@ private slots:
         QCOMPARE(port.count(PlaybackPort::Event::Started), 1);
         QCOMPARE(port.count(PlaybackPort::Event::Stopped), 1);
         QCOMPARE(port.reports.size(), 2);
+    }
+
+    void naturalCompletionThenUnloadAndExplicitStopReportsStoppedOnce()
+    {
+        FakePlaybackPort port;
+        MpvVideoItem player;
+        PlaybackReporter reporter(&port);
+        QVERIFY(reporter.attachPlayer(&player));
+        drainStartupNotifications();
+
+        QVERIFY(reporter.beginSession(QStringLiteral("completed"), {}));
+        player.tracksChanged();
+        player.playbackCompleted();
+        // Loading the next file can unload the keep-open file afterwards.
+        // Both that lifecycle signal and the UI close path must stay idempotent.
+        player.fileEnded();
+        reporter.stopSession();
+
+        QCOMPARE(port.count(PlaybackPort::Event::Started), 1);
+        QCOMPARE(port.count(PlaybackPort::Event::Stopped), 1);
+        QCOMPARE(port.reports.size(), 2);
+        QCOMPARE(port.at(1).snapshot.reportSessionId,
+                 QStringLiteral("completed"));
     }
 
     void destroyedPlayerStopsActiveSessionOnce()
@@ -297,6 +357,33 @@ private slots:
                 QStringLiteral("heartbeat"));
         }
         reporter.stopSession();
+    }
+
+    void nonAnime4kUpscalingFailsClosedOnThePlayer()
+    {
+        MpvVideoItem player;
+        QSignalSpy completed(
+            &player, &MpvVideoItem::upscalingConfigurationFinished);
+
+        const bool accepted = player.configureUpscaling({
+            {QStringLiteral("schema"), 1},
+            {QStringLiteral("enabled"), true},
+            {QStringLiteral("providerId"), QStringLiteral("unsupported")},
+            {QStringLiteral("profileId"), QStringLiteral("unsupported/balanced")},
+            {QStringLiteral("modelVersion"), QStringLiteral("1.0")},
+            {QStringLiteral("backend"), QVariantMap {
+                {QStringLiteral("kind"), QStringLiteral("glsl-shaders")},
+            }},
+        });
+
+        QVERIFY(!accepted);
+        QVERIFY(!player.upscalingActive());
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !player.upscalingConfigurationPending(), 2'000);
+        QVERIFY(!player.upscalingActive());
+        QCOMPARE(completed.count(), 1);
+        QCOMPARE(completed.constFirst().at(0).toBool(), true);
+        QCOMPARE(completed.constFirst().at(1).toBool(), false);
     }
 };
 

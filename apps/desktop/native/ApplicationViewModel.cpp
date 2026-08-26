@@ -2,6 +2,9 @@
 
 #include "MediaStore.hpp"
 
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSet>
 #include <QSettings>
 #include <QTimer>
 
@@ -10,6 +13,100 @@
 namespace {
 
 constexpr int kDefaultLibrarySortMode = 1;
+constexpr int kUpscalingSettingsSchema = 3;
+constexpr int kPreviousUpscalingSettingsSchema = 2;
+constexpr int kLegacyUpscalingSettingsSchema = 1;
+
+QVariantMap defaultUpscalingSettings()
+{
+    return {
+        {QStringLiteral("schema"), kUpscalingSettingsSchema},
+        {QStringLiteral("enabled"), false},
+        {QStringLiteral("providerId"), QStringLiteral("anime4k")},
+        {QStringLiteral("presetId"), QStringLiteral("balanced")},
+        {QStringLiteral("autoHeadroom"), 20},
+        {QStringLiteral("anime4kMode"), QStringLiteral("a")},
+        {QStringLiteral("anime4kModelSize"), QStringLiteral("vl")},
+        {QStringLiteral("anime4kRestorePasses"), 1},
+        {QStringLiteral("anime4kAutoDownscale"), true},
+        {QStringLiteral("performanceProtection"), true},
+    };
+}
+
+QString validatedId(
+    const QVariantMap &source,
+    const QString &key,
+    const QStringList &allowed,
+    const QString &fallback)
+{
+    const QString value = source.value(key).toString().trimmed().toLower();
+    return allowed.contains(value) ? value : fallback;
+}
+
+int boundedInt(
+    const QVariantMap &source,
+    const QString &key,
+    int minimum,
+    int maximum,
+    int fallback)
+{
+    bool valid = false;
+    const int value = source.value(key).toInt(&valid);
+    return valid && value >= minimum && value <= maximum ? value : fallback;
+}
+
+QVariantMap sanitizeUpscalingSettings(
+    const QVariantMap &source, int sourceSchema)
+{
+    const QVariantMap defaults = defaultUpscalingSettings();
+    QVariantMap result = defaults;
+    const QString sourceProvider = source.value(
+        QStringLiteral("providerId")).toString().trimmed().toLower();
+    const bool providerCanMigrate = sourceProvider == QLatin1String("anime4k")
+        || sourceProvider == QLatin1String("auto");
+    result.insert(QStringLiteral("enabled"),
+        source.value(QStringLiteral("enabled"),
+            defaults.value(QStringLiteral("enabled"))).toBool()
+            && providerCanMigrate);
+    // Provider selection used to include Auto, ArtCNN, and NVIDIA RTX.
+    // Keep accepting the old document shape during migration, but never let a
+    // stale provider escape into the current Anime4K-only product contract.
+    result.insert(QStringLiteral("providerId"), QStringLiteral("anime4k"));
+    QString presetId = validatedId(
+        source, QStringLiteral("presetId"),
+        {QStringLiteral("performance"), QStringLiteral("balanced"),
+         QStringLiteral("quality"), QStringLiteral("custom")},
+        QStringLiteral("balanced"));
+    // Schema 1 used provider=auto and schema 2 used presetExplicit=false as
+    // implicit-selection sentinels. Migrate those states to the product
+    // default while preserving every explicit Anime4K choice.
+    const bool legacyExplicitPreset = sourceSchema == kLegacyUpscalingSettingsSchema
+        ? sourceProvider == QLatin1String("anime4k")
+        : source.value(QStringLiteral("presetExplicit"), false).toBool();
+    if (!providerCanMigrate
+        || (sourceSchema <= kPreviousUpscalingSettingsSchema
+            && !legacyExplicitPreset)) {
+        presetId = QStringLiteral("balanced");
+    }
+    result.insert(QStringLiteral("presetId"), presetId);
+    result.insert(QStringLiteral("autoHeadroom"), boundedInt(
+        source, QStringLiteral("autoHeadroom"), 10, 40, 20));
+    result.insert(QStringLiteral("anime4kMode"), validatedId(
+        source, QStringLiteral("anime4kMode"),
+        {QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c")},
+        QStringLiteral("a")));
+    result.insert(QStringLiteral("anime4kModelSize"), validatedId(
+        source, QStringLiteral("anime4kModelSize"),
+        {QStringLiteral("s"), QStringLiteral("m"), QStringLiteral("l"),
+         QStringLiteral("vl"), QStringLiteral("ul")}, QStringLiteral("vl")));
+    result.insert(QStringLiteral("anime4kRestorePasses"), boundedInt(
+        source, QStringLiteral("anime4kRestorePasses"), 1, 2, 1));
+    result.insert(QStringLiteral("anime4kAutoDownscale"),
+        source.value(QStringLiteral("anime4kAutoDownscale"), true).toBool());
+    result.insert(QStringLiteral("performanceProtection"),
+        source.value(QStringLiteral("performanceProtection"), true).toBool());
+    return result;
+}
 
 bool isLibrarySortModeValid(int sortMode)
 {
@@ -142,6 +239,7 @@ bool HomeViewModel::activityRefreshing() const { return m_port && m_port->activi
 bool HomeViewModel::collectionLoading() const { return m_port && m_port->collectionLoading(); }
 bool HomeViewModel::collectionFetching() const { return m_port && m_port->collectionFetching(); }
 bool HomeViewModel::libraryLoadFailed() const { return m_port && m_port->libraryLoadFailed(); }
+bool HomeViewModel::activityLoadFailed() const { return m_port && m_port->activityLoadFailed(); }
 QString HomeViewModel::collectionDisplayedId() const { return m_port ? m_port->collectionDisplayedId() : QString(); }
 QString HomeViewModel::collectionTargetId() const { return m_port ? m_port->collectionTargetId() : QString(); }
 QString HomeViewModel::collectionErrorId() const { return m_port ? m_port->collectionErrorId() : QString(); }
@@ -162,6 +260,23 @@ void HomeViewModel::refreshActivity()
     m_activityState->begin(QStringLiteral("activity"), 0, 0, true);
     const CatalogPort::RequestDisposition disposition = m_port
         ? m_port->refreshActivity() : CatalogPort::RequestDisposition::Rejected;
+    settleCatalogDisposition(m_activityState, disposition, true,
+        tr("Activity is unavailable without an active server session."));
+}
+
+void HomeViewModel::ensureActivityFresh()
+{
+    m_activityState->begin(QStringLiteral("activity"), 0, 0, true);
+    const CatalogPort::RequestDisposition disposition = m_port
+        ? m_port->ensureActivityFresh()
+        : CatalogPort::RequestDisposition::Rejected;
+    if (disposition == CatalogPort::RequestDisposition::AlreadyCurrent
+        && m_port && m_port->activityLoadFailed()) {
+        m_activityState->reject(m_activityState->requestId(),
+            m_activityState->resourceKey(), 0, 0,
+            tr("Activity could not be refreshed."));
+        return;
+    }
     settleCatalogDisposition(m_activityState, disposition, true,
         tr("Activity is unavailable without an active server session."));
 }
@@ -208,8 +323,14 @@ void HomeViewModel::settleResources()
     if ((m_activityState->phase() == AsyncResourceState::Phase::Loading
             || m_activityState->phase() == AsyncResourceState::Phase::Refreshing)
         && !m_port->activityRefreshing()) {
-        m_activityState->resolve(m_activityState->requestId(),
-            m_activityState->resourceKey(), 0, 0, true);
+        if (m_port->activityLoadFailed()) {
+            m_activityState->reject(m_activityState->requestId(),
+                m_activityState->resourceKey(), 0, 0,
+                tr("Activity could not be refreshed."));
+        } else {
+            m_activityState->resolve(m_activityState->requestId(),
+                m_activityState->resourceKey(), 0, 0, true);
+        }
     }
     if ((m_collectionState->phase() == AsyncResourceState::Phase::Loading
             || m_collectionState->phase() == AsyncResourceState::Phase::Refreshing)
@@ -224,6 +345,98 @@ void HomeViewModel::settleResources()
                 m_port->collectionParent());
         }
     }
+}
+
+SearchViewModel::SearchViewModel(SearchPort *port, QObject *parent)
+    : QObject(parent), m_port(port)
+{
+    if (port) {
+        connect(port, &SearchPort::stateChanged,
+            this, &SearchViewModel::stateChanged);
+    }
+}
+
+MediaQueryModel *SearchViewModel::results() const
+{
+    return m_port ? m_port->resultsModel() : nullptr;
+}
+
+MediaQueryModel *SearchViewModel::titleResults() const
+{
+    return m_port ? m_port->titleResultsModel() : nullptr;
+}
+
+MediaQueryModel *SearchViewModel::episodeResults() const
+{
+    return m_port ? m_port->episodeResultsModel() : nullptr;
+}
+
+QAbstractItemModel *SearchViewModel::resultRows() const
+{
+    return m_port ? m_port->resultRowsModel() : nullptr;
+}
+
+QString SearchViewModel::query() const
+{
+    return m_port ? m_port->query() : QString();
+}
+
+bool SearchViewModel::searching() const
+{
+    return m_port && m_port->searching();
+}
+
+bool SearchViewModel::syncing() const
+{
+    return m_port && m_port->syncing();
+}
+
+bool SearchViewModel::complete() const
+{
+    return m_port && m_port->complete();
+}
+
+qint64 SearchViewModel::cachedCount() const
+{
+    return m_port ? m_port->cachedCount() : 0;
+}
+
+qint64 SearchViewModel::totalCount() const
+{
+    return m_port ? m_port->totalCount() : -1;
+}
+
+qint64 SearchViewModel::totalMatches() const
+{
+    return m_port ? m_port->totalMatches() : 0;
+}
+
+bool SearchViewModel::hasMore() const
+{
+    return m_port && m_port->hasMore();
+}
+
+QString SearchViewModel::error() const
+{
+    return m_port ? m_port->error() : QString();
+}
+
+void SearchViewModel::inputPending()
+{
+    if (m_port)
+        m_port->inputPending();
+}
+
+void SearchViewModel::submit(const QString &query)
+{
+    if (m_port)
+        m_port->requestSearch(query);
+}
+
+void SearchViewModel::refresh()
+{
+    if (m_port)
+        m_port->refresh();
 }
 
 FavoritesViewModel::FavoritesViewModel(CatalogPort *port, QObject *parent)
@@ -856,6 +1069,37 @@ PreferencesViewModel::PreferencesViewModel(QObject *parent) : QObject(parent)
         .toInt(&converted);
     m_librarySortMode = converted && isLibrarySortModeValid(storedSortMode)
         ? storedSortMode : kDefaultLibrarySortMode;
+
+    QSettings settings;
+    const int schema = settings.value(
+        QStringLiteral("playback/upscaling/schema"), 0).toInt();
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(
+        settings.value(QStringLiteral("playback/upscaling/settingsJson"))
+            .toByteArray(),
+        &parseError);
+    const bool supportedSchema = schema == kUpscalingSettingsSchema
+        || schema == kPreviousUpscalingSettingsSchema
+        || schema == kLegacyUpscalingSettingsSchema;
+    const QVariantMap storedUpscalingSettings = document.isObject()
+        ? document.object().toVariantMap() : QVariantMap {};
+    m_upscalingSettings = supportedSchema
+            && parseError.error == QJsonParseError::NoError
+            && document.isObject()
+        ? sanitizeUpscalingSettings(storedUpscalingSettings, schema)
+        : defaultUpscalingSettings();
+    if (supportedSchema && parseError.error == QJsonParseError::NoError
+        && document.isObject()
+        && (schema != kUpscalingSettingsSchema
+            || storedUpscalingSettings != m_upscalingSettings)) {
+        settings.setValue(
+            QStringLiteral("playback/upscaling/settingsJson"),
+            QJsonDocument::fromVariant(m_upscalingSettings).toJson(
+                QJsonDocument::Compact));
+        settings.setValue(
+            QStringLiteral("playback/upscaling/schema"),
+            kUpscalingSettingsSchema);
+    }
 }
 
 QVariantMap PreferencesViewModel::danmakuStyle() const
@@ -893,6 +1137,28 @@ void PreferencesViewModel::saveDanmakuStyle(const QVariantMap &style)
     emit danmakuStyleChanged();
 }
 
+void PreferencesViewModel::saveUpscalingSettings(const QVariantMap &settings)
+{
+    QVariantMap merged = m_upscalingSettings;
+    for (auto iterator = settings.cbegin(); iterator != settings.cend(); ++iterator)
+        merged.insert(iterator.key(), iterator.value());
+    const QVariantMap sanitized = sanitizeUpscalingSettings(
+        merged, kUpscalingSettingsSchema);
+    if (sanitized == m_upscalingSettings)
+        return;
+
+    m_upscalingSettings = sanitized;
+    QSettings persistent;
+    persistent.setValue(
+        QStringLiteral("playback/upscaling/settingsJson"),
+        QJsonDocument::fromVariant(m_upscalingSettings).toJson(
+            QJsonDocument::Compact));
+    persistent.setValue(
+        QStringLiteral("playback/upscaling/schema"),
+        kUpscalingSettingsSchema);
+    emit upscalingSettingsChanged();
+}
+
 void PreferencesViewModel::setLibrarySortMode(int sortMode)
 {
     if (!isLibrarySortModeValid(sortMode) || m_librarySortMode == sortMode)
@@ -926,6 +1192,7 @@ void ApplicationViewModel::initialize(const BackendPortSet &ports)
 {
     m_session = new SessionViewModel(ports.session, this);
     m_home = new HomeViewModel(ports.catalog, this);
+    m_search = new SearchViewModel(ports.search, this);
     m_favorites = new FavoritesViewModel(ports.catalog, this);
     m_playback = new PlaybackViewModel(
         ports.playback, ports.playbackReporter, this);
@@ -935,8 +1202,21 @@ void ApplicationViewModel::initialize(const BackendPortSet &ports)
     m_metadataEditor = new MetadataEditorViewModel(ports.media, this);
     m_mediaTarget = new MediaTargetFlowViewModel(ports.media, this);
     m_preferences = new PreferencesViewModel(this);
+    m_upscaling = new UpscalingViewModel(m_preferences, this);
+    m_diagnostics = new DiagnosticsViewModel(this);
     m_status = new ApplicationStatusViewModel(ports.status, this);
     m_updates = new UpdateChecker(this);
+
+    connect(m_playback, &PlaybackViewModel::ready, this,
+        [this](const QVariantMap &descriptor) {
+            const QVariantMap context = descriptor
+                .value(QStringLiteral("playbackContext")).toMap();
+            m_playbackSeriesId =
+                context.value(QStringLiteral("kind")).toString()
+                        == QStringLiteral("series")
+                ? context.value(QStringLiteral("sourceId")).toString().trimmed()
+                : QString{};
+        });
 
     const QPointer<SessionPort> session = ports.session;
     if (session) {
@@ -947,6 +1227,8 @@ void ApplicationViewModel::initialize(const BackendPortSet &ports)
                 if (!session || session->generation() == m_sessionGeneration)
                     return;
                 m_sessionGeneration = session->generation();
+                ++m_playbackActivityReconcileRevision;
+                m_playbackSeriesId.clear();
                 m_imageEditor->setSessionGeneration(m_sessionGeneration);
                 m_metadataEditor->invalidateSession();
                 m_mediaTarget->cancel();
@@ -960,14 +1242,58 @@ void ApplicationViewModel::initialize(const BackendPortSet &ports)
         connect(ports.playback, &PlaybackPort::stoppedReported, this,
             [this, catalog, session] {
                 const quint64 generation = session ? session->generation() : 0;
-                QTimer::singleShot(800, this, [catalog, session, generation] {
+                const quint64 reconcileRevision =
+                    ++m_playbackActivityReconcileRevision;
+                const QString displayedCollectionId =
+                    catalog->collectionDisplayedId();
+                const QVariantMap displayedCollectionParent =
+                    catalog->collectionParent();
+                QString continuationSeriesId = m_playbackSeriesId;
+                if (continuationSeriesId.isEmpty()
+                    && catalog->collectionTargetId() == displayedCollectionId) {
+                    const QString parentType = displayedCollectionParent
+                        .value(QStringLiteral("itemType")).toString();
+                    if (parentType == QStringLiteral("Series")) {
+                        continuationSeriesId = displayedCollectionId;
+                    } else if (parentType == QStringLiteral("Season")) {
+                        continuationSeriesId = displayedCollectionParent
+                            .value(QStringLiteral("seriesId")).toString();
+                    }
+                }
+                const QString seriesCollectionId =
+                    catalog->collectionTargetId() == displayedCollectionId
+                        && displayedCollectionParent
+                               .value(QStringLiteral("itemType")).toString()
+                            == QStringLiteral("Series")
+                    ? displayedCollectionId
+                    : QString{};
+                catalog->invalidateActivity();
+                catalog->invalidateSeriesContinue(continuationSeriesId);
+                QTimer::singleShot(800, this,
+                    [this, catalog, session, generation, reconcileRevision,
+                     seriesCollectionId] {
                     if (catalog
+                        && reconcileRevision
+                            == m_playbackActivityReconcileRevision
                         && (!session || session->generation() == generation)) {
-                        catalog->refreshActivity();
+                        catalog->ensureActivityFresh();
+                        if (!seriesCollectionId.isEmpty()
+                            && catalog->collectionDisplayedId()
+                                == seriesCollectionId
+                            && catalog->collectionTargetId()
+                                == seriesCollectionId
+                            && catalog->collectionParent()
+                                   .value(QStringLiteral("itemType")).toString()
+                                == QStringLiteral("Series")) {
+                            catalog->refreshCollection(seriesCollectionId);
+                        }
                     }
                 });
-                QTimer::singleShot(3200, this, [catalog, session, generation] {
+                QTimer::singleShot(3200, this,
+                    [this, catalog, session, generation, reconcileRevision] {
                     if (catalog
+                        && reconcileRevision
+                            == m_playbackActivityReconcileRevision
                         && (!session || session->generation() == generation)) {
                         catalog->refreshActivity();
                     }
@@ -978,6 +1304,16 @@ void ApplicationViewModel::initialize(const BackendPortSet &ports)
         connect(m_mediaActions, &MediaActionsViewModel::playedChanged, this,
             [this, catalog, session](const QString &, bool,
                 const QVariantMap &result) {
+                QSet<QString> affectedSeriesIds;
+                for (const QVariant &value :
+                     result.value(QStringLiteral("affectedItems")).toList()) {
+                    const QString seriesId = value.toMap()
+                        .value(QStringLiteral("seriesId")).toString().trimmed();
+                    if (!seriesId.isEmpty())
+                        affectedSeriesIds.insert(seriesId);
+                }
+                for (const QString &seriesId : affectedSeriesIds)
+                    catalog->invalidateSeriesContinue(seriesId);
                 if (result.value(QStringLiteral("reconcileComplete"), true).toBool())
                     return;
                 const quint64 generation = session ? session->generation() : 0;

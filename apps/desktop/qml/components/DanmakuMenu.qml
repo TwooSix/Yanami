@@ -32,6 +32,9 @@ AppTransientPopup {
     signal matchRequested(var match, var style)
     signal styleRequested(var style)
 
+    initialFocusTarget: styleRepeater.count > 0
+        ? styleRepeater.itemAt(0).focusTarget : animeInput
+
     function stylePayload() {
         return {
             "fontSize": preferences.fontSize,
@@ -92,6 +95,30 @@ AppTransientPopup {
         manualRevealTimer.restart()
     }
 
+    function revealFocusItem(item) {
+        if (!item)
+            return
+        const position = item.mapToItem(content, 0, 0)
+        const top = position.y - 12
+        const bottom = position.y + item.height + 12
+        if (top < scroller.contentY)
+            scroller.revealContentY(top)
+        else if (bottom > scroller.contentY + scroller.height)
+            scroller.revealContentY(bottom - scroller.height)
+    }
+
+    function activateMatch(match) {
+        if (root.selectedAnime.animeTitle === undefined) {
+            root.chooseAnime(match)
+        } else {
+            root.matchRequested({
+                "episodeId": match.episodeId,
+                "animeTitle": root.selectedAnime.animeTitle || "",
+                "episodeTitle": match.episodeTitle || ""
+            }, root.stylePayload())
+        }
+    }
+
     width: 412
     height: 570
     padding: 12
@@ -132,6 +159,11 @@ AppTransientPopup {
         border.width: 1
         border.color: "#48FFFFFF"
     }
+
+    // Own controller/remote navigation and semantic scrolling in exactly one
+    // place. A second InputModality connection here would apply every right-
+    // stick/page action twice.
+    PopupControllerNavigator { popup: root }
 
     HoverHandler {
         id: popupHover
@@ -205,6 +237,7 @@ AppTransientPopup {
             }
 
             Repeater {
+                id: styleRepeater
                 model: [
                     { "label": qsTr("Size"), "from": 18, "to": 72, "step": 1, "key": "fontSize" },
                     { "label": qsTr("Opacity"), "from": 0.2, "to": 1, "step": 0.01, "key": "opacity" },
@@ -215,6 +248,7 @@ AppTransientPopup {
                 ]
                 delegate: RowLayout {
                     required property var modelData
+                    property alias focusTarget: styleSlider
                     Layout.fillWidth: true
                     spacing: 10
                     Text {
@@ -226,12 +260,18 @@ AppTransientPopup {
                     }
                     AppSlider {
                         id: styleSlider
+                        property bool controllerConsumesHorizontalNavigation: true
                         Layout.fillWidth: true
                         from: modelData.from
                         to: modelData.to
                         stepSize: modelData.step
                         snapMode: Slider.SnapAlways
                         value: preferences[modelData.key]
+                        Accessible.name: modelData.label
+                        onActiveFocusChanged: {
+                            if (activeFocus)
+                                root.revealFocusItem(styleSlider)
+                        }
                         onMoved: {
                             preferences[modelData.key] = value
                             root.styleRequested(root.stylePayload())
@@ -326,6 +366,7 @@ AppTransientPopup {
                         root.styleRequested(root.stylePayload())
                     }
                     contentItem: TextInput {
+                        property bool controllerConsumesHorizontalNavigation: true
                         z: 2
                         text: offsetInput.textFromValue(offsetInput.value, offsetInput.locale)
                         color: Theme.text
@@ -338,6 +379,18 @@ AppTransientPopup {
                         inputMethodHints: Qt.ImhFormattedNumbersOnly
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
+                        Keys.onPressed: event => {
+                            if (InputModality.modality !== InputModality.Controller
+                                    && InputModality.modality !== InputModality.Remote)
+                                return
+                            if (event.key === Qt.Key_Left) {
+                                offsetInput.decrease()
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_Right) {
+                                offsetInput.increase()
+                                event.accepted = true
+                            }
+                        }
                     }
                     background: Rectangle {
                         radius: 12
@@ -382,6 +435,7 @@ AppTransientPopup {
             }
 
             TextField {
+                id: blockedTermsInput
                 Layout.fillWidth: true
                 placeholderText: qsTr("Blocked words, separated by commas")
                 text: preferences.blockedTerms
@@ -392,6 +446,30 @@ AppTransientPopup {
                     preferences.blockedTerms = text
                     root.persistStyle()
                     root.styleRequested(root.stylePayload())
+                }
+                Keys.priority: Keys.BeforeItem
+                Keys.onPressed: event => {
+                    if (InputModality.modality !== InputModality.Controller
+                            && InputModality.modality !== InputModality.Remote)
+                        return
+                    if (event.key === Qt.Key_Menu) {
+                        blockedTermsInput.clear()
+                        event.accepted = true
+                        return
+                    }
+                    if (event.key !== Qt.Key_Up
+                            && event.key !== Qt.Key_Down
+                            && event.key !== Qt.Key_Left
+                            && event.key !== Qt.Key_Right)
+                        return
+                    const forward = event.key === Qt.Key_Down
+                        || event.key === Qt.Key_Right
+                    const target = blockedTermsInput.nextItemInFocusChain(forward)
+                    if (target && target !== blockedTermsInput) {
+                        target.forceActiveFocus(forward
+                            ? Qt.TabFocusReason : Qt.BacktabFocusReason)
+                        event.accepted = true
+                    }
                 }
                 background: Rectangle {
                     radius: 12
@@ -423,12 +501,37 @@ AppTransientPopup {
                     placeholderTextColor: Theme.textMuted
                     selectByMouse: true
                     onAccepted: root.searchRequested(text)
+                    Keys.priority: Keys.BeforeItem
+                    Keys.onPressed: event => {
+                        if (InputModality.modality !== InputModality.Controller
+                                && InputModality.modality !== InputModality.Remote)
+                            return
+                        if (event.key === Qt.Key_Menu) {
+                            animeInput.clear()
+                            event.accepted = true
+                            return
+                        }
+                        if (event.key !== Qt.Key_Up
+                                && event.key !== Qt.Key_Down
+                                && event.key !== Qt.Key_Left
+                                && event.key !== Qt.Key_Right)
+                            return
+                        const forward = event.key === Qt.Key_Down
+                            || event.key === Qt.Key_Right
+                        const target = animeInput.nextItemInFocusChain(forward)
+                        if (target && target !== animeInput) {
+                            target.forceActiveFocus(forward
+                                ? Qt.TabFocusReason : Qt.BacktabFocusReason)
+                            event.accepted = true
+                        }
+                    }
                     background: Rectangle {
                         radius: 12; color: "#14FFFFFF"; border.width: 1
                         border.color: parent.activeFocus ? Theme.accent : Theme.outline
                     }
                 }
                 AppButton {
+                    id: searchButton
                     kind: "secondary"
                     text: qsTr("Search")
                     controlSize: 40
@@ -442,6 +545,7 @@ AppTransientPopup {
                 Layout.fillWidth: true
                 spacing: 8
                 AppButton {
+                    id: animeBackButton
                     kind: "ghost"
                     iconOnly: true
                     iconName: "back"
@@ -491,8 +595,28 @@ AppTransientPopup {
                         required property var modelData
                         width: matchList.width
                         height: 54
+                        activeFocusOnTab: true
                         radius: 12
-                        color: matchMouse.containsMouse ? "#20FFFFFF" : "#0DFFFFFF"
+                        color: matchRow.activeFocus || matchMouse.containsMouse
+                            ? "#20FFFFFF" : "#0DFFFFFF"
+                        border.width: matchRow.activeFocus ? 2 : 0
+                        border.color: Theme.accent
+                        Accessible.role: Accessible.ListItem
+                        Accessible.name: root.selectedAnime.animeTitle !== undefined
+                            ? String(modelData.episodeTitle || qsTr("Unknown episode"))
+                            : String(modelData.animeTitle || qsTr("Unknown anime"))
+                        Keys.onPressed: event => {
+                            if (event.key === Qt.Key_Return
+                                    || event.key === Qt.Key_Enter
+                                    || event.key === Qt.Key_Space) {
+                                root.activateMatch(matchRow.modelData)
+                                event.accepted = true
+                            }
+                        }
+                        onActiveFocusChanged: {
+                            if (activeFocus)
+                                root.revealFocusItem(matchRow)
+                        }
                         Column {
                             anchors.left: parent.left
                             anchors.right: parent.right
@@ -529,18 +653,7 @@ AppTransientPopup {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                if (root.selectedAnime.animeTitle === undefined) {
-                                    root.chooseAnime(modelData)
-                                } else {
-                                    const choice = {
-                                        "episodeId": modelData.episodeId,
-                                        "animeTitle": root.selectedAnime.animeTitle || "",
-                                        "episodeTitle": modelData.episodeTitle || ""
-                                    }
-                                    root.matchRequested(choice, root.stylePayload())
-                                }
-                            }
+                            onClicked: root.activateMatch(matchRow.modelData)
                         }
                     }
                 }
@@ -560,11 +673,34 @@ AppTransientPopup {
                     model: root.matches
 
                     delegate: Rectangle {
+                        id: directMatchRow
                         required property var modelData
                         width: directMatchList.width
                         height: 52
+                        activeFocusOnTab: true
                         radius: 12
-                        color: directMatchMouse.containsMouse ? "#20FFFFFF" : "#0DFFFFFF"
+                        color: directMatchRow.activeFocus
+                                || directMatchMouse.containsMouse
+                            ? "#20FFFFFF" : "#0DFFFFFF"
+                        border.width: directMatchRow.activeFocus ? 2 : 0
+                        border.color: Theme.accent
+                        Accessible.role: Accessible.ListItem
+                        Accessible.name: (modelData.animeTitle || qsTr("Unknown anime"))
+                            + " · " + (modelData.episodeTitle
+                                || qsTr("Unknown episode"))
+                        Keys.onPressed: event => {
+                            if (event.key === Qt.Key_Return
+                                    || event.key === Qt.Key_Enter
+                                    || event.key === Qt.Key_Space) {
+                                root.matchRequested(directMatchRow.modelData,
+                                                    root.stylePayload())
+                                event.accepted = true
+                            }
+                        }
+                        onActiveFocusChanged: {
+                            if (activeFocus)
+                                root.revealFocusItem(directMatchRow)
+                        }
                         Text {
                             anchors.left: parent.left
                             anchors.right: parent.right
@@ -582,7 +718,8 @@ AppTransientPopup {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: root.matchRequested(modelData, root.stylePayload())
+                            onClicked: root.matchRequested(
+                                directMatchRow.modelData, root.stylePayload())
                         }
                     }
                 }

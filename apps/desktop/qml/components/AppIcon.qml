@@ -131,6 +131,22 @@ Item {
                     context.arc(knob, y, 2.1, 0, Math.PI * 2)
                     context.fill()
                 }
+            } else if (root.name === "gear") {
+                for (let index = 0; index < 8; ++index) {
+                    const angle = index * Math.PI / 4
+                    context.beginPath()
+                    context.moveTo(12 + Math.cos(angle) * 6.7,
+                                   12 + Math.sin(angle) * 6.7)
+                    context.lineTo(12 + Math.cos(angle) * 9.1,
+                                   12 + Math.sin(angle) * 9.1)
+                    context.stroke()
+                }
+                context.beginPath()
+                context.arc(12, 12, 6.8, 0, Math.PI * 2)
+                context.stroke()
+                context.beginPath()
+                context.arc(12, 12, 2.5, 0, Math.PI * 2)
+                context.stroke()
             } else if (root.name === "window-minimize") {
                 context.beginPath()
                 context.moveTo(5.5, 12)

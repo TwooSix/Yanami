@@ -20,7 +20,8 @@ Item {
         function onRemovedFromPlaylist(itemId, result) {
             host.homePage.playlistEntryRemoved(
                 result.removedPlaylistEntryId || "")
-            host.hostWindow.showActionToast(qsTr("Removed from playlist"))
+            host.hostWindow.showActionToast(
+                qsTr("Removed from playlist"), "success")
         }
         function onItemDeleted(itemId, result) {
             host.deleteConfirm.complete()

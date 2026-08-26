@@ -3,6 +3,7 @@
 #include "RequestCoordinator.hpp"
 
 #include <QJsonObject>
+#include <QPersistentModelIndex>
 #include <QSemaphore>
 #include <QSignalSpy>
 #include <QThreadPool>
@@ -175,6 +176,83 @@ private slots:
                  QStringLiteral("fresh.jpg"));
     }
 
+    void normalizedCacheRoundTripKeepsScopedLatestMediaRows()
+    {
+        MediaStore original;
+        original.setQuery(QStringLiteral("latestSections"), {}, {
+            item(QStringLiteral("tv-view"), QStringLiteral("TV"), QStringLiteral("view.jpg")),
+        });
+        original.setQuery(QStringLiteral("latest"), QStringLiteral("tv-view"), {
+            item(QStringLiteral("series-1"), QStringLiteral("Series"), QStringLiteral("cover.jpg")),
+        });
+        const QJsonObject cache = original.toCacheJson({
+            QStringLiteral("latestsections"), QStringLiteral("latest"),
+        });
+
+        MediaStore restored;
+        QVERIFY(restored.restoreCacheJson(cache));
+        QCOMPARE(restored.queryModel(QStringLiteral("latestSections"))->rowCount(), 1);
+        QCOMPARE(restored.queryModel(
+            QStringLiteral("latest"), QStringLiteral("tv-view"))->rowCount(), 1);
+        QCOMPARE(restored.queryModel(
+            QStringLiteral("latest"), QStringLiteral("tv-view"))
+                ->get(0).value(QStringLiteral("title")).toString(),
+            QStringLiteral("Series"));
+    }
+
+    void scopedSeriesContinueRefreshesMultipleRowsWithoutCrossingSeries()
+    {
+        MediaStore store;
+        MediaQueryModel *seriesA = store.queryModel(
+            QStringLiteral("seriesContinue"), QStringLiteral("series-a"));
+        MediaQueryModel *seriesB = store.queryModel(
+            QStringLiteral("seriesContinue"), QStringLiteral("series-b"));
+
+        store.setQuery(QStringLiteral("seriesContinue"), QStringLiteral("series-a"), {
+            item(QStringLiteral("episode-a9"), QStringLiteral("Nine"),
+                QStringLiteral("a9.jpg"), QStringLiteral("Episode"),
+                QStringLiteral("S01E09")),
+            item(QStringLiteral("episode-a10"), QStringLiteral("Ten"),
+                QStringLiteral("a10.jpg"), QStringLiteral("Episode"),
+                QStringLiteral("S01E10")),
+            item(QStringLiteral("episode-a-s2e1"), QStringLiteral("New season"),
+                QStringLiteral("a-s2e1.jpg"), QStringLiteral("Episode"),
+                QStringLiteral("S02E01")),
+        });
+        store.setQuery(QStringLiteral("seriesContinue"), QStringLiteral("series-b"), {
+            item(QStringLiteral("episode-b2"), QStringLiteral("Two"),
+                QStringLiteral("b2.jpg"), QStringLiteral("Episode"),
+                QStringLiteral("S01E02")),
+        });
+        QCOMPARE(seriesA->rowCount(), 3);
+        QCOMPARE(seriesB->rowCount(), 1);
+        QCOMPARE(seriesA->get(0).value(QStringLiteral("id")).toString(),
+                 QStringLiteral("episode-a9"));
+        QCOMPARE(seriesA->get(2).value(QStringLiteral("subtitle")).toString(),
+                 QStringLiteral("S02E01"));
+
+        store.setQuery(QStringLiteral("seriesContinue"), QStringLiteral("series-a"), {
+            item(QStringLiteral("episode-a10"), QStringLiteral("Ten"),
+                QStringLiteral("a10.jpg"), QStringLiteral("Episode"),
+                QStringLiteral("S01E10")),
+            item(QStringLiteral("episode-a-s2e1"), QStringLiteral("New season"),
+                QStringLiteral("a-s2e1.jpg"), QStringLiteral("Episode"),
+                QStringLiteral("S02E01")),
+        });
+        QCOMPARE(store.queryModel(QStringLiteral("seriesContinue"),
+                     QStringLiteral("series-a")), seriesA);
+        QCOMPARE(seriesA->get(0).value(QStringLiteral("id")).toString(),
+                 QStringLiteral("episode-a10"));
+        QCOMPARE(seriesA->rowCount(), 2);
+        QCOMPARE(seriesB->get(0).value(QStringLiteral("id")).toString(),
+                 QStringLiteral("episode-b2"));
+
+        store.setQuery(
+            QStringLiteral("seriesContinue"), QStringLiteral("series-a"), {});
+        QCOMPARE(seriesA->rowCount(), 0);
+        QCOMPARE(seriesB->rowCount(), 1);
+    }
+
     void staleOrUnchangedSourceVersionCannotRevertMetadata()
     {
         MediaStore store;
@@ -183,19 +261,37 @@ private slots:
         original.insert(QStringLiteral("sourceVersion"), QStringLiteral("v1"));
         original.insert(
             QStringLiteral("sourceUpdatedAt"), QStringLiteral("2026-08-15T00:00:00Z"));
+        original.insert(QStringLiteral("imageItemId"), QStringLiteral("series-owner-v1"));
+        original.insert(QStringLiteral("imageItemType"), QStringLiteral("Series"));
+        original.insert(QStringLiteral("imageTag"), QStringLiteral("poster-v1"));
+        original.insert(QStringLiteral("primaryImageAspectRatio"), 0.67);
         store.setQuery(QStringLiteral("library"), {}, {original});
         store.beginRefreshProtection(QStringLiteral("series-1"));
 
         QVariantMap unchanged = original;
         unchanged.insert(QStringLiteral("title"), QStringLiteral("Stale response"));
+        unchanged.insert(QStringLiteral("imageItemId"), QStringLiteral("stale-owner"));
+        unchanged.insert(QStringLiteral("imageItemType"), QStringLiteral("Episode"));
+        unchanged.insert(QStringLiteral("imageTag"), QStringLiteral("stale-poster"));
+        unchanged.insert(QStringLiteral("primaryImageAspectRatio"), 1.78);
         store.setQuery(QStringLiteral("favorites"), {}, {unchanged});
         QCOMPARE(store.entity(QStringLiteral("series-1"))
                      .value(QStringLiteral("title")).toString(),
                  QStringLiteral("Original"));
+        QCOMPARE(store.entity(QStringLiteral("series-1"))
+                     .value(QStringLiteral("imageItemId")).toString(),
+                 QStringLiteral("series-owner-v1"));
+        QCOMPARE(store.entity(QStringLiteral("series-1"))
+                     .value(QStringLiteral("imageTag")).toString(),
+                 QStringLiteral("poster-v1"));
 
         QVariantMap fresh = original;
         fresh.insert(QStringLiteral("title"), QStringLiteral("Refreshed"));
         fresh.insert(QStringLiteral("imageUrl"), QStringLiteral("new.jpg"));
+        fresh.insert(QStringLiteral("imageItemId"), QStringLiteral("series-owner-v2"));
+        fresh.insert(QStringLiteral("imageItemType"), QStringLiteral("Series"));
+        fresh.insert(QStringLiteral("imageTag"), QStringLiteral("poster-v2"));
+        fresh.insert(QStringLiteral("primaryImageAspectRatio"), 0.71);
         fresh.insert(QStringLiteral("sourceVersion"), QStringLiteral("v2"));
         fresh.insert(
             QStringLiteral("sourceUpdatedAt"), QStringLiteral("2026-08-15T00:01:00Z"));
@@ -203,11 +299,20 @@ private slots:
         QCOMPARE(store.entity(QStringLiteral("series-1"))
                      .value(QStringLiteral("imageUrl")).toString(),
                  QStringLiteral("new.jpg"));
+        QCOMPARE(store.entity(QStringLiteral("series-1"))
+                     .value(QStringLiteral("imageItemId")).toString(),
+                 QStringLiteral("series-owner-v2"));
+        QCOMPARE(store.entity(QStringLiteral("series-1"))
+                     .value(QStringLiteral("imageTag")).toString(),
+                 QStringLiteral("poster-v2"));
 
         store.patchEntity(original);
         QCOMPARE(store.entity(QStringLiteral("series-1"))
                      .value(QStringLiteral("title")).toString(),
                  QStringLiteral("Refreshed"));
+        QCOMPARE(store.entity(QStringLiteral("series-1"))
+                     .value(QStringLiteral("imageItemId")).toString(),
+                 QStringLiteral("series-owner-v2"));
     }
 
     void proxyFiltersSearchAndFavoriteCategories()
@@ -218,7 +323,7 @@ private slots:
             item(QStringLiteral("movie-1"), QStringLiteral("Another Story"), QStringLiteral("2.jpg"),
                  QStringLiteral("Movie")),
         });
-        MediaQueryProxyModel search;
+        MediaSearchModel search;
         search.setSourceModel(store.libraryModel());
         search.setRequireSearchText(true);
         QCOMPARE(search.rowCount(), 0);
@@ -233,6 +338,213 @@ private slots:
         QCOMPARE(movies.rowCount(), 1);
         QCOMPARE(movies.get(0).value(QStringLiteral("id")).toString(),
                  QStringLiteral("movie-1"));
+    }
+
+    void searchIndexPreservesExistingCaseAndFieldSemanticsWithLivePatches()
+    {
+        MediaStore store;
+        QVariantMap sourceItem = item(
+            QStringLiteral("series-1"),
+            QStringLiteral("ＡＢＣ Café"),
+            QStringLiteral("1.jpg"),
+            QStringLiteral("Series"),
+            QStringLiteral("Finale Special"));
+        sourceItem.insert(
+            QStringLiteral("aliases"),
+            QVariantList{QStringLiteral("hidden alias")});
+        store.setQuery(QStringLiteral("library"), {}, {sourceItem});
+
+        MediaSearchModel search;
+        search.setSourceModel(store.libraryModel());
+        search.setRequireSearchText(true);
+
+        search.setSearchText(QStringLiteral("ＡＢＣ CAFÉ"));
+        QCOMPARE(search.rowCount(), 1);
+        search.setSearchText(QStringLiteral("abc CAFÉ"));
+        QCOMPARE(search.rowCount(), 0);
+        search.setSearchText(QStringLiteral("finale"));
+        QCOMPARE(search.rowCount(), 1);
+        search.setSearchText(QStringLiteral("hidden alias"));
+        QCOMPARE(search.rowCount(), 0);
+
+        store.patchEntity({
+            {QStringLiteral("id"), QStringLiteral("series-1")},
+            {QStringLiteral("title"), QStringLiteral("Renamed Series")},
+        });
+        QSignalSpy searchChanged(&search, &QAbstractItemModel::dataChanged);
+        search.setSearchText(QStringLiteral("renamed"));
+        QCOMPARE(search.rowCount(), 1);
+        store.patchEntity({
+            {QStringLiteral("id"), QStringLiteral("series-1")},
+            {QStringLiteral("imageUrl"), QStringLiteral("updated.jpg")},
+        });
+        QCOMPARE(searchChanged.count(), 1);
+        QCOMPARE(search.get(0).value(QStringLiteral("imageUrl")).toString(),
+                 QStringLiteral("updated.jpg"));
+        search.setSearchText(QStringLiteral("abc"));
+        QCOMPARE(search.rowCount(), 0);
+    }
+
+    void indexedSearchMatchesLegacyCaseInsensitiveFieldPredicate()
+    {
+        const QVariantList items {
+            item(QStringLiteral("1"), QStringLiteral("Straße"), {},
+                 QStringLiteral("Series"), QStringLiteral("Finale")),
+            item(QStringLiteral("2"), QStringLiteral("STRASSE"), {},
+                 QStringLiteral("Series"), QStringLiteral("İstanbul")),
+            item(QStringLiteral("3"), QStringLiteral("ＡＢＣ Café"), {},
+                 QStringLiteral("Series"), QStringLiteral("银河列车")),
+            item(QStringLiteral("4"), QStringLiteral("Cafe\u0301"), {},
+                 QStringLiteral("Series"), QStringLiteral("Emoji 😀")),
+        };
+        MediaStore store;
+        store.setQuery(QStringLiteral("library"), {}, items);
+        MediaSearchModel search;
+        search.setRequireSearchText(true);
+        search.setSourceModel(store.libraryModel());
+
+        const QStringList queries {
+            QStringLiteral("straße"),
+            QStringLiteral("STRASSE"),
+            QStringLiteral("istanbul"),
+            QStringLiteral("İST"),
+            QStringLiteral("abc"),
+            QStringLiteral("ＡＢＣ"),
+            QStringLiteral("CAFÉ"),
+            QStringLiteral("cafe\u0301"),
+            QStringLiteral("银河"),
+            QStringLiteral("😀"),
+            QStringLiteral("missing"),
+        };
+        for (const QString &query : queries) {
+            int expected = 0;
+            for (const QVariant &value : items) {
+                const QVariantMap sourceItem = value.toMap();
+                if (sourceItem.value(QStringLiteral("title")).toString().contains(
+                        query, Qt::CaseInsensitive)
+                    || sourceItem.value(QStringLiteral("subtitle")).toString().contains(
+                        query, Qt::CaseInsensitive)
+                    || sourceItem.value(QStringLiteral("seriesTitle")).toString().contains(
+                        query, Qt::CaseInsensitive)) {
+                    ++expected;
+                }
+            }
+            search.setSearchText(query);
+            QCOMPARE(search.rowCount(), expected);
+        }
+    }
+
+    void batchPatchCoalescesModelNotificationsAndKeepsSearchRowsLive()
+    {
+        MediaStore store;
+        store.setQuery(QStringLiteral("library"), {}, {
+            item(QStringLiteral("series-1"), QStringLiteral("Series One"), QStringLiteral("1.jpg")),
+            item(QStringLiteral("series-2"), QStringLiteral("Series Two"), QStringLiteral("2.jpg")),
+            item(QStringLiteral("series-3"), QStringLiteral("Series Three"), QStringLiteral("3.jpg")),
+        });
+        MediaSearchModel search;
+        search.setRequireSearchText(true);
+        search.setSourceModel(store.libraryModel());
+        search.setSearchText(QStringLiteral("series"));
+        QCOMPARE(search.rowCount(), 3);
+
+        QSignalSpy sourceChanged(store.libraryModel(), &QAbstractItemModel::dataChanged);
+        QSignalSpy searchChanged(&search, &QAbstractItemModel::dataChanged);
+        QSignalSpy entityChanged(&store, &MediaStore::entityChanged);
+        store.patchEntities({
+            QVariantMap{
+                {QStringLiteral("id"), QStringLiteral("series-1")},
+                {QStringLiteral("title"), QStringLiteral("Series One Updated")},
+            },
+            QVariantMap{
+                {QStringLiteral("id"), QStringLiteral("series-3")},
+                {QStringLiteral("imageUrl"), QStringLiteral("updated.jpg")},
+            },
+        });
+
+        QCOMPARE(sourceChanged.count(), 1);
+        QCOMPARE(searchChanged.count(), 1);
+        QCOMPARE(entityChanged.count(), 2);
+        QCOMPARE(search.rowCount(), 3);
+        QCOMPARE(search.get(0).value(QStringLiteral("title")).toString(),
+                 QStringLiteral("Series One Updated"));
+        QCOMPARE(search.get(2).value(QStringLiteral("imageUrl")).toString(),
+                 QStringLiteral("updated.jpg"));
+        search.setSearchText(QStringLiteral("updated"));
+        QCOMPARE(search.rowCount(), 1);
+        QCOMPARE(search.get(0).value(QStringLiteral("id")).toString(),
+                 QStringLiteral("series-1"));
+    }
+
+    void searchIndexRebuildsOnceAfterSourceReorder()
+    {
+        MediaStore store;
+        const QVariantMap one = item(
+            QStringLiteral("series-1"), QStringLiteral("Series One"), QStringLiteral("1.jpg"));
+        const QVariantMap two = item(
+            QStringLiteral("series-2"), QStringLiteral("Series Two"), QStringLiteral("2.jpg"));
+        const QVariantMap three = item(
+            QStringLiteral("series-3"), QStringLiteral("Series Three"), QStringLiteral("3.jpg"));
+        store.setQuery(QStringLiteral("library"), {}, {one, two, three});
+        MediaSearchModel search;
+        search.setRequireSearchText(true);
+        search.setSourceModel(store.libraryModel());
+        search.setSearchText(QStringLiteral("series"));
+
+        QSignalSpy resets(&search, &QAbstractItemModel::modelReset);
+        QSignalSpy layouts(&search, &QAbstractItemModel::layoutChanged);
+        QSignalSpy sourceLayouts(
+            store.libraryModel(), &QAbstractItemModel::layoutChanged);
+        QSignalSpy sourceMoves(
+            store.libraryModel(), &QAbstractItemModel::rowsMoved);
+        const QPersistentModelIndex firstSourceItem(
+            store.libraryModel()->index(0, 0));
+        const QPersistentModelIndex firstItem(search.index(0, 0));
+        store.setQuery(QStringLiteral("library"), {}, {three, one, two});
+
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(layouts.count(), 1);
+        QCOMPARE(sourceLayouts.count(), 1);
+        QCOMPARE(sourceMoves.count(), 0);
+        QCOMPARE(search.rowCount(), 3);
+        QCOMPARE(search.get(0).value(QStringLiteral("id")).toString(),
+                 QStringLiteral("series-3"));
+        QCOMPARE(search.get(1).value(QStringLiteral("id")).toString(),
+                 QStringLiteral("series-1"));
+        QCOMPARE(firstItem.row(), 1);
+        QCOMPARE(firstItem.data(MediaQueryModel::EntityIdRole).toString(),
+                 QStringLiteral("series-1"));
+        QCOMPARE(firstSourceItem.row(), 1);
+        QCOMPARE(firstSourceItem.data(MediaQueryModel::EntityIdRole).toString(),
+                 QStringLiteral("series-1"));
+    }
+
+    void searchForwardsDecorationOnlyRefreshAfterRowSynchronization()
+    {
+        MediaStore store;
+        store.setQuery(QStringLiteral("library"), {}, {
+            item(QStringLiteral("series-1"), QStringLiteral("Series One"),
+                 QStringLiteral("1.jpg"), QStringLiteral("Series"),
+                 QStringLiteral("Old subtitle")),
+        });
+        MediaSearchModel search;
+        search.setRequireSearchText(true);
+        search.setSourceModel(store.libraryModel());
+        search.setSearchText(QStringLiteral("series"));
+        QCOMPARE(search.rowCount(), 1);
+
+        QSignalSpy changed(&search, &QAbstractItemModel::dataChanged);
+        QSignalSpy resets(&search, &QAbstractItemModel::modelReset);
+        store.setQuery(QStringLiteral("library"), {}, {
+            item(QStringLiteral("series-1"), QStringLiteral("Series One"),
+                 QStringLiteral("1.jpg"), QStringLiteral("Series"),
+                 QStringLiteral("New subtitle")),
+        });
+
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(search.get(0).value(QStringLiteral("subtitle")).toString(),
+                 QStringLiteral("New subtitle"));
     }
 
     void latestRequestSupersedesOnlyItsLane()

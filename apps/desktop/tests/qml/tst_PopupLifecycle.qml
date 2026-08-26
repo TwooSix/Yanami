@@ -186,6 +186,24 @@ TestCase {
         onVolumeRequested: value => testCase.requestedVolume = value
     }
 
+    Item {
+        id: hiddenVolumeChromeFixture
+        parent: surface
+        x: 500
+        y: 390
+        z: 10
+        width: 38
+        height: 38
+        visible: false
+
+        VolumeControl {
+            id: hiddenVolumeControlFixture
+            anchors.fill: parent
+            volume: 64
+            popupHost: surface
+        }
+    }
+
     Rectangle {
         id: applicationChromeFixture
         parent: surface
@@ -250,6 +268,8 @@ TestCase {
     LibraryCard {
         id: keyboardLibraryCard
         parent: surface
+        width: implicitWidth
+        height: implicitHeight
         visible: false
         title: "Library"
         subtitle: "3 items"
@@ -259,6 +279,8 @@ TestCase {
     PosterCard {
         id: keyboardPosterCard
         parent: surface
+        width: implicitWidth
+        height: implicitHeight
         visible: false
         title: "Series"
         subtitle: "2026"
@@ -268,6 +290,8 @@ TestCase {
     EpisodeCard {
         id: keyboardEpisodeCard
         parent: surface
+        width: implicitWidth
+        height: implicitHeight
         visible: false
         title: "Episode"
         subtitle: "S01 E01"
@@ -277,6 +301,8 @@ TestCase {
     RecentEpisodeCard {
         id: keyboardRecentCard
         parent: surface
+        width: implicitWidth
+        height: implicitHeight
         visible: false
         title: "Recent"
         subtitle: "S01 E02"
@@ -448,6 +474,114 @@ TestCase {
         menu.contentItem.opacity = originalOpacity
     }
 
+    function verifyMediaCardInputPresentation(card, activationSpy) {
+        card.visible = true
+        InputModality.noteKeyboardNavigation()
+        card.forceActiveFocus(Qt.TabFocusReason)
+        tryCompare(card, "activeFocus", true)
+        tryCompare(card, "navigationFocusVisible", true)
+
+        const cardSurface = findChild(card, "media-card-surface")
+        const hitArea = findChild(card, "media-card-hit-area")
+        const pointerScrim = findChild(card, "media-card-pointer-scrim")
+        const focusFrame = findChild(card, "media-card-focus-frame")
+        verify(cardSurface !== null, "missing media card surface")
+        verify(hitArea !== null, "missing stable media card hit area")
+        verify(pointerScrim !== null, "missing media card pointer scrim")
+        verify(focusFrame !== null, "missing media card focus frame")
+        compare(hitArea.parent, card,
+                "press animation must not transform the pointer hit area")
+        compare(cardSurface.border.width, 1,
+                "the original surface outline must remain below artwork")
+        compare(focusFrame.visible, true)
+        compare(focusFrame.border.width, 2)
+        verify(focusFrame.z > pointerScrim.z,
+               "focus frame must render above card content")
+        const restingScrimColor = pointerScrim.color.toString()
+        const restingScrimAlpha = pointerScrim.color.a
+
+        // Two distinct global positions avoid the platform service filtering
+        // a synthetic move that happens to match the existing cursor point.
+        mouseMove(card, card.width - 3, cardSurface.height - 3)
+        mouseMove(card, 18, 18)
+        tryCompare(InputModality, "modality", InputModality.Pointer)
+        tryCompare(card, "pointerHovered", true)
+        compare(card.navigationFocusVisible, false)
+        compare(focusFrame.visible, false)
+        compare(pointerScrim.color.toString(), restingScrimColor,
+                "pointer hover must not add a mismatched fill layer")
+
+        mousePress(card, 18, 18, Qt.LeftButton)
+        tryCompare(card, "pointerPressed", true)
+        compare(card.activeFocus, true)
+        compare(card.navigationFocusVisible, false)
+        compare(focusFrame.visible, false)
+        tryVerify(function() {
+            return cardSurface.scale < 1
+        })
+        tryVerify(function() {
+            return pointerScrim.color.a > restingScrimAlpha
+        }, 500, "pointer press must still provide shade feedback")
+        verify(Math.abs(pointerScrim.color.r - pointerScrim.color.g) < 0.001
+               && Math.abs(pointerScrim.color.g - pointerScrim.color.b) < 0.001,
+               "pointer press scrim must remain neutral")
+
+        mouseRelease(card, 18, 18, Qt.LeftButton)
+        tryCompare(card, "pointerPressed", false)
+        tryCompare(activationSpy, "count", 1)
+
+        // Hold at the very edge until the visual press scale has settled.
+        // The release must still activate through the unscaled hit target.
+        const edgeX = hitArea.x + 1
+        const edgeY = hitArea.y + hitArea.height / 2
+        mousePress(card, edgeX, edgeY, Qt.LeftButton)
+        tryCompare(card, "pointerPressed", true)
+        tryVerify(function() { return cardSurface.scale < 1 })
+        mouseRelease(card, edgeX, edgeY, Qt.LeftButton)
+        tryCompare(card, "pointerPressed", false)
+        tryCompare(activationSpy, "count", 2)
+
+        // The semantic focus acquired by the pointer remains useful for the
+        // next navigation input, but pointer hover itself must disappear.
+        InputModality.noteKeyboardNavigation()
+        compare(card.activeFocus, true)
+        tryCompare(card, "navigationFocusVisible", true)
+        compare(focusFrame.visible, true)
+        compare(card.pointerHovered, false)
+        compare(focusFrame.border.width, 2)
+
+        mouseMove(surface, surface.width - 4, surface.height - 4)
+        tryCompare(InputModality, "modality", InputModality.Pointer)
+        tryCompare(card, "navigationFocusVisible", false)
+        compare(focusFrame.visible, false)
+        card.visible = false
+    }
+
+    function verifyMediaCardProgressAlignment(card) {
+        card.visible = true
+        card.progress = 42
+
+        const cardSurface = findChild(card, "media-card-surface")
+        const progressStrip = findChild(card, "media-card-progress-strip")
+        const progressTrack = findChild(card, "media-card-progress-track")
+        verify(cardSurface !== null, "missing media card surface")
+        verify(progressStrip !== null, "missing shared media card progress strip")
+        verify(progressTrack !== null, "missing media card progress track")
+        compare(progressStrip.x, 0)
+        compare(progressStrip.y, 0)
+        compare(progressStrip.width, cardSurface.width)
+        compare(progressStrip.height, cardSurface.height)
+        compare(progressTrack.x, 0)
+        compare(progressTrack.width, cardSurface.width)
+        compare(progressTrack.y + progressTrack.height, cardSurface.height,
+                "progress track must sit exactly on the card bottom edge")
+        compare(progressTrack.height, 4,
+                "media card progress tracks must share one thickness")
+
+        card.progress = 0
+        card.visible = false
+    }
+
     function init() {
         testCase.navigationCount = 0
         testCase.surfaceClickCount = 0
@@ -489,6 +623,9 @@ TestCase {
         volumeControlFixture.closePopup()
         volumeControlFixture.volume = 64
         volumeControlFixture.visible = false
+        hiddenVolumeControlFixture.closePopup()
+        hiddenVolumeChromeFixture.x = 500
+        hiddenVolumeChromeFixture.y = 390
         popupSwitchFixture.visible = false
         menuSwitchFixture.visible = false
         applicationChromeFixture.visible = false
@@ -593,6 +730,97 @@ TestCase {
         compare(testCase.requestedVolume, 0)
     }
 
+    function test_controllerVolumeMeterIsTransientAndKeepsFocus() {
+        volumeControlFixture.visible = true
+        openerFocusTarget.forceActiveFocus(Qt.OtherFocusReason)
+        tryCompare(openerFocusTarget, "activeFocus", true)
+
+        volumeControlFixture.showTransientVolume()
+        tryCompare(volumeControlFixture, "opened", true)
+        compare(openerFocusTarget.activeFocus, true)
+        compare(volumeControlFixture.keyboardInteractionActive, false)
+        compare(PopupCoordinator.blocksApplicationShortcuts, false)
+
+        // A held D-pad or repeated media-volume key must extend the meter
+        // lifetime instead of letting the first press close it mid-input.
+        wait(700)
+        volumeControlFixture.showTransientVolume()
+        wait(700)
+        compare(volumeControlFixture.opened, true)
+        compare(openerFocusTarget.activeFocus, true)
+
+        tryCompare(volumeControlFixture, "opened", false, 700)
+        compare(openerFocusTarget.activeFocus, true)
+    }
+
+    function test_volumeSliderFillEndpointTracksTheHandleCenter() {
+        volumeControlFixture.visible = true
+        volumeControlFixture.showVolume()
+        tryCompare(volumeControlFixture, "opened", true)
+
+        const slider = findChild(volumeControlFixture, "volume-slider")
+        const axis = findChild(volumeControlFixture, "volume-slider-axis")
+        const rail = findChild(volumeControlFixture, "volume-slider-rail")
+        const progress = findChild(
+            volumeControlFixture, "volume-slider-progress")
+        const handle = findChild(
+            volumeControlFixture, "volume-slider-handle")
+        verify(slider !== null, "missing volume slider")
+        verify(axis !== null, "missing volume slider axis")
+        verify(rail !== null, "missing volume slider rail")
+        verify(progress !== null, "missing volume slider progress")
+        verify(handle !== null, "missing volume slider handle")
+
+        const values = [0, 50, 100]
+        for (let index = 0; index < values.length; ++index) {
+            volumeControlFixture.volume = values[index]
+            wait(0)
+            const handleCenter = handle.mapToItem(
+                axis, handle.width / 2, handle.height / 2)
+            const progressTop = progress.mapToItem(
+                axis, progress.width / 2, 0)
+            const railCenter = rail.mapToItem(
+                axis, rail.width / 2, rail.height / 2)
+            verify(Math.abs(handleCenter.x - railCenter.x) < 0.001,
+                   "handle and rail axes diverged at " + values[index])
+            verify(Math.abs(progressTop.x - handleCenter.x) < 0.001,
+                   "fill and handle axes diverged at " + values[index])
+            verify(Math.abs(progressTop.y - handleCenter.y) < 0.001,
+                   "fill endpoint missed handle center at " + values[index])
+        }
+
+        volumeControlFixture.volume = 50
+        wait(0)
+        const centerBeforeHover = handle.mapToItem(
+            axis, handle.width / 2, handle.height / 2)
+        mouseMove(slider, slider.width / 2, slider.height / 2)
+        tryCompare(slider, "hovered", true)
+        wait(130)
+        const centerAfterHover = handle.mapToItem(
+            axis, handle.width / 2, handle.height / 2)
+        verify(Math.abs(centerAfterHover.x - centerBeforeHover.x) < 0.001)
+        verify(Math.abs(centerAfterHover.y - centerBeforeHover.y) < 0.001)
+    }
+
+    function test_controllerVolumeMeterRevealsHiddenPlayerChrome() {
+        compare(hiddenVolumeChromeFixture.visible, false)
+
+        // The control is laid out long before playback input arrives. Move its
+        // hidden chrome first to ensure popup placement is refreshed at show
+        // time instead of retaining construction-time mapToItem() coordinates.
+        hiddenVolumeChromeFixture.x = 420
+        hiddenVolumeChromeFixture.y = 360
+
+        hiddenVolumeControlFixture.showTransientVolume()
+        tryCompare(hiddenVolumeControlFixture, "opened", true)
+        compare(hiddenVolumeChromeFixture.visible, false)
+        compare(Math.round(hiddenVolumeControlFixture.popupPosition.x), 407)
+        compare(Math.round(hiddenVolumeControlFixture.popupPosition.y), 174)
+
+        tryCompare(hiddenVolumeControlFixture, "opened", false, 1600)
+        compare(hiddenVolumeChromeFixture.visible, false)
+    }
+
     function test_transientTopBlankIsNotAssumedToBeWindowChrome() {
         transientPopup.open()
         tryCompare(transientPopup, "opened", true)
@@ -670,6 +898,21 @@ TestCase {
         compare(recentPlaySpy.count, 1)
         keyClick(Qt.Key_F10, Qt.ShiftModifier)
         compare(recentContextSpy.count, 1)
+    }
+
+    function test_mediaCardsSeparatePointerPressFromNavigationFocus() {
+        const cards = [keyboardLibraryCard, keyboardPosterCard,
+                       keyboardEpisodeCard, keyboardRecentCard]
+        const activationSpies = [libraryActivatedSpy, posterActivatedSpy,
+                                 episodePlaySpy, recentPlaySpy]
+        for (let index = 0; index < cards.length; ++index)
+            verifyMediaCardInputPresentation(cards[index], activationSpies[index])
+    }
+
+    function test_mediaCardProgressTracksAlignWithArtworkBottomEdge() {
+        verifyMediaCardProgressAlignment(keyboardPosterCard)
+        verifyMediaCardProgressAlignment(keyboardEpisodeCard)
+        verifyMediaCardProgressAlignment(keyboardRecentCard)
     }
 
     function test_trackMenuFocusesADelegateAndHandlesBoundaryKeys() {

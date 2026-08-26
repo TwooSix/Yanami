@@ -104,7 +104,11 @@ impl Application {
                 reconcile_complete,
             })
         })?;
-        Ok(MediaOutcome::invalidated(item_id, result, &["activity"]))
+        Ok(MediaOutcome::invalidated(
+            item_id,
+            result,
+            &["activity", "collection"],
+        ))
     }
 
     pub fn set_favorite(

@@ -32,8 +32,15 @@ GridView {
 
     function resetScrollPosition() {
         wheelAnimation.stop()
+        root.currentIndex = -1
         root.positionViewAtBeginning()
-        Qt.callLater(root.clampScrollPosition)
+        Qt.callLater(function() {
+            // A GridView can keep a numeric currentIndex across a proxy-model
+            // reset and reveal that stale item during its deferred layout.
+            root.currentIndex = -1
+            root.positionViewAtBeginning()
+            root.clampScrollPosition()
+        })
     }
 
     function clampScrollPosition() {
@@ -44,6 +51,36 @@ GridView {
             root.contentY = minimum
         else if (root.contentY > maximum)
             root.contentY = maximum
+    }
+
+    function prepareForFocusReveal() {
+        wheelAnimation.stop()
+        root.cancelFlick()
+        root.lastWheelTime = 0
+        root.wheelBoost = 1
+    }
+
+    function revealContentY(value) {
+        const minimum = root.originY
+        const maximum = Math.max(minimum,
+            minimum + root.contentHeight - root.height)
+        root.prepareForFocusReveal()
+        root.contentY = Math.max(minimum, Math.min(maximum, value))
+    }
+
+    function scrollContentYBy(delta) {
+        const minimum = root.originY
+        const maximum = Math.max(minimum,
+            minimum + root.contentHeight - root.height)
+        root.cancelFlick()
+        const currentTarget = wheelAnimation.running
+            ? wheelAnimation.to : root.contentY
+        const target = Math.max(minimum, Math.min(maximum,
+            currentTarget + delta))
+        if (Math.abs(target - currentTarget) < 0.5)
+            return
+        wheelAnimation.to = target
+        wheelAnimation.restart()
     }
 
     clip: true
@@ -81,13 +118,7 @@ GridView {
             const rawDelta = event.pixelDelta.y !== 0
                 ? event.pixelDelta.y
                 : event.angleDelta.y * 1.7
-            const currentTarget = wheelAnimation.running ? wheelAnimation.to : root.contentY
-            const minimum = root.originY
-            const maximum = Math.max(minimum,
-                minimum + root.contentHeight - root.height)
-            wheelAnimation.to = Math.max(minimum, Math.min(maximum,
-                currentTarget - rawDelta * root.wheelBoost))
-            wheelAnimation.restart()
+            root.scrollContentYBy(-rawDelta * root.wheelBoost)
             event.accepted = true
         }
     }

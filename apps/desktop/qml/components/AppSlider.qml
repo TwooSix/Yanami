@@ -5,11 +5,15 @@ import Yanami.Ui
 Slider {
     id: control
 
+    property string accessibleName: ""
     property real bufferedValue: from
     readonly property real bufferedVisualPosition: Math.max(0, Math.min(1,
         (bufferedValue - from) / Math.max(0.000001, to - from)))
 
     implicitHeight: 24
+    focusPolicy: Qt.StrongFocus
+    Accessible.role: Accessible.Slider
+    Accessible.name: control.accessibleName
     leftPadding: 0
     rightPadding: 0
     topPadding: 0
@@ -53,9 +57,10 @@ Slider {
         height: width
         radius: width / 2
         color: "white"
-        border.width: 1
-        border.color: "#33000000"
+        border.width: control.visualFocus ? 3 : 1
+        border.color: control.visualFocus ? Theme.accent : "#33000000"
 
         Behavior on width { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+        Behavior on border.color { ColorAnimation { duration: 120 } }
     }
 }

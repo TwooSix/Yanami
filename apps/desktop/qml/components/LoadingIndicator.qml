@@ -7,6 +7,8 @@ Item {
     property real indicatorSize: 28
     property bool running: visible
     property color accentColor: Theme.text
+    property color outlineColor: "transparent"
+    property real outlineWidth: 0
 
     implicitWidth: indicatorSize
     implicitHeight: indicatorSize
@@ -32,6 +34,8 @@ Item {
                     y: 0
                     radius: width / 2
                     color: root.accentColor
+                    border.width: root.outlineWidth
+                    border.color: root.outlineColor
                     opacity: 0.12 + ((index + 1) / 12) * 0.8
                     transform: Rotation {
                         origin.x: width / 2

@@ -7,9 +7,21 @@ Item {
 
     property real volume: 100
     property real lastAudibleVolume: 70
+    // A player can provide a stable, always-visible item from whose Window
+    // overlay the popup is hosted.  The popup must use the overlay's coordinate
+    // system too; Qt reparents Popup visuals there, so coordinates relative to
+    // a faded transport row would otherwise be clamped to the window corner.
+    property Item popupHost: null
     readonly property bool opened: volumePopup.opened
+    readonly property point popupPosition:
+        Qt.point(volumePopup.x, volumePopup.y)
     readonly property bool keyboardInteractionActive: volumePopup.opened
         && (volumeSlider.activeFocus || volumeSlider.pressed)
+    readonly property Item focusTarget: volumeButton
+    property Item navigationLeft: null
+    property Item navigationRight: null
+    property Item navigationUp: null
+    property Item navigationDown: null
     signal volumeRequested(real value)
 
     implicitWidth: 38
@@ -22,11 +34,35 @@ Item {
 
     function showVolume() {
         closeTimer.stop()
+        root.updatePopupPosition()
         if (!volumePopup.opened)
             volumePopup.open()
+        // Popup creates/reparents its visual item while opening. Recalculate
+        // once that has happened so a RowLayout's final position is used.
+        Qt.callLater(root.updatePopupPosition)
+    }
+
+    function popupAnchor() {
+        const host = volumePopup.parent || root.popupHost || root
+        return root.mapToItem(host, root.width / 2, 0)
+    }
+
+    function updatePopupPosition() {
+        if (!volumePopup.parent)
+            return
+        const anchor = root.popupAnchor()
+        volumePopup.x = anchor.x - volumePopup.width / 2
+        volumePopup.y = anchor.y - volumePopup.height - 12
     }
 
     function scheduleClose() {
+        closeTimer.interval = 260
+        closeTimer.restart()
+    }
+
+    function showTransientVolume() {
+        root.showVolume()
+        closeTimer.interval = 1200
         closeTimer.restart()
     }
 
@@ -72,13 +108,20 @@ Item {
                 root.scheduleClose()
         }
         onClicked: root.toggleMuted()
+        KeyNavigation.left: root.navigationLeft
+        KeyNavigation.right: root.navigationRight
+        KeyNavigation.up: root.navigationUp
+        KeyNavigation.down: root.navigationDown
     }
 
     AppTransientPopup {
         id: volumePopup
-        parent: root
-        x: (root.width - width) / 2
-        y: -height - 12
+        parent: {
+            const host = root.popupHost || root
+            return host.Overlay.overlay || host
+        }
+        x: 0
+        y: 0
         width: 64
         height: 174
         padding: 8
@@ -107,6 +150,10 @@ Item {
 
             Slider {
                 id: volumeSlider
+                objectName: "volume-slider"
+                readonly property real handleBoxSize: 18
+                readonly property real axisX: Math.round(
+                    leftPadding + availableWidth / 2)
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.top: parent.top
                 anchors.topMargin: 8
@@ -117,48 +164,71 @@ Item {
                 to: 100
                 value: root.volume
                 live: true
+                hoverEnabled: true
+                leftPadding: 0
+                rightPadding: 0
+                topPadding: 0
+                bottomPadding: 0
                 Accessible.name: qsTr("Volume")
                 onMoved: root.volumeRequested(value)
 
                 background: Item {
-                    x: volumeSlider.leftPadding
-                    y: volumeSlider.topPadding
-                    width: volumeSlider.availableWidth
-                    height: volumeSlider.availableHeight
+                    objectName: "volume-slider-axis"
+                    x: 0
+                    y: 0
+                    width: volumeSlider.width
+                    height: volumeSlider.height
 
                     Rectangle {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: 5
-                        height: parent.height
-                        radius: 2.5
+                        objectName: "volume-slider-rail"
+                        x: volumeSlider.axisX - width / 2
+                        y: volumeSlider.topPadding
+                            + volumeSlider.handleBoxSize / 2
+                        width: 4
+                        height: volumeSlider.availableHeight
+                            - volumeSlider.handleBoxSize
+                        radius: width / 2
                         color: "#34FFFFFF"
                     }
 
                     Rectangle {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.bottom: parent.bottom
-                        width: 5
-                        height: volumeSlider.position * parent.height
-                        radius: 2.5
+                        objectName: "volume-slider-progress"
+                        x: volumeSlider.axisX - width / 2
+                        y: volumeHandle.y + volumeHandle.height / 2
+                        width: 4
+                        height: volumeSlider.topPadding
+                            + volumeSlider.availableHeight
+                            - volumeSlider.handleBoxSize / 2 - y
+                        radius: width / 2
                         color: Theme.accent
                     }
                 }
 
-                handle: Rectangle {
-                    x: volumeSlider.leftPadding
-                        + (volumeSlider.availableWidth - width) / 2
-                    y: volumeSlider.topPadding
+                handle: Item {
+                    id: volumeHandle
+                    objectName: "volume-slider-handle"
+                    x: volumeSlider.axisX - width / 2
+                    y: Math.round(volumeSlider.topPadding
                         + (1 - volumeSlider.position)
-                            * (volumeSlider.availableHeight - height)
-                    width: volumeSlider.pressed || volumeSlider.hovered ? 18 : 15
-                    height: width
-                    radius: width / 2
-                    color: "white"
-                    border.width: 1
-                    border.color: "#33000000"
+                            * (volumeSlider.availableHeight - height))
+                    width: volumeSlider.handleBoxSize
+                    height: volumeSlider.handleBoxSize
 
-                    Behavior on width {
-                        NumberAnimation { duration: 110; easing.type: Easing.OutCubic }
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: volumeSlider.pressed || volumeSlider.hovered ? 18 : 16
+                        height: width
+                        radius: width / 2
+                        color: "white"
+                        border.width: 1
+                        border.color: "#33000000"
+
+                        Behavior on width {
+                            NumberAnimation {
+                                duration: 110
+                                easing.type: Easing.OutCubic
+                            }
+                        }
                     }
                 }
             }
@@ -192,6 +262,30 @@ Item {
         }
 
         onClosed: closeTimer.stop()
+    }
+
+    onXChanged: {
+        if (volumePopup.opened)
+            root.updatePopupPosition()
+    }
+    onYChanged: {
+        if (volumePopup.opened)
+            root.updatePopupPosition()
+    }
+
+    Connections {
+        target: root.popupHost
+        enabled: target !== null
+
+        function onWidthChanged() {
+            if (volumePopup.opened)
+                Qt.callLater(root.updatePopupPosition)
+        }
+
+        function onHeightChanged() {
+            if (volumePopup.opened)
+                Qt.callLater(root.updatePopupPosition)
+        }
     }
 
     Timer {

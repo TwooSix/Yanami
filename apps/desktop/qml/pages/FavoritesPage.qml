@@ -50,6 +50,15 @@ Item {
             || type === "Season" || type === "Video" || type === "MusicVideo"
     }
 
+    function controllerDefaultFocusItem() {
+        const seriesCard = seriesList.itemAtIndex(0)
+        const movieCard = moviesList.itemAtIndex(0)
+        const episodeCard = episodesList.itemAtIndex(0)
+        const otherCard = otherList.itemAtIndex(0)
+        return seriesCard || movieCard || episodeCard || otherCard
+            || (retryButton.visible ? retryButton : null)
+    }
+
     SmoothFlickable {
         id: pageFlickable
         anchors.fill: parent
@@ -369,6 +378,7 @@ Item {
                     }
 
                     AppButton {
+                        id: retryButton
                         visible: root.loadFailed
                         kind: "secondary"
                         text: qsTr("Try again")

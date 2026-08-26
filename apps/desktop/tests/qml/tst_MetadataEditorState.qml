@@ -68,4 +68,42 @@ TestCase {
                     payload("same-item", "fresh"), newGeneration), true)
         compare(editor.loaded, true)
     }
+
+    function test_controllerCanReachSafeHeaderActions() {
+        const generation = editor.beginLoading({
+            id: "controller-item",
+            itemType: "Series"
+        })
+        tryCompare(editor, "opened", true)
+        verify(editor.applyMetadata(
+                   payload("controller-item", "Controller title"),
+                   generation))
+        InputModality.noteControllerNavigation()
+        tryCompare(InputModality, "modality", InputModality.Controller)
+
+        const navigator = findChild(editor, "metadataControllerNavigator")
+        const cancelButton = findChild(editor, "metadataCancelButton")
+        const saveButton = findChild(editor, "metadataSaveButton")
+        verify(navigator)
+        verify(cancelButton)
+        verify(saveButton)
+        verify(saveButton.enabled)
+
+        // Initial focus remains the first field so controller users can edit
+        // immediately. A single Up enters the safe header-action row.
+        verify(navigator.move("up"))
+        verify(cancelButton.activeFocus || saveButton.activeFocus)
+        if (cancelButton.activeFocus)
+            verify(navigator.move("right"))
+        else
+            verify(navigator.move("left"))
+        verify(cancelButton.activeFocus || saveButton.activeFocus)
+
+        // Both actions are on the same explicit spatial row and reachable
+        // from each other without traversing text fields.
+        const firstWasCancel = cancelButton.activeFocus
+        verify(navigator.move(firstWasCancel ? "right" : "left"))
+        compare(cancelButton.activeFocus, !firstWasCancel)
+        compare(saveButton.activeFocus, firstWasCancel)
+    }
 }

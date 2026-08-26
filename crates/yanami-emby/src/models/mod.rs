@@ -6,4 +6,7 @@ mod session;
 pub use catalog::{BaseItem, ItemCreationResult, ItemsResult, UserItemData};
 pub use images::{ImageInfo, ImageProviderInfo, RemoteImageInfo, RemoteImageResult};
 pub use playback::{ChapterInfo, MediaSource, MediaStream, PlaybackInfo, PlaybackProgress};
-pub use session::{AuthenticationResult, RefreshProgress, UserDto};
+pub use session::{
+    AuthenticationResult, EmbyNotification, LibraryChange, RefreshProgress, UserConfiguration,
+    UserDataChange, UserDto,
+};

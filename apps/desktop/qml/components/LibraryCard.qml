@@ -11,6 +11,15 @@ Item {
     property var mediaItem: ({})
     property real scanProgress: -1
     property bool scanIndicatorShown: scanProgress >= 0
+    readonly property bool pointerMode:
+        InputModality.modality === InputModality.Pointer
+    readonly property bool pointerHovered:
+        root.pointerMode && hover.containsMouse
+    readonly property bool pointerPressed:
+        root.pointerMode && hover.pressed
+            && Boolean(hover.pressedButtons & Qt.LeftButton)
+    readonly property bool navigationFocusVisible:
+        root.activeFocus && InputModality.focusNavigationActive
     signal activated()
     signal contextMenuRequested(var item, var sourceItem, real x, real y,
                                 bool keyboardInvocation)
@@ -42,14 +51,33 @@ Item {
     implicitWidth: 286
     implicitHeight: 148
 
+    // Keep pointer hit-testing in the card's untransformed coordinate space;
+    // only the visual surface below scales during press/release feedback.
+    MouseArea {
+        id: hover
+        objectName: "media-card-hit-area"
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onPressed: root.forceActiveFocus(Qt.MouseFocusReason)
+        onClicked: event => {
+            if (event.button === Qt.RightButton)
+                root.contextMenuRequested(root.mediaItem, root,
+                                          event.x, event.y, false)
+            else
+                root.activated()
+        }
+    }
+
     Rectangle {
         id: card
+        objectName: "media-card-surface"
         anchors.fill: parent
         radius: 22
         color: root.fallbackColor
-        border.width: root.activeFocus ? 2 : 1
-        border.color: root.activeFocus ? Theme.accent
-            : (hover.containsMouse ? Theme.outlineStrong : Theme.outline)
+        border.width: 1
+        border.color: Theme.outline
         gradient: Gradient {
             GradientStop { position: 0; color: Qt.lighter(root.fallbackColor, 1.28) }
             GradientStop { position: 1; color: Qt.darker(root.fallbackColor, 1.3) }
@@ -80,6 +108,15 @@ Item {
                 GradientStop { position: 0; color: "#10000000" }
                 GradientStop { position: 1; color: "#D20A0C12" }
             }
+        }
+
+        Rectangle {
+            objectName: "media-card-pointer-scrim"
+            anchors.fill: parent
+            radius: card.radius
+            color: root.pointerPressed ? "#22000000" : "transparent"
+
+            Behavior on color { ColorAnimation { duration: 110 } }
         }
 
 
@@ -229,7 +266,8 @@ Item {
             anchors.rightMargin: 18
             anchors.bottomMargin: 18
             text: "›"
-            color: root.activeFocus || hover.containsMouse ? Theme.accent : "#B8FFFFFF"
+            color: root.navigationFocusVisible ? Theme.accent
+                : (root.pointerHovered ? Theme.text : "#B8FFFFFF")
             font.family: Theme.fontFamily
             font.pixelSize: 28
             font.weight: Font.Medium
@@ -237,23 +275,26 @@ Item {
             Behavior on color { ColorAnimation { duration: 130 } }
         }
 
-        MouseArea {
-            id: hover
+        Rectangle {
+            objectName: "media-card-focus-frame"
             anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            acceptedButtons: Qt.LeftButton | Qt.RightButton
-            onPressed: root.forceActiveFocus(Qt.MouseFocusReason)
-            onClicked: event => {
-                if (event.button === Qt.RightButton)
-                    root.contextMenuRequested(root.mediaItem, root,
-                                              event.x, event.y, false)
-                else
-                    root.activated()
-            }
+            z: 10
+            radius: card.radius
+            color: "transparent"
+            visible: root.navigationFocusVisible
+            border.width: 2
+            border.color: Theme.accent
         }
 
-        scale: hover.containsMouse ? 1.012 : 1
-        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        scale: root.pointerPressed ? 0.985
+            : (root.pointerHovered ? 1.012 : 1)
+        Behavior on scale {
+            NumberAnimation {
+                duration: root.pointerPressed ? 75 : 155
+                easing.type: root.pointerPressed
+                    ? Easing.OutCubic : Easing.OutBack
+                easing.overshoot: 0.55
+            }
+        }
     }
 }

@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "1.0",
+  "id": "UpscalingModelPack-v1",
+  "state": "not-provisioned",
+  "description": "Hash and licensing contract for externally downloaded Anime4K shader components used by fixed-machine certification.",
+  "bundledWithApplication": false,
+  "requiredModelPacks": [
+    { "provider": "anime4k", "preset": "performance", "version": null, "sizeBytes": null, "sha256": null, "licenseId": null },
+    { "provider": "anime4k", "preset": "balanced", "version": null, "sizeBytes": null, "sha256": null, "licenseId": null },
+    { "provider": "anime4k", "preset": "quality", "version": null, "sizeBytes": null, "sha256": null, "licenseId": null }
+  ],
+  "strictEvidenceBundle": {
+    "scenarioKey": ["provider", "preset", "modelPackSha256", "playbackAssetSha256", "inputGeometry", "outputGeometry", "sourceFps", "rendererApi", "hardwareDecode", "environmentFingerprint"],
+    "requiredRoles": [
+      "presentmon-trace",
+      "pixel-capture-index",
+      "mpv-telemetry",
+      "frame-correlation-index",
+      "paired-baseline-index",
+      "etw-gpu-engine-counters",
+      "dxgi-video-memory-counters",
+      "yanami-upscaling-runtime-trace",
+      "upscaling-model-pack-index",
+      "upscaling-scenario-index",
+      "upscaling-measurement-index"
+    ],
+    "requiredPresets": ["performance", "balanced", "quality"],
+    "measurementNormalizer": {
+      "state": "not-provisioned",
+      "approvedExecutables": [],
+      "requiredIndexSchema": "1.0",
+      "requiredBindings": [
+        "candidateSha",
+        "environmentFingerprint",
+        "scenarioId",
+        "matrixId",
+        "provider",
+        "preset",
+        "providerRuntimeVersion",
+        "modelPackSha256",
+        "playbackFixtureSha256",
+        "processId",
+        "captureStartQpc",
+        "captureEndQpc",
+        "sourceArtifacts",
+        "metrics",
+        "invariants",
+        "effectiveProfileWindows"
+      ],
+      "activationRule": "The fixed runner must hash and execute an approved normalizer from its configured absolute path. The normalizer must regenerate this index from raw artifacts in a fresh output file; imported indexes and manifest samples are never trusted."
+    },
+    "certificationRule": "Only Anime4K may be certified. Exactly one performance, balanced, and quality manifest form a matrix. Every preset is evaluated independently and the matrix passes only when all three pass. Timed windows must keep requested and effective provider/profile/shader hashes equal with no fallback. Raw traces, captures, telemetry, and derived measurements may not be shared across scenario IDs."
+  },
+  "activation": "A dedicated performance-policy change must pin every required version, byte size, SHA-256, license, playback asset, and the exact measurement-normalizer executable before strict upscaling can be routed."
+}

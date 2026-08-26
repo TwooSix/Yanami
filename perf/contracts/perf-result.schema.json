@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yanami.dev/perf/contracts/perf-result-v1.schema.json",
+  "title": "Yanami PerfResult v1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "contractVersion",
+    "runId",
+    "profile",
+    "mode",
+    "status",
+    "generatedAtUtc",
+    "environment",
+    "fixtures",
+    "suites",
+    "metrics",
+    "invariants",
+    "reasons"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "contractVersion": { "type": "string", "minLength": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "profile": {
+      "type": "string",
+      "enum": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"]
+    },
+    "mode": { "type": "string", "enum": ["collect", "debt", "enforce"] },
+    "status": {
+      "type": "string",
+      "enum": ["pass", "fail", "debt", "infra-invalid"]
+    },
+    "generatedAtUtc": { "type": "string", "format": "date-time" },
+    "candidateSha": { "type": "string" },
+    "baseSha": { "type": "string" },
+    "environment": {
+      "type": "object",
+      "required": ["fingerprint", "referenceMatch"],
+      "properties": {
+        "fingerprint": { "type": "string", "minLength": 1 },
+        "referenceMatch": { "type": "boolean" },
+        "mismatchReasons": { "type": "array", "items": { "type": "string" } },
+        "details": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": true
+    },
+    "fixtures": { "type": "array", "items": { "type": "object" } },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["role", "fileName", "sha256"],
+        "properties": {
+          "role": { "type": "string", "minLength": 1 },
+          "fileName": { "type": "string", "minLength": 1, "pattern": "^[^/\\\\]+$" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+          "runnerValidated": { "type": "boolean" },
+          "validatedBytes": { "type": "integer", "minimum": 1 },
+          "candidateSha": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "suites": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["search", "backend", "interaction", "playback", "danmaku", "upscaling", "startup"]
+      }
+    },
+    "metrics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "suite",
+          "category",
+          "unit",
+          "samples",
+          "statistics",
+          "absoluteTarget",
+          "comparison",
+          "status",
+          "reasons"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "suite": { "type": "string" },
+          "category": { "type": "string" },
+          "unit": { "type": "string" },
+          "samples": { "type": "array", "items": { "type": "number" } },
+          "statistics": {
+            "type": "object",
+            "required": ["count", "min", "p50", "p95", "p99", "max", "mean", "standardDeviation", "coefficientOfVariation"],
+            "additionalProperties": { "type": ["number", "null"] }
+          },
+          "absoluteTarget": { "type": "object", "additionalProperties": true },
+          "comparison": { "type": ["object", "null"], "additionalProperties": true },
+          "attributes": { "type": "object", "additionalProperties": true },
+          "status": { "type": "string", "enum": ["pass", "fail", "debt", "infra-invalid"] },
+          "reasons": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "invariants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "passed", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "passed": { "type": "boolean" },
+          "status": { "type": "string", "enum": ["pass", "fail", "infra-invalid"] },
+          "details": {}
+        },
+        "additionalProperties": true
+      }
+    },
+    "reasons": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

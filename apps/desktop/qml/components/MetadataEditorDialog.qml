@@ -28,6 +28,11 @@ AppModalPopup {
         && root.currentFormState() !== root.baselineFormState
     scrimColor: "#76000000"
     initialFocusTarget: titleField
+    PopupControllerNavigator {
+        id: controllerNavigator
+        objectName: "metadataControllerNavigator"
+        popup: root
+    }
     onDiscardRequested: reason => {
         root.pendingDismissReason = reason
         discardConfirm.show(
@@ -359,12 +364,16 @@ AppModalPopup {
                     }
                 }
                 AppButton {
+                    id: cancelButton
+                    objectName: "metadataCancelButton"
                     kind: "ghost"
                     text: qsTr("Cancel")
                     enabled: !root.saving
                     onClicked: root.requestDismiss("cancel")
                 }
                 AppButton {
+                    id: saveButton
+                    objectName: "metadataSaveButton"
                     kind: "primary"
                     text: root.saving ? qsTr("Saving…") : qsTr("Save")
                     enabled: root.loaded && !root.saving
@@ -545,6 +554,34 @@ AppModalPopup {
                             font.pixelSize: 14
                             wrapMode: TextArea.Wrap
                             selectByMouse: true
+                            Keys.priority: Keys.BeforeItem
+                            Keys.onPressed: event => {
+                                if (InputModality.modality
+                                            !== InputModality.Controller
+                                        && InputModality.modality
+                                            !== InputModality.Remote)
+                                    return
+                                if (event.key === Qt.Key_Menu) {
+                                    overviewField.clear()
+                                    event.accepted = true
+                                    return
+                                }
+                                if (event.key !== Qt.Key_Up
+                                        && event.key !== Qt.Key_Down
+                                        && event.key !== Qt.Key_Left
+                                        && event.key !== Qt.Key_Right)
+                                    return
+                                const forward = event.key === Qt.Key_Down
+                                    || event.key === Qt.Key_Right
+                                const target = overviewField.nextItemInFocusChain(
+                                    forward)
+                                if (target && target !== overviewField) {
+                                    target.forceActiveFocus(forward
+                                        ? Qt.TabFocusReason
+                                        : Qt.BacktabFocusReason)
+                                    event.accepted = true
+                                }
+                            }
                             background: Rectangle {
                                 radius: Theme.radiusSmall
                                 color: overviewField.activeFocus ? "#E0161922" : Theme.field
@@ -668,6 +705,8 @@ AppModalPopup {
                         wrapMode: Text.Wrap
                     }
                     AppButton {
+                        id: retryButton
+                        objectName: "metadataRetryButton"
                         Layout.alignment: Qt.AlignHCenter
                         kind: "secondary"
                         text: qsTr("Try again")

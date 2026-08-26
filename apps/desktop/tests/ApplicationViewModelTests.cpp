@@ -1,12 +1,16 @@
 #include "ApplicationViewModel.hpp"
+#include "CatalogFreshnessPolicy.hpp"
 
 #include <QCoreApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
 
 #include <algorithm>
+#include <memory>
 
 namespace {
 
@@ -70,6 +74,7 @@ public:
     bool collectionLoading() const override { return collectionLoadBusy; }
     bool collectionFetching() const override { return collectionFetchBusy; }
     bool libraryLoadFailed() const override { return libraryFailed; }
+    bool activityLoadFailed() const override { return activityFailed; }
     bool favoritesRefreshing() const override { return favoritesBusy; }
     bool favoritesLoadFailed() const override { return favoritesFailed; }
     QString collectionDisplayedId() const override { return displayedId; }
@@ -77,17 +82,22 @@ public:
     QString collectionErrorId() const override { return errorId; }
     QVariantMap collectionParent() const override { return parentItem; }
     RequestDisposition loadLibrary() override { ++loadLibraryCalls; return libraryDisposition; }
+    void invalidateActivity() override { ++invalidateActivityCalls; }
+    void invalidateSeriesContinue(const QString &seriesId) override
+    { invalidatedSeriesContinue.push_back(seriesId); }
+    RequestDisposition ensureActivityFresh() override { ++ensureActivityFreshCalls; return activityDisposition; }
     RequestDisposition refreshActivity() override { ++refreshActivityCalls; return activityDisposition; }
     RequestDisposition loadFavorites() override { ++loadFavoritesCalls; return favoritesDisposition; }
     RequestDisposition refreshFavorites() override { ++refreshFavoritesCalls; return favoritesDisposition; }
     RequestDisposition loadCollection(const QString &parentId) override { loadedCollection = parentId; return collectionDisposition; }
-    RequestDisposition refreshCollection(const QString &parentId) override { refreshedCollection = parentId; return collectionDisposition; }
+    RequestDisposition refreshCollection(const QString &parentId) override { ++refreshCollectionCalls; refreshedCollection = parentId; return collectionDisposition; }
 
     bool libraryBusy = false;
     bool activityBusy = false;
     bool collectionLoadBusy = false;
     bool collectionFetchBusy = false;
     bool libraryFailed = false;
+    bool activityFailed = false;
     bool favoritesBusy = false;
     bool favoritesFailed = false;
     QString displayedId;
@@ -95,15 +105,68 @@ public:
     QString errorId;
     QVariantMap parentItem;
     int loadLibraryCalls = 0;
+    int invalidateActivityCalls = 0;
+    QStringList invalidatedSeriesContinue;
+    int ensureActivityFreshCalls = 0;
     int refreshActivityCalls = 0;
     int loadFavoritesCalls = 0;
     int refreshFavoritesCalls = 0;
+    int refreshCollectionCalls = 0;
     QString loadedCollection;
     QString refreshedCollection;
     RequestDisposition libraryDisposition = RequestDisposition::Accepted;
     RequestDisposition activityDisposition = RequestDisposition::Accepted;
     RequestDisposition favoritesDisposition = RequestDisposition::Accepted;
     RequestDisposition collectionDisposition = RequestDisposition::Accepted;
+};
+
+class FakeSearchPort final : public SearchPort
+{
+public:
+    FakeSearchPort()
+        : model(store.queryModel(QStringLiteral("search")))
+        , titleModel(store.queryModel(QStringLiteral("search-titles")))
+        , episodeModel(store.queryModel(QStringLiteral("search-episodes")))
+    {
+    }
+
+    MediaQueryModel *resultsModel() const override { return model; }
+    MediaQueryModel *titleResultsModel() const override { return titleModel; }
+    MediaQueryModel *episodeResultsModel() const override { return episodeModel; }
+    QAbstractItemModel *resultRowsModel() const override { return nullptr; }
+    QString query() const override { return currentQuery; }
+    bool searching() const override { return isSearching; }
+    bool syncing() const override { return isSyncing; }
+    bool complete() const override { return isComplete; }
+    qint64 cachedCount() const override { return cached; }
+    qint64 totalCount() const override { return total; }
+    qint64 totalMatches() const override { return matches; }
+    bool hasMore() const override { return more; }
+    QString error() const override { return currentError; }
+    void inputPending() override { ++inputPendingCalls; }
+    void requestSearch(const QString &query) override
+    {
+        currentQuery = query;
+        ++searchCalls;
+    }
+    void refresh() override { ++refreshCalls; }
+
+    MediaStore store;
+    MediaQueryModel *model = nullptr;
+    MediaQueryModel *titleModel = nullptr;
+    MediaQueryModel *episodeModel = nullptr;
+    QString currentQuery;
+    QString currentError;
+    qint64 cached = 0;
+    qint64 total = -1;
+    qint64 matches = 0;
+    int inputPendingCalls = 0;
+    int searchCalls = 0;
+    int refreshCalls = 0;
+    bool isSearching = false;
+    bool isSyncing = false;
+    bool isComplete = false;
+    bool more = false;
 };
 
 class FakePlaybackPort final : public PlaybackPort
@@ -304,6 +367,7 @@ struct Fixture
 {
     FakeSessionPort session;
     FakeCatalogPort catalog;
+    FakeSearchPort search;
     FakePlaybackPort playback;
     FakePlaybackReporter playbackReporter;
     FakeDanmakuPort danmaku;
@@ -312,7 +376,7 @@ struct Fixture
 
     BackendPortSet ports()
     {
-        return {&session, &catalog, &playback, &playbackReporter,
+        return {&session, &catalog, &search, &playback, &playbackReporter,
             &danmaku, &media, &status};
     }
 };
@@ -352,16 +416,23 @@ private slots:
 
         QVERIFY(viewModel.session());
         QVERIFY(viewModel.home());
+        QVERIFY(viewModel.search());
         QVERIFY(viewModel.favorites());
         QVERIFY(viewModel.playback());
         QVERIFY(viewModel.danmaku());
         QVERIFY(viewModel.mediaActions());
         QVERIFY(viewModel.imageEditor());
         QVERIFY(viewModel.preferences());
+        QVERIFY(viewModel.upscaling());
+        QVERIFY(viewModel.diagnostics());
         QVERIFY(viewModel.status());
         QVERIFY(viewModel.updates());
         QCOMPARE(viewModel.session()->parent(), &viewModel);
         QCOMPARE(viewModel.mediaActions()->parent(), &viewModel);
+        QCOMPARE(viewModel.upscaling()->parent(), &viewModel);
+        QCOMPARE(viewModel.diagnostics()->parent(), &viewModel);
+        QVERIFY(viewModel.upscaling()->metaObject()->indexOfProperty(
+            "resolvedPresetId") >= 0);
     }
 
     void librarySortPreferencePersistsAndRejectsInvalidValues()
@@ -387,6 +458,271 @@ private slots:
         QCOMPARE(invalidStoredValue.librarySortMode(), 1);
     }
 
+    void upscalingPreferencesPersistStableIdsAndSanitizeInput()
+    {
+        PreferencesViewModel preferences;
+        const QVariantMap defaults = preferences.upscalingSettings();
+        QCOMPARE(defaults.value(QStringLiteral("enabled")).toBool(), false);
+        QCOMPARE(defaults.value(QStringLiteral("providerId")).toString(),
+            QStringLiteral("anime4k"));
+        QCOMPARE(defaults.value(QStringLiteral("schema")).toInt(), 3);
+        QCOMPARE(defaults.value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("balanced"));
+        QVERIFY(!defaults.contains(QStringLiteral("presetExplicit")));
+
+        QSignalSpy changed(
+            &preferences, &PreferencesViewModel::upscalingSettingsChanged);
+        preferences.saveUpscalingSettings({
+            {QStringLiteral("enabled"), true},
+        });
+        QCOMPARE(preferences.upscalingSettings()
+                     .value(QStringLiteral("enabled")).toBool(), true);
+        QCOMPARE(preferences.upscalingSettings()
+                     .value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("balanced"));
+        QCOMPARE(changed.count(), 1);
+
+        preferences.saveUpscalingSettings({
+            {QStringLiteral("enabled"), true},
+            {QStringLiteral("providerId"), QStringLiteral("anime4k")},
+            {QStringLiteral("presetId"), QStringLiteral("custom")},
+            {QStringLiteral("anime4kMode"), QStringLiteral("c")},
+            {QStringLiteral("anime4kModelSize"), QStringLiteral("ul")},
+            {QStringLiteral("anime4kRestorePasses"), 2},
+            {QStringLiteral("anime4kAutoDownscale"), false},
+            {QStringLiteral("autoHeadroom"), 35},
+        });
+        QCOMPARE(changed.count(), 2);
+
+        PreferencesViewModel restored;
+        const QVariantMap saved = restored.upscalingSettings();
+        QCOMPARE(saved.value(QStringLiteral("enabled")).toBool(), true);
+        QCOMPARE(saved.value(QStringLiteral("providerId")).toString(),
+            QStringLiteral("anime4k"));
+        QVERIFY(!saved.contains(QStringLiteral("presetExplicit")));
+        QCOMPARE(saved.value(QStringLiteral("anime4kMode")).toString(),
+            QStringLiteral("c"));
+        QCOMPARE(saved.value(QStringLiteral("anime4kModelSize")).toString(),
+            QStringLiteral("ul"));
+        QCOMPARE(saved.value(QStringLiteral("anime4kRestorePasses")).toInt(), 2);
+        QCOMPARE(saved.value(QStringLiteral("anime4kAutoDownscale")).toBool(), false);
+        QVERIFY(!saved.contains(QStringLiteral("artcnnModel")));
+        QVERIFY(!saved.contains(QStringLiteral("rtxScaleFactor")));
+
+        restored.saveUpscalingSettings({
+            {QStringLiteral("providerId"), QStringLiteral("../unsafe")},
+            {QStringLiteral("presetId"), QStringLiteral("unknown")},
+            {QStringLiteral("anime4kModelSize"), QStringLiteral("xxl")},
+            {QStringLiteral("autoHeadroom"), 99},
+        });
+        const QVariantMap sanitized = restored.upscalingSettings();
+        QCOMPARE(sanitized.value(QStringLiteral("providerId")).toString(),
+            QStringLiteral("anime4k"));
+        QCOMPARE(sanitized.value(QStringLiteral("enabled")).toBool(), false);
+        QCOMPARE(sanitized.value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("balanced"));
+        QCOMPARE(sanitized.value(QStringLiteral("anime4kModelSize")).toString(),
+            QStringLiteral("vl"));
+        QCOMPARE(sanitized.value(QStringLiteral("autoHeadroom")).toInt(), 20);
+    }
+
+    void upscalingSchemaTwoImplicitPresetMigratesToBalanced()
+    {
+        const auto restore = [](bool presetExplicit, const QString &presetId) {
+            QSettings settings;
+            settings.clear();
+            const QVariantMap previous {
+                // The top-level QSettings schema is authoritative. A stale or
+                // inconsistent inner value must not bypass migration.
+                {QStringLiteral("schema"), 99},
+                {QStringLiteral("enabled"), true},
+                {QStringLiteral("providerId"), QStringLiteral("anime4k")},
+                {QStringLiteral("presetId"), presetId},
+                {QStringLiteral("presetExplicit"), presetExplicit},
+            };
+            settings.setValue(QStringLiteral("playback/upscaling/schema"), 2);
+            settings.setValue(
+                QStringLiteral("playback/upscaling/settingsJson"),
+                QJsonDocument::fromVariant(previous).toJson(
+                    QJsonDocument::Compact));
+            settings.sync();
+            return std::make_unique<PreferencesViewModel>();
+        };
+
+        auto automatic = restore(false, QStringLiteral("quality"));
+        QCOMPARE(automatic->upscalingSettings()
+                     .value(QStringLiteral("enabled")).toBool(), true);
+        QCOMPARE(automatic->upscalingSettings()
+                     .value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("balanced"));
+        QCOMPARE(automatic->upscalingSettings()
+                     .value(QStringLiteral("schema")).toInt(), 3);
+        QVERIFY(!automatic->upscalingSettings().contains(
+            QStringLiteral("presetExplicit")));
+
+        auto explicitPreset = restore(true, QStringLiteral("quality"));
+        QCOMPARE(explicitPreset->upscalingSettings()
+                     .value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("quality"));
+        QVERIFY(!explicitPreset->upscalingSettings().contains(
+            QStringLiteral("presetExplicit")));
+    }
+
+    void upscalingCurrentSchemaPreservesManualPresetAcrossToggle()
+    {
+        QSettings settings;
+        const QVariantMap current {
+            // An old inner marker is ignored once the top-level document has
+            // already reached the current schema.
+            {QStringLiteral("schema"), 2},
+            {QStringLiteral("enabled"), false},
+            {QStringLiteral("providerId"), QStringLiteral("anime4k")},
+            {QStringLiteral("presetId"), QStringLiteral("quality")},
+            {QStringLiteral("presetExplicit"), false},
+        };
+        settings.setValue(QStringLiteral("playback/upscaling/schema"), 3);
+        settings.setValue(
+            QStringLiteral("playback/upscaling/settingsJson"),
+            QJsonDocument::fromVariant(current).toJson(
+                QJsonDocument::Compact));
+        settings.sync();
+
+        PreferencesViewModel preferences;
+        QCOMPARE(preferences.upscalingSettings()
+                     .value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("quality"));
+        QVERIFY(!preferences.upscalingSettings().contains(
+            QStringLiteral("presetExplicit")));
+
+        preferences.saveUpscalingSettings({
+            {QStringLiteral("enabled"), true},
+        });
+        QCOMPARE(preferences.upscalingSettings()
+                     .value(QStringLiteral("enabled")).toBool(), true);
+        QCOMPARE(preferences.upscalingSettings()
+                     .value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("quality"));
+
+        preferences.saveUpscalingSettings({
+            {QStringLiteral("enabled"), false},
+        });
+        QCOMPARE(preferences.upscalingSettings()
+                     .value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("quality"));
+    }
+
+    void upscalingSchemaOneProvidersMigrateOnceToAnime4k()
+    {
+        const QStringList providers {
+            QStringLiteral("anime4k"),
+            QStringLiteral("auto"),
+            QStringLiteral("artcnn"),
+            QStringLiteral("rtx"),
+        };
+        for (const QString &providerId : providers) {
+            QSettings settings;
+            settings.clear();
+            const QVariantMap legacy {
+                {QStringLiteral("schema"), 1},
+                {QStringLiteral("enabled"), true},
+                {QStringLiteral("providerId"), providerId},
+                {QStringLiteral("presetId"), QStringLiteral("custom")},
+                {QStringLiteral("anime4kMode"), QStringLiteral("c")},
+                {QStringLiteral("anime4kModelSize"), QStringLiteral("ul")},
+                {QStringLiteral("anime4kRestorePasses"), 2},
+                {QStringLiteral("anime4kAutoDownscale"), false},
+                {QStringLiteral("artcnnModel"), QStringLiteral("c4f16")},
+                {QStringLiteral("rtxScaleFactor"), 4.0},
+            };
+            settings.setValue(QStringLiteral("playback/upscaling/schema"), 1);
+            settings.setValue(
+                QStringLiteral("playback/upscaling/settingsJson"),
+                QJsonDocument::fromVariant(legacy).toJson(
+                    QJsonDocument::Compact));
+            settings.sync();
+
+            PreferencesViewModel migrated;
+            const QVariantMap result = migrated.upscalingSettings();
+            QCOMPARE(result.value(QStringLiteral("schema")).toInt(), 3);
+            QCOMPARE(result.value(QStringLiteral("providerId")).toString(),
+                QStringLiteral("anime4k"));
+            const bool compatible = providerId == QLatin1String("anime4k")
+                || providerId == QLatin1String("auto");
+            QCOMPARE(result.value(QStringLiteral("enabled")).toBool(),
+                compatible);
+            const bool explicitPreset = providerId
+                == QLatin1String("anime4k");
+            QVERIFY(!result.contains(QStringLiteral("presetExplicit")));
+            QCOMPARE(result.value(QStringLiteral("presetId")).toString(),
+                explicitPreset ? QStringLiteral("custom")
+                               : QStringLiteral("balanced"));
+            QVERIFY(!result.contains(QStringLiteral("artcnnModel")));
+            QVERIFY(!result.contains(QStringLiteral("rtxScaleFactor")));
+
+            QSettings persisted;
+            QCOMPARE(persisted.value(
+                         QStringLiteral("playback/upscaling/schema")).toInt(),
+                3);
+            const QJsonDocument persistedDocument = QJsonDocument::fromJson(
+                persisted.value(
+                    QStringLiteral("playback/upscaling/settingsJson"))
+                    .toByteArray());
+            QCOMPARE(persistedDocument.object().toVariantMap(), result);
+        }
+    }
+
+    void upscalingPreferencesRejectCorruptOrUnknownSchema()
+    {
+        QSettings settings;
+        settings.setValue(QStringLiteral("playback/upscaling/schema"), 99);
+        settings.setValue(QStringLiteral("playback/upscaling/settingsJson"),
+            QByteArrayLiteral("{not-json"));
+
+        PreferencesViewModel preferences;
+        const QVariantMap restored = preferences.upscalingSettings();
+        QCOMPARE(restored.value(QStringLiteral("enabled")).toBool(), false);
+        QCOMPARE(restored.value(QStringLiteral("providerId")).toString(),
+            QStringLiteral("anime4k"));
+    }
+
+    void upscalingRebuildCoalescesSynchronousReentry()
+    {
+        PreferencesViewModel preferences;
+        UpscalingViewModel viewModel(
+            &preferences, nullptr, nullptr);
+
+        int emissionDepth = 0;
+        int maximumEmissionDepth = 0;
+        int emissionCount = 0;
+        connect(&viewModel, &UpscalingViewModel::stateChanged,
+            &viewModel, [&] {
+                ++emissionDepth;
+                maximumEmissionDepth = std::max(
+                    maximumEmissionDepth, emissionDepth);
+                ++emissionCount;
+                if (emissionCount == 1) {
+                    QVariantMap nested = preferences.upscalingSettings();
+                    nested.insert(
+                        QStringLiteral("presetId"),
+                        QStringLiteral("quality"));
+                    preferences.saveUpscalingSettings(nested);
+                }
+                --emissionDepth;
+            });
+
+        QVariantMap initial = preferences.upscalingSettings();
+        initial.insert(
+            QStringLiteral("enabled"), true);
+        preferences.saveUpscalingSettings(initial);
+
+        QCOMPARE(maximumEmissionDepth, 1);
+        QTRY_COMPARE(emissionCount, 2);
+        QCOMPARE(maximumEmissionDepth, 1);
+        QCOMPARE(preferences.upscalingSettings()
+                     .value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("quality"));
+    }
+
     void sessionAndCatalogUseTypedPorts()
     {
         Fixture fixture;
@@ -407,6 +743,44 @@ private slots:
         QCOMPARE(fixture.catalog.loadedCollection, QStringLiteral("collection-B"));
         viewModel.favorites()->refresh();
         QCOMPARE(fixture.catalog.refreshFavoritesCalls, 1);
+    }
+
+    void searchUsesItsOwnTypedPortAndBoundedModel()
+    {
+        Fixture fixture;
+        fixture.search.cached = 110000;
+        fixture.search.total = 110000;
+        fixture.search.matches = 73;
+        fixture.search.isComplete = true;
+        QVariantList items;
+        for (int index = 0; index < 50; ++index) {
+            items.push_back(QVariantMap {
+                {QStringLiteral("id"), QStringLiteral("episode-%1").arg(index)},
+                {QStringLiteral("title"), QStringLiteral("Episode %1").arg(index)},
+                {QStringLiteral("itemType"), QStringLiteral("Episode")},
+            });
+        }
+        fixture.search.store.setQuery(QStringLiteral("search"), {}, items);
+        fixture.search.store.setQuery(QStringLiteral("search-titles"), {}, {});
+        fixture.search.store.setQuery(QStringLiteral("search-episodes"), {}, items);
+        fixture.search.more = true;
+
+        ApplicationViewModel viewModel(fixture.ports());
+        QCOMPARE(viewModel.search()->results()->rowCount(), 50);
+        QCOMPARE(viewModel.search()->titleResults()->rowCount(), 0);
+        QCOMPARE(viewModel.search()->episodeResults()->rowCount(), 50);
+        QCOMPARE(viewModel.search()->cachedCount(), 110000);
+        QCOMPARE(viewModel.search()->totalMatches(), 73);
+        QVERIFY(viewModel.search()->hasMore());
+        QVERIFY(viewModel.search()->complete());
+
+        viewModel.search()->inputPending();
+        QCOMPARE(fixture.search.inputPendingCalls, 1);
+        viewModel.search()->submit(QStringLiteral("S02E03"));
+        QCOMPARE(fixture.search.currentQuery, QStringLiteral("S02E03"));
+        QCOMPARE(fixture.search.searchCalls, 1);
+        viewModel.search()->refresh();
+        QCOMPARE(fixture.search.refreshCalls, 1);
     }
 
     void sessionOperationsRequireMatchingExplicitTerminal()
@@ -481,6 +855,75 @@ private slots:
         home.refreshActivity();
         QCOMPARE(home.activityState()->phase(),
             AsyncResourceState::Phase::Error);
+
+        port.activityDisposition =
+            CatalogPort::RequestDisposition::AlreadyCurrent;
+        home.ensureActivityFresh();
+        QCOMPARE(port.ensureActivityFreshCalls, 1);
+        QCOMPARE(home.activityState()->phase(),
+            AsyncResourceState::Phase::Ready);
+
+        port.activityFailed = true;
+        home.ensureActivityFresh();
+        QCOMPARE(home.activityState()->phase(),
+            AsyncResourceState::Phase::Ready);
+        QVERIFY(home.activityState()->stale());
+        QVERIFY(!home.activityState()->errorMessage().isEmpty());
+
+        FakeCatalogPort coldPort;
+        coldPort.activityFailed = true;
+        coldPort.activityDisposition =
+            CatalogPort::RequestDisposition::AlreadyCurrent;
+        HomeViewModel coldHome(&coldPort);
+        coldHome.ensureActivityFresh();
+        QCOMPARE(coldHome.activityState()->phase(),
+            AsyncResourceState::Phase::Error);
+    }
+
+    void activityFreshnessPolicyRequiresTwoCurrentQueries()
+    {
+        constexpr qint64 now = 100000;
+        const CatalogQueryFreshness fresh {
+            .available = true,
+            .stale = false,
+            .fetchedAtMs = now - 1000,
+        };
+        QVERIFY(CatalogFreshnessPolicy::activityIsFresh(
+            fresh, fresh, now));
+
+        CatalogQueryFreshness old = fresh;
+        old.fetchedAtMs = now
+            - CatalogFreshnessPolicy::activityRefreshAdmissionMs;
+        QVERIFY(!CatalogFreshnessPolicy::activityIsFresh(
+            old, fresh, now));
+
+        CatalogQueryFreshness stale = fresh;
+        stale.stale = true;
+        QVERIFY(!CatalogFreshnessPolicy::activityIsFresh(
+            fresh, stale, now));
+
+        CatalogQueryFreshness future = fresh;
+        future.fetchedAtMs = now + 1;
+        QVERIFY(!CatalogFreshnessPolicy::activityIsFresh(
+            future, fresh, now));
+
+        CatalogQueryFreshness missing = fresh;
+        missing.available = false;
+        QVERIFY(!CatalogFreshnessPolicy::activityIsFresh(
+            fresh, missing, now));
+    }
+
+    void activitySnapshotPolicyRejectsLateOlderLibraryResponse()
+    {
+        QVERIFY(CatalogFreshnessPolicy::activitySnapshotMayCommit(2, 1));
+        QVERIFY(CatalogFreshnessPolicy::activitySnapshotMayCommit(2, 2));
+        QVERIFY(!CatalogFreshnessPolicy::activitySnapshotMayCommit(1, 2));
+        QVERIFY(CatalogFreshnessPolicy::activityResultMayAffectState(
+            true, 2, 1));
+        QVERIFY(!CatalogFreshnessPolicy::activityResultMayAffectState(
+            false, 2, 1));
+        QVERIFY(!CatalogFreshnessPolicy::activityResultMayAffectState(
+            true, 1, 2));
     }
 
     void playbackUsesTypedPortAndTypedResultSignal()
@@ -1079,6 +1522,7 @@ private slots:
         ApplicationViewModel viewModel(fixture.ports());
 
         emit fixture.playback.stoppedReported();
+        QCOMPARE(fixture.catalog.invalidateActivityCalls, 1);
         viewModel.mediaActions()->setPlayed(QStringLiteral("item-old"), true);
         const MediaCall mutation = fixture.media.calls.constLast();
         emit fixture.media.operationCompleted(mutation.requestId,
@@ -1094,7 +1538,123 @@ private slots:
         QCOMPARE(fixture.catalog.loadLibraryCalls, 0);
         QVERIFY(fixture.catalog.refreshedCollection.isEmpty());
     }
+
+    void playbackActivityReconciliationIsDebouncedAndTwoPhase()
+    {
+        Fixture fixture;
+        ApplicationViewModel viewModel(fixture.ports());
+        fixture.catalog.displayedId = QStringLiteral("series-a");
+        fixture.catalog.targetId = QStringLiteral("series-a");
+        fixture.catalog.parentItem = {
+            {QStringLiteral("id"), QStringLiteral("series-a")},
+            {QStringLiteral("itemType"), QStringLiteral("Series")},
+        };
+
+        emit fixture.playback.stoppedReported();
+        QTest::qWait(100);
+        emit fixture.playback.stoppedReported();
+        QCOMPARE(fixture.catalog.invalidateActivityCalls, 2);
+
+        QTRY_COMPARE_WITH_TIMEOUT(
+            fixture.catalog.ensureActivityFreshCalls, 1, 2000);
+        QCOMPARE(fixture.catalog.refreshActivityCalls, 0);
+        QCOMPARE(fixture.catalog.refreshCollectionCalls, 1);
+        QCOMPARE(fixture.catalog.refreshedCollection, QStringLiteral("series-a"));
+
+        QTRY_COMPARE_WITH_TIMEOUT(
+            fixture.catalog.refreshActivityCalls, 1, 4000);
+        QCOMPARE(fixture.catalog.ensureActivityFreshCalls, 1);
+    }
+
+    void playbackStopInvalidatesSeriesContinueOutsideSeriesRoute()
+    {
+        Fixture fixture;
+        ApplicationViewModel viewModel(fixture.ports());
+        fixture.catalog.displayedId = QStringLiteral("season-a");
+        fixture.catalog.targetId = QStringLiteral("season-a");
+        fixture.catalog.parentItem = {
+            {QStringLiteral("id"), QStringLiteral("season-a")},
+            {QStringLiteral("itemType"), QStringLiteral("Season")},
+            {QStringLiteral("seriesId"), QStringLiteral("series-a")},
+        };
+        const QVariantMap playbackContext {
+            {QStringLiteral("kind"), QStringLiteral("series")},
+            {QStringLiteral("sourceId"), QStringLiteral("series-a")},
+        };
+        viewModel.playback()->prepareInContext(
+            QStringLiteral("episode-a"), playbackContext);
+        emit fixture.playback.ready(
+            fixture.playback.preparedRequestId,
+            {{QStringLiteral("itemId"), QStringLiteral("episode-a")},
+             {QStringLiteral("playbackContext"), playbackContext}});
+
+        emit fixture.playback.stoppedReported();
+
+        QCOMPARE(fixture.catalog.invalidatedSeriesContinue,
+            QStringList {QStringLiteral("series-a")});
+        QTRY_COMPARE_WITH_TIMEOUT(
+            fixture.catalog.ensureActivityFreshCalls, 1, 2000);
+        QCOMPARE(fixture.catalog.refreshCollectionCalls, 0);
+    }
+
+    void playedMutationInvalidatesEveryAffectedSeriesContinueScope()
+    {
+        Fixture fixture;
+        ApplicationViewModel viewModel(fixture.ports());
+        viewModel.mediaActions()->setPlayed(QStringLiteral("episode-a"), true);
+        const MediaCall mutation = fixture.media.calls.constLast();
+
+        emit fixture.media.operationCompleted(
+            mutation.requestId,
+            QStringLiteral("episode-a"),
+            MediaPort::Operation::SetPlayed,
+            {
+                {QStringLiteral("requestedPlayed"), true},
+                {QStringLiteral("reconcileComplete"), true},
+                {QStringLiteral("affectedItems"), QVariantList {
+                    QVariantMap {
+                        {QStringLiteral("id"), QStringLiteral("episode-a")},
+                        {QStringLiteral("seriesId"), QStringLiteral("series-a")},
+                    },
+                    QVariantMap {
+                        {QStringLiteral("id"), QStringLiteral("series-b")},
+                        {QStringLiteral("seriesId"), QStringLiteral("series-b")},
+                    },
+                }},
+            });
+
+        QCOMPARE(fixture.catalog.invalidatedSeriesContinue.size(), 2);
+        QVERIFY(fixture.catalog.invalidatedSeriesContinue.contains(
+            QStringLiteral("series-a")));
+        QVERIFY(fixture.catalog.invalidatedSeriesContinue.contains(
+            QStringLiteral("series-b")));
+    }
+
+    void playbackSeriesRefreshDoesNotCrossRoute()
+    {
+        Fixture fixture;
+        ApplicationViewModel viewModel(fixture.ports());
+        fixture.catalog.displayedId = QStringLiteral("series-a");
+        fixture.catalog.targetId = QStringLiteral("series-a");
+        fixture.catalog.parentItem = {
+            {QStringLiteral("id"), QStringLiteral("series-a")},
+            {QStringLiteral("itemType"), QStringLiteral("Series")},
+        };
+
+        emit fixture.playback.stoppedReported();
+        fixture.catalog.displayedId = QStringLiteral("series-b");
+        fixture.catalog.targetId = QStringLiteral("series-b");
+        fixture.catalog.parentItem = {
+            {QStringLiteral("id"), QStringLiteral("series-b")},
+            {QStringLiteral("itemType"), QStringLiteral("Series")},
+        };
+
+        QTRY_COMPARE_WITH_TIMEOUT(
+            fixture.catalog.ensureActivityFreshCalls, 1, 2000);
+        QCOMPARE(fixture.catalog.refreshCollectionCalls, 0);
+        QVERIFY(fixture.catalog.refreshedCollection.isEmpty());
+    }
 };
 
-QTEST_MAIN(ApplicationViewModelTests)
+QTEST_GUILESS_MAIN(ApplicationViewModelTests)
 #include "ApplicationViewModelTests.moc"

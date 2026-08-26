@@ -30,7 +30,8 @@ QtObject {
             const count = Number(item.childCount || 0)
             return count > 0 ? qsTr("%1 items").arg(count) : qsTr("Playlist")
         }
-        if ((itemType === "Series" || itemType === "Season") && item.hasLatestEpisode !== true) {
+        if ((itemType === "Series" || itemType === "Season")
+                && item.hasLatestEpisode !== true) {
             const total = Number(item.childCount || 0)
             const unplayed = Number(item.unplayedCount || 0)
             if (total > 0 && unplayed > 0)
@@ -39,9 +40,12 @@ QtObject {
                 return qsTr("%1 episodes").arg(total)
             if (Number(item.productionYear || 0) > 0)
                 return String(item.productionYear)
-            return qsTr("Series")
+            return itemTypeLabel(itemType)
         }
-        return String(item.subtitle || "")
+        const subtitle = String(item.subtitle || "").trim()
+        if (subtitle.length === 0 || subtitle === itemType)
+            return itemTypeLabel(itemType)
+        return subtitle
     }
 
     function itemTypeLabel(itemType) {
@@ -52,6 +56,7 @@ QtObject {
         case "Episode": return qsTr("Episode")
         case "Movie": return qsTr("Movie")
         case "Video": return qsTr("Video")
+        case "MusicVideo": return qsTr("Music video")
         case "Playlist": return qsTr("Playlist")
         default: return qsTr("Media item")
         }

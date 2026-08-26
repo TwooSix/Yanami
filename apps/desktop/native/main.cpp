@@ -1,8 +1,11 @@
 #include <QGuiApplication>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QEvent>
 #include <QIcon>
+#include <QInputMethodEvent>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QJsonParseError>
 #include <QLoggingCategory>
 #include <QQmlApplicationEngine>
@@ -12,10 +15,12 @@
 #include <QStandardPaths>
 #include <QSysInfo>
 #include <QTimer>
+#include <QVector>
 
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <utility>
 
 #include "MpvVideoItem.hpp"
 #include "ApplicationViewModel.hpp"
@@ -24,14 +29,318 @@
 #include "AsyncImageProvider.hpp"
 #include "DesktopBackendServices.hpp"
 #include "DevelopmentHooks.hpp"
+#include "InputModalityController.hpp"
 #include "MediaStore.hpp"
 #include "LocaleController.hpp"
+#include "PerformanceTrace.hpp"
 #include "RuntimeLogger.hpp"
 #include "WindowController.hpp"
 
 namespace {
 Q_LOGGING_CATEGORY(applicationLog, "yanami.application")
 using DevelopmentHook = DevelopmentHooks::Variable;
+
+double percentile(QVector<double> values, double quantile)
+{
+    if (values.isEmpty())
+        return 0.0;
+    std::sort(values.begin(), values.end());
+    const qsizetype index = std::clamp<qsizetype>(
+        static_cast<qsizetype>(std::ceil(quantile * values.size()) - 1),
+        0,
+        values.size() - 1);
+    return values.at(index);
+}
+
+bool hasCachedHomeContent(const ApplicationViewModel &viewModel)
+{
+    const HomeViewModel *home = viewModel.home();
+    const MediaStore *store = home ? home->mediaStore() : nullptr;
+    return store
+        && (store->libraryModel()->rowCount() > 0
+            || store->resumeModel()->rowCount() > 0
+            || !store->queryItems(QStringLiteral("latestSections")).isEmpty());
+}
+
+QEvent::Type syntheticInteractionProbeEventType()
+{
+    static const auto type = static_cast<QEvent::Type>(
+        QEvent::registerEventType());
+    return type;
+}
+
+class PerformanceGuiApplication final : public QGuiApplication
+{
+public:
+    struct DispatchStats {
+        quint64 dispatchCount = 0;
+        quint64 longTaskOver50Count = 0;
+        double maxDispatchMs = 0.0;
+    };
+
+    PerformanceGuiApplication(int &argc, char **argv)
+        : QGuiApplication(argc, argv)
+    {
+    }
+
+    void beginInteractionProbeWindow()
+    {
+        m_dispatchStats = {};
+        m_interactionProbeActive = true;
+    }
+
+    DispatchStats endInteractionProbeWindow()
+    {
+        m_interactionProbeActive = false;
+        return m_dispatchStats;
+    }
+
+    bool notify(QObject *receiver, QEvent *event) override
+    {
+        if (!m_interactionProbeActive)
+            return QGuiApplication::notify(receiver, event);
+        const bool measure = m_notifyDepth == 0;
+        const qint64 startedNs = measure
+            ? YanamiPerformance::PerformanceTrace::monotonicNanoseconds()
+            : 0;
+        ++m_notifyDepth;
+        const bool delivered = QGuiApplication::notify(receiver, event);
+        --m_notifyDepth;
+        if (measure) {
+            const qint64 elapsedNs =
+                YanamiPerformance::PerformanceTrace::monotonicNanoseconds()
+                - startedNs;
+            ++m_dispatchStats.dispatchCount;
+            if (elapsedNs > 50'000'000)
+                ++m_dispatchStats.longTaskOver50Count;
+            m_dispatchStats.maxDispatchMs = std::max(
+                m_dispatchStats.maxDispatchMs,
+                elapsedNs / 1'000'000.0);
+        }
+        return delivered;
+    }
+
+private:
+    DispatchStats m_dispatchStats;
+    int m_notifyDepth = 0;
+    bool m_interactionProbeActive = false;
+};
+
+class InputToFrameProbe final : public QObject
+{
+public:
+    InputToFrameProbe(
+        PerformanceGuiApplication &application,
+        QQuickWindow &window,
+        bool exitApplicationWhenFinished)
+        : QObject(&window)
+        , m_application(application)
+        , m_window(window)
+        , m_syntheticTarget(this)
+        , m_exitApplicationWhenFinished(exitApplicationWhenFinished)
+    {
+        m_application.installEventFilter(this);
+        QObject::connect(
+            &m_window,
+            &QQuickWindow::frameSwapped,
+            this,
+            [this] { publishPendingInputs(); });
+    }
+
+    ~InputToFrameProbe() override
+    {
+        m_application.removeEventFilter(this);
+    }
+
+    void startSyntheticProbe()
+    {
+        if (m_syntheticProbeActive)
+            return;
+        m_syntheticProbeActive = true;
+        m_syntheticSubmitted = 0;
+        m_syntheticPresented = 0;
+        m_syntheticDropped = 0;
+        m_syntheticCompletionScheduled = false;
+        InputModalityService &inputModality =
+            InputModalityService::instance();
+        m_inputModalityBefore = static_cast<int>(inputModality.modality());
+        m_inputModalityChanges = 0;
+        m_inputModalityConnection = QObject::connect(
+            &inputModality,
+            &InputModalityService::modalityChanged,
+            this,
+            [this] { ++m_inputModalityChanges; });
+        m_application.beginInteractionProbeWindow();
+        QCoreApplication::postEvent(
+            &m_syntheticTarget,
+            new QEvent(syntheticInteractionProbeEventType()));
+        m_window.update();
+        QTimer::singleShot(2'000, this, [this] { finishSyntheticProbe(); });
+    }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        QString kind;
+        const bool synthetic = watched == &m_syntheticTarget
+            && event->type() == syntheticInteractionProbeEventType();
+        if (synthetic) {
+            kind = QStringLiteral("synthetic_hook");
+        } else {
+            switch (event->type()) {
+            case QEvent::KeyPress:
+                kind = QStringLiteral("key");
+                break;
+            case QEvent::MouseButtonPress:
+                kind = QStringLiteral("pointer");
+                break;
+            case QEvent::Wheel:
+                kind = QStringLiteral("wheel");
+                break;
+            case QEvent::TouchBegin:
+                kind = QStringLiteral("touch");
+                break;
+            case QEvent::InputMethod: {
+                const auto *inputMethod = static_cast<QInputMethodEvent *>(event);
+                if (inputMethod->commitString().isEmpty())
+                    break;
+                kind = QStringLiteral("ime_commit");
+                break;
+            }
+            default:
+                break;
+            }
+        }
+        if (!kind.isEmpty()) {
+            if (m_pending.size() == 64) {
+                if (m_pending.constFirst().synthetic)
+                    ++m_syntheticDropped;
+                m_pending.removeFirst();
+            }
+            const quint64 generation = ++m_generation;
+            m_pending.push_back({
+                generation,
+                YanamiPerformance::PerformanceTrace::monotonicNanoseconds(),
+                kind,
+                synthetic,
+            });
+            if (synthetic) {
+                ++m_syntheticSubmitted;
+                YanamiPerformance::PerformanceTrace::mark(
+                    QStringLiteral("interaction_input_received"),
+                    {
+                        {QStringLiteral("generation"), generation},
+                        {QStringLiteral("inputKind"), kind},
+                        {QStringLiteral("synthetic"), true},
+                    });
+                // This registered user event is visible only to this opt-in
+                // trace filter. Product input filters and QML never classify
+                // it as pointer, keyboard, touch, wheel, or IME input.
+                m_window.update();
+            }
+        }
+        return false;
+    }
+
+private:
+    struct PendingInput {
+        quint64 generation = 0;
+        qint64 startedNs = 0;
+        QString kind;
+        bool synthetic = false;
+    };
+
+    void publishPendingInputs()
+    {
+        if (m_pending.isEmpty())
+            return;
+        const qint64 presentedNs =
+            YanamiPerformance::PerformanceTrace::monotonicNanoseconds();
+        const QVector<PendingInput> pending = std::exchange(m_pending, {});
+        bool syntheticPresented = false;
+        for (const PendingInput &input : pending) {
+            YanamiPerformance::PerformanceTrace::mark(
+                QStringLiteral("interaction_next_frame"),
+                {
+                    {QStringLiteral("generation"), input.generation},
+                    {QStringLiteral("inputKind"), input.kind},
+                    {QStringLiteral("latencyMs"),
+                     (presentedNs - input.startedNs) / 1'000'000.0},
+                    {QStringLiteral("synthetic"), input.synthetic},
+                });
+            if (input.synthetic) {
+                ++m_syntheticPresented;
+                syntheticPresented = true;
+            }
+        }
+        if (syntheticPresented && !m_syntheticCompletionScheduled) {
+            m_syntheticCompletionScheduled = true;
+            QTimer::singleShot(0, this, [this] { finishSyntheticProbe(); });
+        }
+    }
+
+    void finishSyntheticProbe()
+    {
+        if (!m_syntheticProbeActive)
+            return;
+        m_syntheticProbeActive = false;
+        const PerformanceGuiApplication::DispatchStats dispatch =
+            m_application.endInteractionProbeWindow();
+        InputModalityService &inputModality =
+            InputModalityService::instance();
+        const int inputModalityAfter =
+            static_cast<int>(inputModality.modality());
+        QObject::disconnect(m_inputModalityConnection);
+        const qsizetype syntheticPending = std::count_if(
+            m_pending.cbegin(),
+            m_pending.cend(),
+            [](const PendingInput &input) { return input.synthetic; });
+        YanamiPerformance::PerformanceTrace::mark(
+            QStringLiteral("interaction_probe_complete"),
+            {
+                {QStringLiteral("syntheticSubmitted"), m_syntheticSubmitted},
+                {QStringLiteral("syntheticPresented"), m_syntheticPresented},
+                {QStringLiteral("syntheticDropped"), m_syntheticDropped},
+                {QStringLiteral("syntheticPending"), syntheticPending},
+                {QStringLiteral("dispatchCount"), dispatch.dispatchCount},
+                {QStringLiteral("longTaskOver50Count"),
+                 dispatch.longTaskOver50Count},
+                {QStringLiteral("maxDispatchMs"), dispatch.maxDispatchMs},
+                {QStringLiteral("qpaPlatform"),
+                 QGuiApplication::platformName()},
+                {QStringLiteral("quickBackendEnvironment"),
+                 QString::fromLocal8Bit(qgetenv("QT_QUICK_BACKEND"))},
+                {QStringLiteral("rendererApi"),
+                 static_cast<int>(
+                     m_window.rendererInterface()->graphicsApi())},
+                {QStringLiteral("windowExposed"), m_window.isExposed()},
+                {QStringLiteral("inputModalityBefore"),
+                 m_inputModalityBefore},
+                {QStringLiteral("inputModalityAfter"),
+                 inputModalityAfter},
+                {QStringLiteral("inputModalityChanges"),
+                 m_inputModalityChanges},
+            });
+        YanamiPerformance::PerformanceTrace::flush();
+        if (m_exitApplicationWhenFinished)
+            QCoreApplication::exit(EXIT_SUCCESS);
+    }
+
+    PerformanceGuiApplication &m_application;
+    QQuickWindow &m_window;
+    QObject m_syntheticTarget;
+    QVector<PendingInput> m_pending;
+    quint64 m_generation = 0;
+    quint64 m_syntheticSubmitted = 0;
+    quint64 m_syntheticPresented = 0;
+    quint64 m_syntheticDropped = 0;
+    bool m_syntheticProbeActive = false;
+    bool m_syntheticCompletionScheduled = false;
+    bool m_exitApplicationWhenFinished = false;
+    int m_inputModalityBefore = -1;
+    int m_inputModalityChanges = 0;
+    QMetaObject::Connection m_inputModalityConnection;
+};
 
 class RuntimeLoggerGuard final
 {
@@ -53,10 +362,27 @@ public:
 private:
     bool m_installed = false;
 };
+
+class PerformanceTraceGuard final
+{
+public:
+    PerformanceTraceGuard() = default;
+
+    ~PerformanceTraceGuard()
+    {
+        YanamiPerformance::PerformanceTrace::shutdown();
+    }
+
+    PerformanceTraceGuard(const PerformanceTraceGuard &) = delete;
+    PerformanceTraceGuard &operator=(const PerformanceTraceGuard &) = delete;
+};
 }
 
 int main(int argc, char *argv[])
 {
+    YanamiPerformance::PerformanceTrace::initialize(argc, argv);
+    PerformanceTraceGuard performanceTraceGuard;
+    YanamiPerformance::PerformanceTrace::mark(QStringLiteral("main_entered"));
     QGuiApplication::setApplicationName(QStringLiteral("Yanami"));
     QGuiApplication::setApplicationVersion(QStringLiteral(YANAMI_VERSION));
     QGuiApplication::setOrganizationName(QStringLiteral("Yanami"));
@@ -67,10 +393,18 @@ int main(int argc, char *argv[])
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
     QQuickWindow::setDefaultAlphaBuffer(false);
 
-    QGuiApplication app(argc, argv);
+    PerformanceGuiApplication app(argc, argv);
+    YanamiPerformance::PerformanceTrace::mark(QStringLiteral("qt_app_ready"));
     const bool runtimeSmokeTest = app.arguments().contains(
         QStringLiteral("--runtime-smoke-test"));
+    const bool performanceRuntimeProbe = app.arguments().contains(
+        QStringLiteral("--performance-runtime-probe"));
+    const bool performanceRuntimeAutoExit = app.arguments().contains(
+        QStringLiteral("--performance-runtime-auto-exit"));
     const bool runtimeLoggerInstalled = RuntimeLogger::install();
+    YanamiPerformance::PerformanceTrace::mark(
+        QStringLiteral("logger_ready"),
+        {{QStringLiteral("installed"), runtimeLoggerInstalled}});
     RuntimeLoggerGuard runtimeLoggerGuard(runtimeLoggerInstalled);
     if (runtimeLoggerInstalled) {
         qCInfo(applicationLog).noquote()
@@ -93,16 +427,30 @@ int main(int argc, char *argv[])
     qmlRegisterType<MpvVideoItem>("Yanami.Native", 1, 0, "MpvVideoItem");
     qmlRegisterType<MediaQueryProxyModel>(
         "Yanami.Native", 1, 0, "MediaQueryProxyModel");
+    qmlRegisterType<MediaSearchModel>(
+        "Yanami.Native", 1, 0, "MediaSearchModel");
     qmlRegisterType<AsyncResourceState>(
         "Yanami.Native", 1, 0, "AsyncResourceState");
     qmlRegisterUncreatableType<AsyncOperationState>(
         "Yanami.Native", 1, 0, "AsyncOperationState",
         QStringLiteral("AsyncOperationState instances are owned by feature view models."));
     DesktopBackendServices backendServices;
+    YanamiPerformance::PerformanceTrace::mark(
+        QStringLiteral("backend_services_ready"));
     ApplicationViewModel applicationViewModel(backendServices.portSet());
+    YanamiPerformance::PerformanceTrace::mark(
+        QStringLiteral("view_models_ready"));
     LocaleController localeController(nullptr);
     WindowController windowController;
     QQmlApplicationEngine engine;
+    // windeployqt stages Qt's runtime QML modules beside the executable.
+    // Add that location explicitly so a build-tree qt.conf regenerated by
+    // Qt CMake targets cannot hide the deployed modules from a direct launch.
+    const QString applicationQmlPath =
+        QDir(QCoreApplication::applicationDirPath())
+            .filePath(QStringLiteral("qml"));
+    if (QDir(applicationQmlPath).exists())
+        engine.addImportPath(applicationQmlPath);
     engine.addImageProvider(
         QStringLiteral("yanami"),
         new AsyncImageProvider(QDir(
@@ -132,10 +480,16 @@ int main(int argc, char *argv[])
         const auto tryAutoplayRecent = [&applicationViewModel, autoplayRecentTitle, autoplayStarted] {
             if (*autoplayStarted)
                 return;
-            QVariantList items = applicationViewModel.home()->mediaStore()
-                ->queryItems(QStringLiteral("recent"));
-            items.append(applicationViewModel.home()->mediaStore()
-                ->queryItems(QStringLiteral("resume")));
+            MediaStore *store = applicationViewModel.home()->mediaStore();
+            QVariantList items;
+            for (const QVariant &sectionValue :
+                 store->queryItems(QStringLiteral("latestSections"))) {
+                const QString scopeId = sectionValue.toMap()
+                    .value(QStringLiteral("id")).toString();
+                items.append(store->queryItems(
+                    QStringLiteral("latest"), scopeId));
+            }
+            items.append(store->queryItems(QStringLiteral("resume")));
             const auto match = std::find_if(items.cbegin(), items.cend(), [&autoplayRecentTitle](const QVariant &value) {
                 return value.toMap()
                     .value(QStringLiteral("title"))
@@ -226,6 +580,9 @@ int main(int argc, char *argv[])
         [] { QCoreApplication::exit(EXIT_FAILURE); },
         Qt::QueuedConnection);
     engine.loadFromModule("Yanami", "Main");
+    YanamiPerformance::PerformanceTrace::mark(
+        QStringLiteral("qml_root_ready"),
+        {{QStringLiteral("rootObjectCount"), engine.rootObjects().size()}});
 
 #ifdef YANAMI_ENABLE_DEV_HOOKS
     const QString developmentLanguage =
@@ -241,6 +598,139 @@ int main(int argc, char *argv[])
         auto *root = engine.rootObjects().constFirst();
         if (auto *window = qobject_cast<QWindow *>(root))
             windowController.configureWindow(window);
+        if (auto *quickWindow = qobject_cast<QQuickWindow *>(root))
+            applicationViewModel.upscaling()->observeWindow(quickWindow);
+        if (YanamiPerformance::PerformanceTrace::enabled()) {
+            if (auto *quickWindow = qobject_cast<QQuickWindow *>(root)) {
+                auto *inputProbe = new InputToFrameProbe(
+                    app,
+                    *quickWindow,
+                    performanceRuntimeAutoExit);
+                struct StartupFrameState {
+                    qint64 firstFrameNs = 0;
+                    qint64 lastFrameNs = 0;
+                    QVector<double> frameIntervalsMs;
+                    bool cachedContentAvailable = false;
+                    bool cachedContentMarked = false;
+                    bool exposureMarked = false;
+                    bool settledMarked = false;
+                };
+                const auto startupFrames = std::make_shared<StartupFrameState>();
+                startupFrames->cachedContentAvailable =
+                    hasCachedHomeContent(applicationViewModel);
+                const auto publishStartupSettled =
+                    [startupFrames,
+                     inputProbe,
+                     performanceRuntimeProbe,
+                     performanceRuntimeAutoExit] {
+                    if (startupFrames->settledMarked)
+                        return;
+                    startupFrames->settledMarked = true;
+                    const QVector<double> &intervals =
+                        startupFrames->frameIntervalsMs;
+                    const auto overThreshold = [&intervals](double threshold) {
+                        return std::count_if(
+                            intervals.cbegin(),
+                            intervals.cend(),
+                            [threshold](double value) { return value > threshold; });
+                    };
+                    YanamiPerformance::PerformanceTrace::mark(
+                        QStringLiteral("startup_settled"),
+                        {
+                            {QStringLiteral("frameCount"), intervals.size()},
+                            {QStringLiteral("frameP95Ms"), percentile(intervals, 0.95)},
+                            {QStringLiteral("frameP99Ms"), percentile(intervals, 0.99)},
+                            {QStringLiteral("frameMaxMs"), percentile(intervals, 1.0)},
+                            {QStringLiteral("framesOver33Ms"), overThreshold(33.34)},
+                            {QStringLiteral("framesOver50Ms"), overThreshold(50.0)},
+                        });
+                    startupFrames->frameIntervalsMs.clear();
+                    startupFrames->frameIntervalsMs.squeeze();
+                    // The performance runner polls this milestone while the
+                    // process remains alive. This is a trace persistence
+                    // boundary, not evidence of an external Present event.
+                    YanamiPerformance::PerformanceTrace::flush();
+                    if (performanceRuntimeProbe) {
+                        QTimer::singleShot(
+                            0,
+                            inputProbe,
+                            [inputProbe] { inputProbe->startSyntheticProbe(); });
+                    } else if (performanceRuntimeAutoExit) {
+                        QCoreApplication::exit(EXIT_SUCCESS);
+                    }
+                };
+
+                auto *exposureTimer = new QTimer(quickWindow);
+                exposureTimer->setInterval(5);
+                exposureTimer->setTimerType(Qt::PreciseTimer);
+                QObject::connect(
+                    exposureTimer,
+                    &QTimer::timeout,
+                    quickWindow,
+                    [quickWindow, exposureTimer, startupFrames] {
+                        if (!quickWindow->isExposed())
+                            return;
+                        if (!startupFrames->exposureMarked) {
+                            startupFrames->exposureMarked = true;
+                            YanamiPerformance::PerformanceTrace::mark(
+                                QStringLiteral("window_exposed"));
+                        }
+                        exposureTimer->stop();
+                        exposureTimer->deleteLater();
+                    });
+                exposureTimer->start();
+
+                QObject::connect(
+                    applicationViewModel.home()->mediaStore(),
+                    &MediaStore::queryChanged,
+                    quickWindow,
+                    [startupFrames, &applicationViewModel](const QString &, const QString &) {
+                        startupFrames->cachedContentAvailable =
+                            hasCachedHomeContent(applicationViewModel);
+                    });
+                QObject::connect(
+                    quickWindow,
+                    &QQuickWindow::frameSwapped,
+                    quickWindow,
+                    [startupFrames, quickWindow, publishStartupSettled] {
+                        if (startupFrames->settledMarked)
+                            return;
+                        const qint64 now =
+                            YanamiPerformance::PerformanceTrace::monotonicNanoseconds();
+                        // A first swap can race the 5 ms exposure poll. Keep the
+                        // trace causally ordered without treating this internal
+                        // Qt signal as external Present evidence.
+                        if (!startupFrames->exposureMarked
+                            && quickWindow->isExposed()) {
+                            startupFrames->exposureMarked = true;
+                            YanamiPerformance::PerformanceTrace::mark(
+                                QStringLiteral("window_exposed"));
+                        }
+                        if (startupFrames->firstFrameNs == 0) {
+                            startupFrames->firstFrameNs = now;
+                            YanamiPerformance::PerformanceTrace::mark(
+                                QStringLiteral("first_shell_present"));
+                            QTimer::singleShot(
+                                1'000, quickWindow, publishStartupSettled);
+                        }
+                        if (!startupFrames->cachedContentMarked
+                            && startupFrames->cachedContentAvailable) {
+                            startupFrames->cachedContentMarked = true;
+                            YanamiPerformance::PerformanceTrace::mark(
+                                QStringLiteral("first_cached_content_present"));
+                        }
+                        if (startupFrames->lastFrameNs != 0) {
+                            startupFrames->frameIntervalsMs.push_back(
+                                (now - startupFrames->lastFrameNs) / 1'000'000.0);
+                        }
+                        startupFrames->lastFrameNs = now;
+                    });
+                QTimer::singleShot(0, quickWindow, [] {
+                    YanamiPerformance::PerformanceTrace::mark(
+                        QStringLiteral("event_loop_ready"));
+                });
+            }
+        }
 #ifdef YANAMI_ENABLE_DEV_HOOKS
         if (DevelopmentHooks::isSet(DevelopmentHook::RenderDiagnostics)) {
             root->setProperty("developmentRenderDiagnostics", true);
@@ -423,6 +913,10 @@ int main(int argc, char *argv[])
     }
 #endif
     const int exitCode = app.exec();
+    YanamiPerformance::PerformanceTrace::mark(
+        QStringLiteral("event_loop_finished"),
+        {{QStringLiteral("exitCode"), exitCode}});
+    YanamiPerformance::PerformanceTrace::shutdown();
     qCInfo(applicationLog).noquote()
         << "application_event_loop_finished"
         << "exitCode=" << exitCode;

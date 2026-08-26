@@ -1,14 +1,15 @@
 use std::collections::BTreeMap;
 
+use futures_util::future::try_join_all;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value, json};
-use yanami_emby::{BaseItem, ItemQuery};
+use yanami_emby::{BaseItem, EmbyClient, ItemQuery};
 
 use crate::{
     Application, ApplicationError, presentation,
     presentation::{
         ImagePurpose, card_subtitle, is_playable_item, is_supported_view, library_view_json,
-        media_card_json, merge_continue_watching, select_episode,
+        media_card_json, select_episode,
     },
 };
 
@@ -43,7 +44,7 @@ pub struct CollectionOutcome {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum CatalogEntity {
-    Media(CatalogMediaEntity),
+    Media(Box<CatalogMediaEntity>),
     View(CatalogViewEntity),
     Parent(CatalogParentEntity),
 }
@@ -59,6 +60,16 @@ pub struct CatalogMediaEntity {
     series_title: Option<String>,
     season_id: Option<String>,
     image_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image_item_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image_item_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image_tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    primary_image_aspect_ratio: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    playback_context: Option<crate::PlaybackContext>,
     resume_ticks: u64,
     played: bool,
     favorite: bool,
@@ -120,10 +131,19 @@ pub struct CatalogQueries {
     resume: Option<CatalogQuery>,
     #[serde(skip_serializing_if = "Option::is_none")]
     recent: Option<CatalogQuery>,
+    #[serde(rename = "latestSections", skip_serializing_if = "Option::is_none")]
+    latest_sections: Option<CatalogQuery>,
     #[serde(skip_serializing_if = "Option::is_none")]
     favorites: Option<CatalogQuery>,
     #[serde(skip_serializing_if = "Option::is_none")]
     collection: Option<CatalogQuery>,
+    #[serde(rename = "seriesContinue", skip_serializing_if = "Option::is_none")]
+    series_continue: Option<CatalogQuery>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    search: Option<CatalogQuery>,
+    /// Per-library Latest Media rows use keys of the form `latest:{viewId}`.
+    #[serde(flatten)]
+    scoped: BTreeMap<String, CatalogQuery>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -167,13 +187,81 @@ pub struct UserCapabilities {
     can_delete: bool,
 }
 
-fn decode_catalog_outcome<T: DeserializeOwned>(value: Value) -> Result<T, ApplicationError> {
+pub(crate) fn decode_catalog_outcome<T: DeserializeOwned>(
+    value: Value,
+) -> Result<T, ApplicationError> {
     serde_json::from_value(value).map_err(|error| ApplicationError::internal(error.to_string()))
 }
 
 const PLAYLISTS_VIEW_ID: &str = "__yanami_playlists__";
+const LATEST_MEDIA_LIMIT: u32 = 16;
 const MAX_FAVORITES_ITEMS: usize = 20_000;
 const MAX_FAVORITES_PAGES: usize = 40;
+
+struct LatestMediaSection {
+    scope_id: String,
+    view_card: Value,
+    item_cards: Vec<Value>,
+}
+
+fn latest_media_views(views: &[BaseItem], excluded_ids: &[String]) -> Vec<BaseItem> {
+    views
+        .iter()
+        .filter(|view| !excluded_ids.iter().any(|id| id == &view.id))
+        // Match the Web home Latest Media exclusions while staying within the
+        // video-library types Yanami exposes in All Libraries.
+        .filter(|view| {
+            !matches!(
+                view.collection_type.as_deref(),
+                Some("playlists" | "livetv" | "boxsets" | "channels" | "folders")
+            )
+        })
+        .cloned()
+        .collect()
+}
+
+fn select_series_continue_items(
+    next_up_items: Vec<BaseItem>,
+    episodes: Vec<BaseItem>,
+) -> Vec<BaseItem> {
+    let is_regular_unplayed = |item: &BaseItem| {
+        is_playable_item(item)
+            // Emby's Next Up excludes Specials. Keep the continuation row on
+            // the same regular-episode timeline; Specials remain in Seasons.
+            && item.parent_index_number != Some(0)
+            && item.user_data.as_ref().is_none_or(|data| !data.played)
+    };
+
+    if !episodes.iter().any(is_regular_unplayed) {
+        // Episodes owns the completion state. A stale Next Up response must
+        // not resurrect a Continue action after every regular Episode is done.
+        return Vec::new();
+    }
+
+    let Some(anchor) = next_up_items.into_iter().find(is_playable_item) else {
+        // An empty Next Up result is ambiguous: Emby can return it both for a
+        // completed Series and for one that has never been started. Episodes
+        // user data is the authoritative distinction. Preserve server order
+        // and hide the row only when no regular unplayed Episode remains.
+        return episodes.into_iter().filter(is_regular_unplayed).collect();
+    };
+    let Some(anchor_index) = episodes.iter().position(|item| item.id == anchor.id) else {
+        // Next Up remains authoritative even if an older or customized server
+        // omits the same item from its Series Episodes response. Do not guess
+        // which unordered items are "after" a missing anchor.
+        return vec![anchor];
+    };
+
+    let mut items = Vec::with_capacity(episodes.len().saturating_sub(anchor_index));
+    items.push(anchor);
+    items.extend(
+        episodes
+            .into_iter()
+            .skip(anchor_index + 1)
+            .filter(is_regular_unplayed),
+    );
+    items
+}
 
 fn user_container_view(id: &str, name: &str, collection_type: &str, count: usize) -> BaseItem {
     BaseItem {
@@ -187,6 +275,50 @@ fn user_container_view(id: &str, name: &str, collection_type: &str, count: usize
 }
 
 impl Application {
+    fn load_latest_media_sections(
+        &self,
+        client: &EmbyClient,
+        views: Vec<BaseItem>,
+        hide_played: bool,
+    ) -> Result<Vec<LatestMediaSection>, ApplicationError> {
+        let item_groups = self.block_on_emby(async {
+            try_join_all(views.iter().map(|view| {
+                client.latest_items_for_parent(&view.id, LATEST_MEDIA_LIMIT, hide_played)
+            }))
+            .await
+        })?;
+        let nonempty: Vec<_> = views
+            .into_iter()
+            .zip(item_groups)
+            .filter(|(_, items)| !items.is_empty())
+            .collect();
+        let section_views: Vec<_> = nonempty.iter().map(|(view, _)| view.clone()).collect();
+        let view_images = self.cache_images(client, &section_views, ImagePurpose::Backdrop)?;
+
+        nonempty
+            .into_iter()
+            .zip(view_images)
+            .map(|((view, items), view_image)| {
+                let item_images = self.cache_images(client, &items, ImagePurpose::Poster)?;
+                let item_cards = items
+                    .iter()
+                    .zip(item_images)
+                    .map(|(item, image_url)| {
+                        // GroupItems=true makes newly-added episodes arrive as
+                        // server-owned Series groupings. Do not reconstruct or
+                        // reorder that result in the client.
+                        media_card_json(item, image_url.as_deref(), false, None)
+                    })
+                    .collect();
+                Ok(LatestMediaSection {
+                    scope_id: view.id.clone(),
+                    view_card: library_view_json(&view, view_image.as_deref()),
+                    item_cards,
+                })
+            })
+            .collect()
+    }
+
     #[allow(clippy::too_many_lines)]
     pub fn library(&self) -> Result<LibraryOutcome, ApplicationError> {
         let client = self.active_client()?;
@@ -201,18 +333,7 @@ impl Application {
             };
             let library_request = client.items(&library_query);
             let views_request = client.user_views();
-            let recent_request = client.latest_items(&["Episode"], 20, false);
-            let resume_query = ItemQuery {
-                include_item_types: vec!["Episode".to_owned()],
-                recursive: true,
-                limit: 20,
-                sort_by: vec!["DatePlayed".to_owned()],
-                sort_order: Some("Descending".to_owned()),
-                filters: vec!["IsResumable".to_owned()],
-                ..ItemQuery::default()
-            };
-            let resume_request = client.items(&resume_query);
-            let next_up_request = client.next_up(None, 40);
+            let resume_request = client.continue_watching(16);
             // Emby returns parent Series DTOs on some server versions when
             // GroupItems=true. Fetch a broad, newest-first episode window
             // instead so every card can show an actual SxxExx + episode name.
@@ -222,9 +343,7 @@ impl Application {
             Ok::<_, ApplicationError>(tokio::join!(
                 library_request,
                 views_request,
-                recent_request,
                 resume_request,
-                next_up_request,
                 latest_request,
                 user_request,
                 playlists_request,
@@ -233,18 +352,14 @@ impl Application {
         let (
             library_result,
             views_result,
-            recent_items,
             resume_result,
-            next_up_result,
             latest_per_series,
             user,
             playlists_result,
         ) = library_request;
         let library_result = library_result.map_err(ApplicationError::from)?;
         let views_result = views_result.map_err(ApplicationError::from)?;
-        let recent_items = recent_items.map_err(ApplicationError::from)?;
         let resume_result = resume_result.map_err(ApplicationError::from)?;
-        let next_up_result = next_up_result.map_err(ApplicationError::from)?;
         let latest_per_series = latest_per_series.map_err(ApplicationError::from)?;
         let user = user.map_err(ApplicationError::from)?;
         let playlists = playlists_result.map_or_else(
@@ -275,6 +390,12 @@ impl Application {
                 )
             })
             .collect();
+        let latest_views = latest_media_views(&views, &user.configuration.latest_items_excludes);
+        let latest_sections = self.load_latest_media_sections(
+            &client,
+            latest_views,
+            user.configuration.hide_played_in_latest,
+        )?;
         if !playlists.is_empty() {
             views.push(user_container_view(
                 PLAYLISTS_VIEW_ID,
@@ -283,14 +404,9 @@ impl Application {
                 playlists.len(),
             ));
         }
-        let resumable_items: Vec<_> = resume_result
-            .items
-            .into_iter()
-            .filter(is_playable_item)
-            .collect();
-        let resume_items = merge_continue_watching(resumable_items, next_up_result.items, 20);
-        let recent_images =
-            self.cache_images(&client, &recent_items, ImagePurpose::EpisodeStill)?;
+        // Membership, ordering and de-duplication are server-owned. The Emby
+        // adapter selects the version-compatible official home endpoint.
+        let resume_items = resume_result.items;
         let resume_images =
             self.cache_images(&client, &resume_items, ImagePurpose::EpisodeStill)?;
         let view_images = self.cache_images(&client, &views, ImagePurpose::Backdrop)?;
@@ -314,23 +430,36 @@ impl Application {
             .zip(view_images)
             .map(|(item, image_url)| library_view_json(item, image_url.as_deref()))
             .collect();
-        let recent: Vec<_> = recent_items
-            .iter()
-            .zip(recent_images)
-            .map(|(item, image_url)| media_card_json(item, image_url.as_deref(), true, None))
-            .collect();
         let resume: Vec<_> = resume_items
             .iter()
             .zip(resume_images)
             .map(|(item, image_url)| media_card_json(item, image_url.as_deref(), true, None))
             .collect();
-        decode_catalog_outcome(normalized_query_payload(
-            vec![
-                ("library", String::new(), library, None),
-                ("views", String::new(), library_views, None),
-                ("resume", String::new(), resume, None),
-                ("recent", String::new(), recent, None),
-            ],
+        let latest_section_cards = latest_sections
+            .iter()
+            .map(|section| section.view_card.clone())
+            .collect();
+        let mut queries = vec![
+            ("library".to_owned(), String::new(), library, None),
+            ("views".to_owned(), String::new(), library_views, None),
+            ("resume".to_owned(), String::new(), resume, None),
+            (
+                "latestSections".to_owned(),
+                String::new(),
+                latest_section_cards,
+                None,
+            ),
+        ];
+        queries.extend(latest_sections.into_iter().map(|section| {
+            (
+                format!("latest:{}", section.scope_id),
+                section.scope_id,
+                section.item_cards,
+                None,
+            )
+        }));
+        let outcome = decode_catalog_outcome(normalized_query_payload(
+            queries,
             json!({
                 "userCapabilities": {
                     "userName": user.name,
@@ -340,7 +469,11 @@ impl Application {
                         || user.policy.enable_content_deletion,
                 },
             }),
-        )?)
+        )?)?;
+        if let Err(error) = self.ensure_media_catalog_sync() {
+            tracing::warn!(error = %error, "media catalog background sync did not start");
+        }
+        Ok(outcome)
     }
 
     pub fn favorites(&self) -> Result<FavoritesOutcome, ApplicationError> {
@@ -405,7 +538,7 @@ impl Application {
             })
             .collect();
         decode_catalog_outcome(normalized_query_payload(
-            vec![("favorites", String::new(), favorites, None)],
+            vec![("favorites".to_owned(), String::new(), favorites, None)],
             json!({
                 "totalRecordCount": total_record_count,
             }),
@@ -415,48 +548,60 @@ impl Application {
     #[allow(clippy::too_many_lines)]
     pub fn activity(&self) -> Result<ActivityOutcome, ApplicationError> {
         let client = self.active_client()?;
-        let (recent_items, resume_result, next_up_result) = self.block_on_emby(async {
-            let recent_request = client.latest_items(&["Episode"], 20, false);
-            let resume_query = ItemQuery {
-                include_item_types: vec!["Episode".to_owned()],
-                recursive: true,
-                limit: 20,
-                sort_by: vec!["DatePlayed".to_owned()],
-                sort_order: Some("Descending".to_owned()),
-                filters: vec!["IsResumable".to_owned()],
-                ..ItemQuery::default()
-            };
-            let resume_request = client.items(&resume_query);
-            let next_up_request = client.next_up(None, 40);
-            tokio::try_join!(recent_request, resume_request, next_up_request)
+        let (views_result, user, resume_result) = self.block_on_emby(async {
+            tokio::try_join!(
+                client.user_views(),
+                client.current_user(),
+                client.continue_watching(16)
+            )
         })?;
-        let resumable_items: Vec<_> = resume_result
+        let views: Vec<_> = views_result
             .items
             .into_iter()
-            .filter(is_playable_item)
+            .filter(is_supported_view)
+            .filter(|item| {
+                !matches!(
+                    item.collection_type.as_deref(),
+                    Some("playlists" | "boxsets")
+                )
+            })
             .collect();
-        let resume_items = merge_continue_watching(resumable_items, next_up_result.items, 20);
-        let recent_images =
-            self.cache_images(&client, &recent_items, ImagePurpose::EpisodeStill)?;
+        let latest_views = latest_media_views(&views, &user.configuration.latest_items_excludes);
+        let latest_sections = self.load_latest_media_sections(
+            &client,
+            latest_views,
+            user.configuration.hide_played_in_latest,
+        )?;
+        let resume_items = resume_result.items;
         let resume_images =
             self.cache_images(&client, &resume_items, ImagePurpose::EpisodeStill)?;
-        let recent: Vec<_> = recent_items
-            .iter()
-            .zip(recent_images)
-            .map(|(item, image_url)| media_card_json(item, image_url.as_deref(), true, None))
-            .collect();
         let resume: Vec<_> = resume_items
             .iter()
             .zip(resume_images)
             .map(|(item, image_url)| media_card_json(item, image_url.as_deref(), true, None))
             .collect();
-        decode_catalog_outcome(normalized_query_payload(
-            vec![
-                ("resume", String::new(), resume, None),
-                ("recent", String::new(), recent, None),
-            ],
-            json!({}),
-        )?)
+        let latest_section_cards = latest_sections
+            .iter()
+            .map(|section| section.view_card.clone())
+            .collect();
+        let mut queries = vec![
+            ("resume".to_owned(), String::new(), resume, None),
+            (
+                "latestSections".to_owned(),
+                String::new(),
+                latest_section_cards,
+                None,
+            ),
+        ];
+        queries.extend(latest_sections.into_iter().map(|section| {
+            (
+                format!("latest:{}", section.scope_id),
+                section.scope_id,
+                section.item_cards,
+                None,
+            )
+        }));
+        decode_catalog_outcome(normalized_query_payload(queries, json!({}))?)
     }
 
     #[allow(clippy::too_many_lines)]
@@ -468,61 +613,71 @@ impl Application {
             }
             _ => self.block_on_emby(client.item(parent_id))?,
         };
-        let (items, purpose, continue_item) = match parent.item_type.as_deref() {
-            Some("Series") => {
-                let (seasons, next_up) = self.block_on_emby(async {
-                    tokio::try_join!(
-                        client.seasons(parent_id),
-                        client.next_up(Some(parent_id), 1)
+        let (items, purpose, continue_item, series_continue_items) =
+            match parent.item_type.as_deref() {
+                Some("Series") => {
+                    let (seasons, next_up, episodes) = self.block_on_emby(async {
+                        tokio::try_join!(
+                            client.seasons(parent_id),
+                            client.next_up(Some(parent_id), 1),
+                            client.episodes(parent_id, None)
+                        )
+                    })?;
+                    let series_continue_items =
+                        select_series_continue_items(next_up.items, episodes.items);
+                    (
+                        seasons.items,
+                        ImagePurpose::Poster,
+                        series_continue_items.first().cloned(),
+                        series_continue_items,
                     )
-                })?;
-                (
-                    seasons.items,
-                    ImagePurpose::Poster,
-                    next_up.items.into_iter().find(is_playable_item),
-                )
-            }
-            Some("Season") => {
-                let series_id = parent.series_id.as_deref().ok_or_else(|| {
-                    ApplicationError::unsupported("Emby did not provide the season's series id")
-                })?;
-                let episodes: Vec<_> = self
-                    .block_on_emby(client.episodes(series_id, Some(parent_id)))?
-                    .items
-                    .into_iter()
-                    .filter(is_playable_item)
-                    .collect();
-                let continue_item = select_episode(episodes.clone());
-                (episodes, ImagePurpose::EpisodeStill, continue_item)
-            }
-            Some("Playlist") => {
-                let entries = self.block_on_emby(client.playlist_items(parent_id))?.items;
-                (entries, ImagePurpose::EpisodeStill, None)
-            }
-            _ if is_supported_view(&parent) => {
-                let items = match parent.collection_type.as_deref() {
-                    Some("playlists") => self.block_on_emby(client.playlists())?.items,
-                    _ => {
-                        self.block_on_emby(client.items(&ItemQuery {
-                            parent_id: Some(parent_id.to_owned()),
-                            include_item_types: vec!["Movie".to_owned(), "Series".to_owned()],
-                            recursive: true,
-                            limit: 2000,
-                            sort_by: vec!["SortName".to_owned()],
-                            sort_order: Some("Ascending".to_owned()),
-                            ..ItemQuery::default()
-                        }))?
+                }
+                Some("Season") => {
+                    let series_id = parent.series_id.as_deref().ok_or_else(|| {
+                        ApplicationError::unsupported("Emby did not provide the season's series id")
+                    })?;
+                    let episodes: Vec<_> = self
+                        .block_on_emby(client.episodes(series_id, Some(parent_id)))?
                         .items
-                    }
-                };
-                (items, ImagePurpose::Poster, None)
-            }
-            _ => {
-                return Err(ApplicationError::unsupported(
-                    "this item cannot be opened as a collection",
-                ));
-            }
-        };
+                        .into_iter()
+                        .filter(is_playable_item)
+                        .collect();
+                    let continue_item = select_episode(episodes.clone());
+                    (
+                        episodes,
+                        ImagePurpose::EpisodeStill,
+                        continue_item,
+                        Vec::new(),
+                    )
+                }
+                Some("Playlist") => {
+                    let entries = self.block_on_emby(client.playlist_items(parent_id))?.items;
+                    (entries, ImagePurpose::EpisodeStill, None, Vec::new())
+                }
+                _ if is_supported_view(&parent) => {
+                    let items = match parent.collection_type.as_deref() {
+                        Some("playlists") => self.block_on_emby(client.playlists())?.items,
+                        _ => {
+                            self.block_on_emby(client.items(&ItemQuery {
+                                parent_id: Some(parent_id.to_owned()),
+                                include_item_types: vec!["Movie".to_owned(), "Series".to_owned()],
+                                recursive: true,
+                                limit: 2000,
+                                sort_by: vec!["SortName".to_owned()],
+                                sort_order: Some("Ascending".to_owned()),
+                                ..ItemQuery::default()
+                            }))?
+                            .items
+                        }
+                    };
+                    (items, ImagePurpose::Poster, None, Vec::new())
+                }
+                _ => {
+                    return Err(ApplicationError::unsupported(
+                        "this item cannot be opened as a collection",
+                    ));
+                }
+            };
         // Queue the visible hero images before a potentially large collection.
         let parent_poster = self
             .cache_images(&client, std::slice::from_ref(&parent), ImagePurpose::Poster)?
@@ -544,6 +699,15 @@ impl Application {
             .zip(image_urls)
             .map(|(item, image_url)| media_card_json(item, image_url.as_deref(), false, None))
             .collect();
+        let series_continue_images =
+            self.cache_images(&client, &series_continue_items, ImagePurpose::EpisodeStill)?;
+        let series_continue_cards: Vec<_> = series_continue_items
+            .iter()
+            .zip(series_continue_images)
+            // The surrounding page already supplies Series context. Use the
+            // Episode title as the card title and SxxExx as its subtitle.
+            .map(|(item, image_url)| media_card_json(item, image_url.as_deref(), false, None))
+            .collect();
         let continue_label = continue_item
             .as_ref()
             .map(|item| card_subtitle(item, true))
@@ -554,15 +718,23 @@ impl Application {
             parent_backdrop.as_deref(),
             &continue_label,
         );
-        decode_catalog_outcome(normalized_query_payload(
-            vec![(
-                "collection",
+        let mut queries = vec![(
+            "collection".to_owned(),
+            parent_id.to_owned(),
+            children,
+            Some(parent_card),
+        )];
+        if parent.item_type.as_deref() == Some("Series") {
+            // Next Up is the preferred anchor. Episodes owns the cross-season
+            // order, the never-started fallback, and the completed state.
+            queries.push((
+                "seriesContinue".to_owned(),
                 parent_id.to_owned(),
-                children,
-                Some(parent_card),
-            )],
-            json!({}),
-        )?)
+                series_continue_cards,
+                None,
+            ));
+        }
+        decode_catalog_outcome(normalized_query_payload(queries, json!({}))?)
     }
 }
 
@@ -601,8 +773,8 @@ fn collection_parent_json(
     })
 }
 
-fn normalized_query_payload(
-    queries: Vec<(&str, String, Vec<Value>, Option<Value>)>,
+pub(crate) fn normalized_query_payload(
+    queries: Vec<(String, String, Vec<Value>, Option<Value>)>,
     extra: Value,
 ) -> Result<Value, String> {
     let Value::Object(mut payload) = extra else {
@@ -693,7 +865,7 @@ fn normalized_query_payload(
             }
         }
         query_objects.insert(
-            kind.to_owned(),
+            kind,
             json!({
                 "scopeId": scope_id,
                 "parentId": parent_id,
@@ -715,7 +887,8 @@ mod tests {
 
     use super::{
         ActivityOutcome, CatalogEntity, CollectionOutcome, FavoritesOutcome, LibraryOutcome,
-        collection_parent_json, decode_catalog_outcome, normalized_query_payload,
+        collection_parent_json, decode_catalog_outcome, latest_media_views,
+        normalized_query_payload, select_series_continue_items,
     };
     use crate::presentation::{library_view_json, media_card_json};
 
@@ -726,6 +899,8 @@ mod tests {
             item_type: Some("Episode".to_owned()),
             series_id: Some("series-1".to_owned()),
             series_name: Some("Series".to_owned()),
+            parent_index_number: Some(1),
+            index_number: Some(1),
             playlist_item_id: Some("entry-1".to_owned()),
             date_created: Some("2026-08-16T00:00:00Z".to_owned()),
             user_data: Some(UserItemData {
@@ -763,6 +938,168 @@ mod tests {
         }
     }
 
+    #[test]
+    fn latest_media_views_preserve_server_order_and_user_exclusions() {
+        let mut tv = view_item();
+        tv.id = "tv-view".to_owned();
+        let mut movies = view_item();
+        movies.id = "movies-view".to_owned();
+        movies.collection_type = Some("movies".to_owned());
+        let mut playlists = view_item();
+        playlists.id = "playlists-view".to_owned();
+        playlists.collection_type = Some("playlists".to_owned());
+
+        let views = latest_media_views(&[tv, movies, playlists], &["movies-view".to_owned()]);
+        assert_eq!(
+            views
+                .iter()
+                .map(|view| view.id.as_str())
+                .collect::<Vec<_>>(),
+            ["tv-view"]
+        );
+    }
+
+    fn episode_item(id: &str, season: i32, episode: i32, played: bool) -> BaseItem {
+        BaseItem {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            item_type: Some("Episode".to_owned()),
+            series_id: Some("series-1".to_owned()),
+            series_name: Some("Series".to_owned()),
+            parent_index_number: Some(season),
+            index_number: Some(episode),
+            user_data: Some(UserItemData {
+                played,
+                ..UserItemData::default()
+            }),
+            ..BaseItem::default()
+        }
+    }
+
+    #[test]
+    fn series_continue_starts_at_next_up_and_keeps_later_unplayed_server_order() {
+        let mut anchor = episode_item("s1e3", 1, 3, false);
+        anchor.user_data.as_mut().unwrap().playback_position_ticks = 42;
+        let mut virtual_episode = episode_item("s1e5", 1, 5, false);
+        virtual_episode.location_type = Some("Virtual".to_owned());
+
+        let selected = select_series_continue_items(
+            vec![anchor],
+            vec![
+                episode_item("s1e1", 1, 1, false),
+                episode_item("s1e3", 1, 3, false),
+                episode_item("s1e4", 1, 4, true),
+                virtual_episode,
+                episode_item("special", 0, 1, false),
+                episode_item("s1e6", 1, 6, false),
+                episode_item("s2e1", 2, 1, false),
+            ],
+        );
+
+        assert_eq!(
+            selected
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["s1e3", "s1e6", "s2e1"]
+        );
+        assert_eq!(
+            selected[0]
+                .user_data
+                .as_ref()
+                .unwrap()
+                .playback_position_ticks,
+            42
+        );
+    }
+
+    #[test]
+    fn series_continue_without_next_up_starts_at_first_unplayed_episode() {
+        let mut virtual_episode = episode_item("s1e4", 1, 4, false);
+        virtual_episode.location_type = Some("Virtual".to_owned());
+        let selected = select_series_continue_items(
+            Vec::new(),
+            vec![
+                episode_item("s1e1", 1, 1, false),
+                episode_item("s1e2", 1, 2, true),
+                episode_item("special", 0, 1, false),
+                episode_item("s1e3", 1, 3, false),
+                virtual_episode,
+                episode_item("s2e1", 2, 1, false),
+            ],
+        );
+        assert_eq!(
+            selected
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["s1e1", "s1e3", "s2e1"]
+        );
+    }
+
+    #[test]
+    fn series_continue_returns_every_episode_for_a_never_started_series() {
+        let selected = select_series_continue_items(
+            Vec::new(),
+            vec![
+                episode_item("s1e1", 1, 1, false),
+                episode_item("s1e2", 1, 2, false),
+                episode_item("s1e3", 1, 3, false),
+            ],
+        );
+        assert_eq!(
+            selected
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["s1e1", "s1e2", "s1e3"]
+        );
+    }
+
+    #[test]
+    fn series_continue_treats_missing_user_data_as_not_completed() {
+        let mut episode = episode_item("s1e1", 1, 1, false);
+        episode.user_data = None;
+        let selected = select_series_continue_items(Vec::new(), vec![episode]);
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].id, "s1e1");
+    }
+
+    #[test]
+    fn series_continue_without_next_up_hides_only_when_all_regular_episodes_are_played() {
+        let selected = select_series_continue_items(
+            Vec::new(),
+            vec![
+                episode_item("s1e1", 1, 1, true),
+                episode_item("s1e2", 1, 2, true),
+                episode_item("unplayed-special", 0, 1, false),
+            ],
+        );
+        assert!(selected.is_empty());
+    }
+
+    #[test]
+    fn series_continue_ignores_a_stale_next_up_after_series_completion() {
+        let selected = select_series_continue_items(
+            vec![episode_item("stale-anchor", 1, 2, false)],
+            vec![
+                episode_item("s1e1", 1, 1, true),
+                episode_item("s1e2", 1, 2, true),
+            ],
+        );
+        assert!(selected.is_empty());
+    }
+
+    #[test]
+    fn series_continue_keeps_a_next_up_anchor_missing_from_episode_results() {
+        let selected = select_series_continue_items(
+            vec![episode_item("server-anchor", 1, 2, false)],
+            vec![episode_item("s1e1", 1, 1, false)],
+        );
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].id, "server-anchor");
+    }
+
     fn round_trip<T>(raw: &Value) -> T
     where
         T: DeserializeOwned + Serialize,
@@ -779,27 +1116,33 @@ mod tests {
         let raw = normalized_query_payload(
             vec![
                 (
-                    "library",
+                    "library".to_owned(),
                     String::new(),
                     vec![media_card_json(&media, None, false, None)],
                     None,
                 ),
                 (
-                    "views",
+                    "views".to_owned(),
                     String::new(),
                     vec![library_view_json(&view, Some("file:///view.jpg"))],
                     None,
                 ),
                 (
-                    "resume",
+                    "resume".to_owned(),
                     String::new(),
                     vec![media_card_json(&media, None, true, None)],
                     None,
                 ),
                 (
-                    "recent",
+                    "latestSections".to_owned(),
                     String::new(),
-                    vec![media_card_json(&media, None, true, None)],
+                    vec![library_view_json(&view, Some("file:///view.jpg"))],
+                    None,
+                ),
+                (
+                    "latest:view-1".to_owned(),
+                    "view-1".to_owned(),
+                    vec![media_card_json(&media, None, false, None)],
                     None,
                 ),
             ],
@@ -829,7 +1172,7 @@ mod tests {
         let media = media_item();
         let raw = normalized_query_payload(
             vec![(
-                "favorites",
+                "favorites".to_owned(),
                 String::new(),
                 vec![media_card_json(&media, None, true, None)],
                 None,
@@ -845,32 +1188,88 @@ mod tests {
     }
 
     #[test]
-    fn activity_contract_round_trips_resume_and_recent_queries() {
+    fn activity_contract_round_trips_scoped_latest_media_queries() {
         let media = media_item();
+        let view = view_item();
         let raw = normalized_query_payload(
             vec![
                 (
-                    "resume",
+                    "resume".to_owned(),
                     String::new(),
                     vec![media_card_json(&media, None, true, None)],
                     None,
                 ),
                 (
-                    "recent",
+                    "latestSections".to_owned(),
                     String::new(),
-                    vec![media_card_json(&media, None, true, None)],
+                    vec![library_view_json(&view, None)],
+                    None,
+                ),
+                (
+                    "latest:view-1".to_owned(),
+                    "view-1".to_owned(),
+                    vec![media_card_json(&media, None, false, None)],
                     None,
                 ),
             ],
             json!({}),
         )
         .unwrap();
-        let _: ActivityOutcome = round_trip(&raw);
+        let typed: ActivityOutcome = round_trip(&raw);
+        assert_eq!(
+            typed.queries.scoped.get("latest:view-1").unwrap().rows[0].entity_id,
+            "episode-1"
+        );
+    }
+
+    #[test]
+    fn activity_contract_preserves_server_continue_watching_order() {
+        let mut movie = media_item();
+        movie.id = "movie-b".to_owned();
+        movie.name = "Movie B".to_owned();
+        movie.item_type = Some("Movie".to_owned());
+        movie.series_id = None;
+
+        let mut episode_a2 = media_item();
+        episode_a2.id = "episode-a2".to_owned();
+        episode_a2.name = "A2".to_owned();
+        episode_a2.series_id = Some("series-a".to_owned());
+
+        let mut episode_a3 = episode_a2.clone();
+        episode_a3.id = "episode-a3".to_owned();
+        episode_a3.name = "A3".to_owned();
+
+        let cards = [&movie, &episode_a2, &episode_a3]
+            .into_iter()
+            .map(|item| media_card_json(item, None, true, None))
+            .collect();
+        let raw = normalized_query_payload(
+            vec![("resume".to_owned(), String::new(), cards, None)],
+            json!({}),
+        )
+        .unwrap();
+        let typed: ActivityOutcome = round_trip(&raw);
+        assert_eq!(
+            typed
+                .queries
+                .resume
+                .unwrap()
+                .rows
+                .iter()
+                .map(|row| row.entity_id.as_str())
+                .collect::<Vec<_>>(),
+            ["movie-b", "episode-a2", "episode-a3"]
+        );
     }
 
     #[test]
     fn collection_contract_covers_parent_and_child_entities() {
         let media = media_item();
+        let mut later_episode = media_item();
+        later_episode.id = "episode-2".to_owned();
+        later_episode.name = "Episode 2".to_owned();
+        later_episode.parent_index_number = Some(2);
+        later_episode.index_number = Some(1);
         let parent = parent_item();
         let parent_card = collection_parent_json(
             &parent,
@@ -879,16 +1278,40 @@ mod tests {
             "Continue S01E02",
         );
         let raw = normalized_query_payload(
-            vec![(
-                "collection",
-                parent.id.clone(),
-                vec![media_card_json(&media, None, false, None)],
-                Some(parent_card),
-            )],
+            vec![
+                (
+                    "collection".to_owned(),
+                    parent.id.clone(),
+                    vec![media_card_json(&media, None, false, None)],
+                    Some(parent_card),
+                ),
+                (
+                    "seriesContinue".to_owned(),
+                    parent.id.clone(),
+                    vec![
+                        media_card_json(&media, None, false, None),
+                        media_card_json(&later_episode, None, false, None),
+                    ],
+                    None,
+                ),
+            ],
             json!({}),
         )
         .unwrap();
         let typed: CollectionOutcome = round_trip(&raw);
+        let series_continue = typed.queries.series_continue.as_ref().unwrap();
+        assert_eq!(series_continue.scope_id, "series-1");
+        assert_eq!(series_continue.rows.len(), 2);
+        assert_eq!(series_continue.rows[0].entity_id, "episode-1");
+        assert_eq!(series_continue.rows[1].entity_id, "episode-2");
+        assert_eq!(
+            series_continue.rows[0].decoration.subtitle.as_deref(),
+            Some("S01E01")
+        );
+        assert_eq!(
+            series_continue.rows[1].decoration.subtitle.as_deref(),
+            Some("S02E01")
+        );
         assert!(matches!(
             typed.entities.get("episode-1"),
             Some(CatalogEntity::Media(_))

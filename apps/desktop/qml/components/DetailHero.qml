@@ -11,6 +11,7 @@ GlassPanel {
     property string subtitle
     property string overview
     property string continueLabel
+    property bool playButtonVisible: true
     property url posterUrl
     property url backdropUrl
     signal playRequested()
@@ -119,6 +120,7 @@ GlassPanel {
                 spacing: 12
 
                 AppButton {
+                    visible: root.playButtonVisible
                     kind: "primary"
                     iconName: "play"
                     text: root.continueLabel.length > 0 ? qsTr("Resume") : qsTr("Play")

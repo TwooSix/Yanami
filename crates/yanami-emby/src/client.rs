@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
@@ -7,7 +7,10 @@ use thiserror::Error;
 use yanami_core::{ProfileError, ServerProfile, TlsPolicy, same_origin};
 
 use crate::{
-    models::{AuthenticationResult, RefreshProgress},
+    continue_watching::EmbyCompatibilityState,
+    models::{
+        AuthenticationResult, EmbyNotification, LibraryChange, RefreshProgress, UserDataChange,
+    },
     transport::decode,
 };
 
@@ -18,6 +21,18 @@ const BUILD_VERSION: &str = match option_env!("YANAMI_BUILD_VERSION") {
 
 pub(crate) const BROWSE_FIELDS: &str = "Overview,PrimaryImageAspectRatio,UserData,DateCreated,PremiereDate,DateLastSaved,ProviderIds,ParentId,SortName,CanEditItems,CanDelete";
 pub(crate) const ITEM_FIELDS: &str = "Overview,PrimaryImageAspectRatio,UserData,DateCreated,PremiereDate,DateLastSaved,ProviderIds,ParentId,SortName,Chapters,CanEditItems,CanDelete";
+const FULL_CATALOG_FIELDS: &[&str] = &[
+    "Aliases",
+    "OriginalTitle",
+    "SortName",
+    "ParentId",
+    "DateCreated",
+    "PremiereDate",
+    "DateLastSaved",
+    "DateModified",
+    "Etag",
+    "PrimaryImageAspectRatio",
+];
 
 pub(crate) fn parse_refresh_progress_message(value: &Value) -> Option<RefreshProgress> {
     let message_type = value.get("MessageType")?.as_str()?;
@@ -48,6 +63,88 @@ pub(crate) fn parse_refresh_progress_message(value: &Value) -> Option<RefreshPro
         complete: completion_message || progress >= 100.0,
         received_at: std::time::Instant::now(),
     })
+}
+
+pub(crate) fn parse_notification_message(value: &Value) -> Option<EmbyNotification> {
+    if let Some(progress) = parse_refresh_progress_message(value) {
+        return Some(EmbyNotification::RefreshProgress(progress));
+    }
+    let message_type = value.get("MessageType").and_then(Value::as_str)?;
+    if message_type == "UserDataChanged" {
+        let data = value.get("Data")?.as_object()?;
+        let user_id = data.get("UserId")?.as_str()?.trim();
+        if user_id.is_empty() {
+            return None;
+        }
+        let (item_ids, requires_catchup) = match data.get("UserDataList").and_then(Value::as_array)
+        {
+            Some(values) => {
+                let requires_catchup = values.iter().any(|state| {
+                    state
+                        .get("ItemId")
+                        .and_then(Value::as_str)
+                        .is_none_or(|item_id| item_id.trim().is_empty())
+                });
+                let item_ids = values
+                    .iter()
+                    .filter_map(|state| state.get("ItemId").and_then(Value::as_str))
+                    .map(str::trim)
+                    .filter(|item_id| !item_id.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+                (item_ids, requires_catchup)
+            }
+            None => (Vec::new(), true),
+        };
+        return Some(EmbyNotification::UserDataChanged(UserDataChange {
+            user_id: user_id.to_owned(),
+            item_ids,
+            requires_catchup,
+        }));
+    }
+    if message_type != "LibraryChanged" {
+        return None;
+    }
+    let Some(data) = value.get("Data").and_then(Value::as_object) else {
+        return Some(EmbyNotification::LibraryChanged(LibraryChange {
+            requires_membership: true,
+            ..LibraryChange::default()
+        }));
+    };
+    let item_ids = |name: &str| {
+        let Some(values) = data.get(name).and_then(Value::as_array) else {
+            return (Vec::new(), true);
+        };
+        let malformed = values.iter().any(|value| value.as_str().is_none());
+        let item_ids = values
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|item_id| !item_id.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        (item_ids, malformed)
+    };
+    let (items_added, added_malformed) = item_ids("ItemsAdded");
+    let (items_updated, updated_malformed) = item_ids("ItemsUpdated");
+    let (items_removed, removed_malformed) = item_ids("ItemsRemoved");
+    let requires_membership = added_malformed
+        || updated_malformed
+        || removed_malformed
+        || data.get("IsEmpty").and_then(Value::as_bool) == Some(true)
+        || ["FoldersAddedTo", "FoldersRemovedFrom", "CollectionFolders"]
+            .into_iter()
+            .any(|name| {
+                data.get(name)
+                    .and_then(Value::as_array)
+                    .is_some_and(|values| !values.is_empty())
+            });
+    Some(EmbyNotification::LibraryChanged(LibraryChange {
+        items_added,
+        items_updated,
+        items_removed,
+        requires_membership,
+    }))
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +178,50 @@ pub struct ItemQuery {
     pub sort_order: Option<String>,
     pub filters: Vec<String>,
     pub can_edit_items: Option<bool>,
+    /// Overrides the fields requested by [`EmbyClient::items`].
+    ///
+    /// `None` preserves the historical browse field set. `Some(Vec::new())`
+    /// deliberately sends an empty `Fields` value so callers can request only
+    /// Emby's basic DTO projection.
+    pub fields: Option<Vec<String>>,
+    /// Overrides the historical `EnableImages=true` items-query default.
+    pub enable_images: Option<bool>,
+    /// Overrides the historical `EnableUserData=true` items-query default.
+    pub enable_user_data: Option<bool>,
+    pub min_date_last_saved: Option<String>,
+    pub min_date_last_saved_for_user: Option<String>,
+    pub ids: Vec<String>,
+}
+
+impl ItemQuery {
+    /// Builds one lightweight, user-visible page of the complete video catalog.
+    ///
+    /// The query consumes Emby's real Movie, Series, Season and Episode DTOs;
+    /// callers own paging, retry and reconciliation policy.
+    pub fn full_catalog_page(start_index: u32, limit: u32) -> Self {
+        Self {
+            include_item_types: ["Movie", "Series", "Season", "Episode"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            recursive: true,
+            start_index,
+            limit,
+            sort_by: vec!["SortName".to_owned()],
+            sort_order: Some("Ascending".to_owned()),
+            fields: Some(
+                FULL_CATALOG_FIELDS
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+            ),
+            // Image metadata is required for cache-versioned card URLs. Emby
+            // returns only tags/aspect information here, not image payloads.
+            enable_images: Some(true),
+            enable_user_data: Some(false),
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -107,6 +248,8 @@ pub enum EmbyError {
     InvalidProfile(#[from] ProfileError),
     #[error("Emby returned malformed JSON: {0}")]
     InvalidJson(#[from] serde_json::Error),
+    #[error("Emby returned an unsupported response: {0}")]
+    InvalidResponse(String),
     #[error("Emby response exceeded the {limit_bytes}-byte safety limit")]
     ResponseTooLarge { limit_bytes: usize },
 }
@@ -119,6 +262,7 @@ pub struct EmbyClient {
     pub(crate) identity: ClientIdentity,
     pub(crate) user_id: Option<String>,
     pub(crate) token: Option<SecretString>,
+    pub(crate) compatibility: Arc<EmbyCompatibilityState>,
 }
 
 impl EmbyClient {
@@ -146,6 +290,7 @@ impl EmbyClient {
             identity,
             user_id: None,
             token: None,
+            compatibility: Arc::new(EmbyCompatibilityState::default()),
         })
     }
 

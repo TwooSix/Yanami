@@ -11,6 +11,13 @@ Item {
     Component.onCompleted: {
         observedSessionGeneration = Number(app.session.generation || 0)
         observedConnected = Boolean(app.session.connected)
+        Qt.callLater(function() {
+            if (host.hostWindow.active
+                    && host.hostWindow.currentPage === 0
+                    && app.session.connected) {
+                app.home.ensureActivityFresh()
+            }
+        })
     }
 
     Connections {
@@ -21,10 +28,16 @@ Item {
             const sessionChanged = host.observedSessionGeneration >= 0
                 && generation !== host.observedSessionGeneration
             const disconnected = host.observedConnected && !connected
+            const connectedNow = !host.observedConnected && connected
             host.observedSessionGeneration = generation
             host.observedConnected = connected
             if (sessionChanged || disconnected)
                 PopupCoordinator.closeScope(host.hostWindow, true)
+            if (connectedNow
+                    && host.hostWindow.active
+                    && host.hostWindow.currentPage === 0) {
+                app.home.ensureActivityFresh()
+            }
         }
     }
 
@@ -42,9 +55,29 @@ Item {
                 handledInPlayer = true
             }
             if (!handledInPlayer && app.status.ready)
-                host.hostWindow.showActionToast(app.status.message)
+                host.hostWindow.showActionToast(app.status.message, "error")
             else if (!app.status.ready)
                 host.hostWindow.showBackendError()
         }
+    }
+
+    Connections {
+        target: host.hostWindow
+        function onActiveChanged() {
+            if (host.hostWindow.active
+                    && host.hostWindow.currentPage === 0
+                    && app.session.connected) {
+                app.home.ensureActivityFresh()
+            }
+        }
+    }
+
+    Timer {
+        interval: 60000
+        repeat: true
+        running: host.hostWindow.active
+            && host.hostWindow.currentPage === 0
+            && app.session.connected
+        onTriggered: app.home.ensureActivityFresh()
     }
 }

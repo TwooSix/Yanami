@@ -65,7 +65,7 @@ Startup proceeds in this order:
 2. `DesktopBackendServices` is created as the only desktop-backend composition root. It first creates `RuntimeHost`, `WorkerPools`, and `ApplicationStatusService`.
 3. `RuntimeHost` loads the platform Rust bridge library, validates the complete ABI, creates the application data and cache directories, and opens one Rust backend handle.
 4. The Rust bridge creates a Tokio runtime and opens `yanami-application`. The application opens SQLite, connects to the operating-system credential vault, restores persisted session metadata, and starts application-owned background maintenance.
-5. `DesktopBackendServices` constructs the session, catalog, media, playback, and danmaku coordinators, then initializes them from the restored session.
+5. `DesktopBackendServices` constructs the session, catalog, search, media, playback, and danmaku coordinators, then initializes them from the restored session.
 6. `ApplicationViewModel` is built from the composition root's `BackendPortSet`. The asynchronous image provider is registered and the QML engine receives three context objects: `app`, `i18n`, and `windowShell`.
 7. `Main.qml` is loaded. `app` is the only context object that exposes product-domain behavior.
 
@@ -95,6 +95,7 @@ This is the only supported domain request path. QML must not call the bridge, pa
 
 - `session`
 - `home`
+- `search`
 - `favorites`
 - `playback`
 - `danmaku`
@@ -116,17 +117,18 @@ Each feature view model depends only on interfaces declared in `BackendPorts.hpp
 | --- | --- | --- |
 | `SessionCoordinator` | Restored identity, login, logout, capabilities, session generation, and lifecycle fences | Serialized session-control work |
 | `CatalogCoordinator` | Library, activity, favorites, collection navigation, `MediaStore`, and the session-scoped presentation cache | Coalesced resource requests and latest-wins presentation lanes |
+| `SearchCoordinator` | Session-scoped local-catalog queries, bounded Top-K publication, delayed poster hydration, index progress, and stale-result rejection | One active query plus one latest queued query on a dedicated search lane; delayed hydration on a separate single-worker lane |
 | `MediaCoordinator` | Metadata, images, playlists, watched/favorite state, library scans, deletion, and refresh progress | Independent latest-wins read lanes; FIFO mutations per item with bounded cross-item concurrency |
 | `PlaybackCoordinator` | Playback preparation, episode switching, and ordered Emby playback reports | Latest-wins preparation lane and an ordered report lane that coalesces redundant progress |
 | `DanmakuCoordinator` | Credential state, search, automatic matching, and applying a selected match | Latest-wins search and serialized ordered operations |
 | `PlaybackReporter` | Converts live `MpvVideoItem` state into Started, Progress, and Stopped telemetry | Event-driven reports plus a heartbeat |
 | `ApplicationStatusService` | Maps stable backend error codes to user-facing status | UI-thread state publication |
 
-`WorkerPools` provides separate bounded resources for session control, catalog, media reads, media mutations, playback preparation, playback reporting, and danmaku control. Slow work in one feature therefore cannot consume the UI thread or the execution capacity reserved for another critical feature.
+`WorkerPools` provides separate bounded resources for session control, catalog, local search, search-image hydration, media reads, media mutations, playback preparation, playback reporting, and danmaku control. Slow work in one feature therefore cannot consume the UI thread or the execution capacity reserved for another critical feature.
 
 ### Session and request identity
 
-`SessionCoordinator` is the lifecycle authority on the C++ side. Every committed login or logout advances the session generation. Before a transition starts, `DesktopBackendServices` synchronously fences catalog, media, playback, reporting, and danmaku consumers. A successful transition resets session-scoped state; a failed transition reopens the previous committed session without publishing speculative identity.
+`SessionCoordinator` is the lifecycle authority on the C++ side. Every committed login or logout advances the session generation. Before a transition starts, `DesktopBackendServices` synchronously fences catalog, search, media, playback, reporting, and danmaku consumers. A successful transition resets session-scoped state; a failed transition reopens the previous committed session without publishing speculative identity.
 
 Request safety is enforced at two levels:
 
@@ -139,7 +141,9 @@ Latest-wins is scoped to a lane, not globally. Independent features continue con
 
 Remote reads use `AsyncResourceState` with `Idle`, `Loading`, `Ready`, `Refreshing`, and `Error` phases. Refreshing preserves existing data as stale; a failed refresh keeps usable data visible. User commands use `AsyncOperationState` with `Idle`, `Running`, `Succeeded`, and `Failed` phases and a mutation identity.
 
-`MediaStore` is the normalized C++ presentation store. It owns entities, query rows, `QAbstractListModel` instances, and optimistic overlays. It is not a second domain database. The catalog disk cache is disposable, scoped to the committed session, and accepted only when its cache schema, bridge schema, and cache scope all match.
+`MediaStore` is the normalized C++ presentation store. It owns entities, query rows, `QAbstractListModel` instances, and optimistic overlays. It is not a second domain database. The small Home presentation snapshot remains optimized for stale-first screen restoration.
+
+The full-library `MediaCatalog` is a separate, disposable Rust-side SQLite projection scoped by local server profile, Emby server, and user. It stores lightweight generic media identity, hierarchy, display metadata, image tags, and user state, but no image bytes, playback URLs, secrets, or server-owned Home-section ordering. Search indexes are versioned derivatives of that projection rather than a second source of truth. This makes the catalog reusable for future local-first library reads while allowing its search representation to be replaced or rebuilt independently.
 
 `MediaCoordinator` can update catalog presentation state only through `CatalogMutationSink`. The sink permits optimistic patches, commit or rollback, invalidation, and reconciliation, but does not expose catalog navigation, request lanes, cache files, or the store itself.
 
@@ -149,15 +153,19 @@ Image DTOs contain opaque `image://yanami/<key>` URLs. Rust downloads and atomic
 
 Application popups use the shared `AppPopup` and `AppMenu` families and register with `PopupCoordinator`. The coordinator owns stacking, scope, Escape handling, outside-click dismissal, application-shortcut blocking, and the `transient < modal < confirm < error` order. A running mutation may block dismissal, and dirty editors request confirmation before closing. Native platform dialogs such as `FileDialog` are outside this in-window popup system.
 
+### Controller input
+
+Controller and TV-remote input crosses one semantic boundary owned by `InputModalityController` and `ControllerNavigationSource`. Device backends and profiles own physical mappings, connection state, neutral gating, repeat, and active-device arbitration; QML owns contextual action policy and focus movement. SDL3 is the primary gamepad backend and Windows XInput is an exclusive fallback. Remote keyboard events are correlated with read-only Raw Input identity instead of being dispatched twice. See [CONTROLLER_INTERACTION.md](CONTROLLER_INTERACTION.md) for mappings, support levels, exclusions, and acceptance gates.
+
 ## 5. Rust bridge boundary
 
 `RustBridgeRuntime` is the only C++ type that loads the Rust library, resolves symbols, owns the backend handle, or frees Rust strings. Feature code sees named C++ methods, not dynamic-library details.
 
 The current bridge contract is:
 
-- C ABI version 2, checked before any backend handle is created.
+- C ABI version 3, checked before any backend handle is created.
 - Desktop JSON schema version 8 on every successful JSON response, validated by C++ before publication.
-- Named exports grouped by session, catalog, media, images, playback, and danmaku.
+- Named exports grouped by session, catalog, local search (including the independent image-hydration status export), media, images, playback, and danmaku.
 - Stable error envelopes with `code` and `message` fields.
 - Panic containment at every exported Rust entry point; a panic becomes an `internal` error and never crosses the FFI boundary.
 - Explicit ownership of all returned C strings through `yanami_string_free`.
@@ -187,13 +195,13 @@ flowchart TD
 | `yanami-core` | UI-independent domain types and invariants, including server profiles, same-origin URLs, playback plans, media tracks, and structured danmaku comments |
 | `yanami-emby` | Typed Emby HTTP and WebSocket transport, protocol DTOs, catalog and media operations, playback reporting, and playback-plan selection |
 | `yanami-danmaku` | DanDanPlay credentials and signing, search and matching, comment parsing, and the authenticated media-prefix hash |
-| `yanami-storage` | SQLite schema and repositories plus the operating-system credential-vault abstraction |
+| `yanami-storage` | SQLite schemas and repositories, including the disposable full-library media projection and its derived search index, plus the operating-system credential-vault abstraction |
 | `yanami-application` | The only application-use-case facade; owns active Emby session state, authenticated client reuse, playback report identity, catalog/media/image/danmaku workflows, background tasks, cache policy, and presentation DTOs |
 | `yanami-desktop-bridge` | Tokio runtime ownership, cancellation, JSON codec, C-string ownership, panic boundaries, and C ABI exports |
 
 Among internal Yanami crates, `yanami-desktop-bridge` depends only on `yanami-application`. Protocol and repository details must not leak into the bridge or C++ shell.
 
-Non-secret server and session records, danmaku choices, and comment caches live in SQLite. Emby tokens and user-provided DanDanPlay secrets live in the operating-system credential vault. Desktop-only visual preferences use `QSettings`; the catalog presentation cache and image files live under the application cache and may be rebuilt.
+Non-secret server and session records, danmaku choices, and comment caches live in SQLite. Emby tokens and user-provided DanDanPlay secrets live in the operating-system credential vault. Desktop-only visual preferences use `QSettings`; the Home presentation snapshot, full-library media projection, derived search index, and image files live under the application cache and may be rebuilt.
 
 ## 7. Main feature flows
 
@@ -202,6 +210,28 @@ Non-secret server and session records, danmaku choices, and comment caches live 
 On startup, Rust restores the last persisted session metadata and C++ publishes a committed session generation. `CatalogCoordinator` then restores a compatible session-scoped presentation cache for immediate display and starts a background library refresh. Authoritative results replace or patch `MediaStore` only while their session and resource tokens remain valid.
 
 Login and logout are commit boundaries. Other coordinators stop accepting session-bound results before the Rust session changes. After commit, catalog state, playback identity, danmaku work, and feature view generations move to the new session together.
+
+Continue Watching is a semantic Emby adapter operation, not a generic catalog query assembled by the UI or application use case. `yanami-emby` discovers the server version once per authenticated client, translates it into endpoint capabilities, and exposes one `continue_watching` method. Known servers before `4.10.0.4` use `Users/{userId}/Items/Resume`; newer or unknown servers probe `HomeSections` and then request the server-selected resume section. The stable path also reads Emby Web's user home-layout preferences so a separate Next Up row produces the same `IncludeNextUp=false` request. Its flat-user-settings versus legacy DisplayPreferences dialect is selected by version and safely probed when the version is unknown. The server owns membership, ordering, and de-duplication; Yanami never merges `IsResumable` and `NextUp` locally.
+
+Series details use Emby's dedicated `Shows/NextUp` operation with `SeriesId` and `Limit=1` as the preferred continuation anchor, then preserve the server order and user playback state from `Shows/{SeriesId}/Episodes`. With an anchor, the scoped `seriesContinue` query contains that Episode plus every later regular Episode that is not marked played; completed holes, virtual media, Specials, and the prefix before the anchor are excluded. Without an anchor, the Episodes response distinguishes a never-started Series from a completed one: all regular unplayed Episodes are shown in server order, and the continuation row and Series hero action are hidden only when none remain. Cards play exact Episode IDs with Series queue context and present the Episode title over an `SxxExx` subtitle. Playback stop and play-state mutations invalidate the affected Series scope even while a Season or another route is displayed; an actively displayed Series is also refreshed, so the row advances without waiting for the five-minute collection TTL.
+
+Version strings are hints rather than protocol truth. Only `404`, `405`, or `501` from the HomeSections discovery request disables that path for the current authenticated client and falls back to Resume; an error from the selected section-items request remains visible. Authentication, permission, malformed-response, transport, and server errors remain visible failures and preserve the existing presentation cache. Home-section contents and home-layout preferences are fetched on every activity refresh because the user can edit them independently of a Yanami session, while discovered endpoint capabilities are cached for that session.
+
+Latest Media is likewise server-owned. Yanami preserves the ordered user-view list, applies `User.Configuration.LatestItemsExcludes`, and requests `Users/{userId}/Items/Latest` once per eligible view with `ParentId`, `Limit=16`, and `GroupItems=true`. When `User.Configuration.HidePlayedInLatest` is enabled it also sends `IsPlayed=false`. It deliberately omits `IncludeItemTypes`: Emby owns the view's media types and groups newly added Episodes into Series containers. A failure remains visible and preserves the prior snapshot; the client does not rebuild or reorder the row from generic Episode queries.
+
+The desktop transport represents these rows as one ordered `latestSections` query plus scoped `latest:{viewId}` queries. `CatalogCoordinator` validates the complete set before committing it, clears scopes removed by permission or preference changes without invalidating stable QML model objects, and persists the scoped rows in the session-bound Home cache. Activity revision fences cover Continue Watching and all Latest Media scopes as one presentation snapshot.
+
+Activity freshness remains a desktop presentation concern. Initial connection, returning to Home, reactivating the window, or a one-minute visible-Home heartbeat asks `CatalogCoordinator` to ensure activity is fresh. A 30-second admission window suppresses redundant passive requests; it is not a polling service-level guarantee. QML reports lifecycle intent but owns neither the cache decision nor Emby version rules. Passive triggers coalesce with an in-flight request, failed automatic refreshes use bounded backoff while preserving stale content, and playback stop invalidates activity before a debounced passive reconciliation plus one delayed forced consistency check.
+
+### Full-library cache and search
+
+Restoring or committing an Emby session starts one session-scoped catalog supervisor without opening or rebuilding the catalog on the login path. Bootstrap and rare repair traversals read Movies, Series, Seasons, and Episodes in 500-item pages; each committed page is immediately searchable and cooperative yields keep network and indexing work out of the UI and search lanes. The existing single Emby WebSocket carries refresh progress, `LibraryChanged`, and active-user `UserDataChanged` notifications. Catalog IDs are coalesced for 250 ms, persisted before acknowledgement, and fetched in bounded ID batches; removals create persistent tombstones and suppress cached Series or Season descendants without rebuilding the mmap posting-index base. Pending-change, catch-up, and membership revisions fence concurrent notifications so an older request cannot acknowledge newer work.
+
+Every WebSocket connection or disconnect marks a possible notification gap. The supervisor repairs that gap with a timestamp delta, using a five-minute overlap around its persisted watermark, and runs the same lightweight delta every 15 minutes as a lost-event safety net. Because timestamp deltas cannot discover deletions, an exact ID-only membership pass runs after a connection gap or ambiguous folder event and every six hours, using 2000 IDs per page with images, user data, and detail fields disabled. A full detail traversal is reserved for bootstrap, a seven-day repair sweep, schema or cache replacement, or escalation after three consecutive incremental failures; the old minute-level count probe is not part of the synchronization protocol. Before a full run can delete unseen rows, its second ID-only traversal must match both the first traversal's exact member set and stable total behind a revision fence. Incomplete or failed work retains the last searchable snapshot. An empty bootstrap retries after 5 seconds and then backs off to 15 and 60 seconds for consecutive in-process failures; a failed refresh with an existing snapshot uses the normal 60-second retry. Failure is presented as an automatic retry rather than a paused service. The bounded stored reason is carried only as diagnostic status: `SearchCoordinator` logs it on transitions or detail changes, and the runtime logger redacts URLs and named credentials before persistence.
+
+Search is local-only on the hot path and covers every committed catalog row through the persistent posting index; the bounded result window is a rendering limit, not a search-scope limit. QML submits normalized non-empty input through a 100 ms trailing policy while an empty query clears synchronously, including during IME composition. Repeated normalized input is suppressed unless a language change explicitly forces reevaluation. As soon as editing diverges from the submitted query, `SearchCoordinator` generation-fences an in-flight revision refresh, query, or image hydration so old background work cannot churn models during the debounce window. The coordinator otherwise allows one active bridge call and at most one replacement, rejects results from older request or session generations, and publishes separate title and episode models. Every committed catalog mutation advances an opaque `catalogRevision`. The current synchronous desktop ABI has no Rust-to-Qt event channel, so a visible, non-empty, idle Search page performs a search-only 750 ms empty-query status check; an unchanged revision emits no model or hydration work, while a changed revision reuses the latest-wins query lane. The active query is therefore rerun after each observed page or incremental commit, and newly indexed matches appear progressively instead of waiting for the full catalog to finish. Lifecycle-only status changes update progress or error copy without republishing rows. `MediaStore` applies stable-ID inserts, moves, removals, and patches without a model reset; `SearchResultRowsModel` projects both semantic sections into header and card rows consumed by one pooled vertical `ListView`, so only visible cards exist, and entity-only patches invalidate just the affected visual rows. List, row, and card-root geometry or opacity transitions are forbidden because pooled delegates can retain transient state. A newly submitted query resets position deterministically; background revisions instead preserve the top visible item and pixel offset. Semantic focus is restored by item ID only while the visible Search page remains in keyboard/controller navigation mode, so pointer scrolling and hidden pages are never pulled back to a stale card. Returning to Search or reactivating the window also checks once immediately.
+
+Rust selects up to 50 Series/Movie hits and 50 Episode hits before merging them in title-first order, so a large episode set cannot crowd Series out of the result window. Episode cards keep their real Episode ID and Series playback context while presenting the parent Series title, `SxxExx · episode title`, and the parent Series poster when available. The response carries an explicit `imageItemId`, `imageItemType`, and tag so URL planning and delayed hydration address the same image owner; an Episode image is only the fallback when the parent Series has no poster. The first Rust phase derives stable `image://yanami` cache URLs but performs no filesystem access, dedupe reservation, or download scheduling. After the published query remains unchanged for 150 ms, C++ passes the bounded published image descriptors to `yanami_backend_catalog_search_hydrate_images` on a separate single-worker lane. The hydration use case does not query SQLite or call Emby synchronously; it rechecks the current session, validates the descriptor set, then schedules only missing cache entries through the existing image-download dedupe set and bounded semaphore. A newer query or session transition cancels pending hydration and generation-fences any stale completion; image hydration never republishes or patches the search result model. Rust reports cached-row and synchronization status so the page can state honestly when results cover only the currently indexed portion of the library. Unicode compatibility normalization, full case folding, aliases, pinyin forms, and season or episode codes are search-index concerns; navigation and playback continue to use real Emby entity and hierarchy identifiers.
 
 ### Media reads and mutations
 

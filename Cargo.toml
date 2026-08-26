@@ -7,10 +7,11 @@ members = [
     "crates/yanami-danmaku",
     "crates/yanami-storage",
     "crates/yanami-desktop-bridge",
+    "crates/yanami-performance-probe",
 ]
 
 [workspace.package]
-version = "0.1.0-dev.0"
+version = "0.2.0-dev.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
 rust-version = "1.85"
@@ -23,6 +24,7 @@ futures-util = "0.3"
 http = "1"
 keyring = { version = "3", default-features = false, features = ["windows-native", "apple-native", "sync-secret-service"] }
 md-5 = "0.10"
+pinyin = { version = "0.11", default-features = false, features = ["plain"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
 secrecy = "0.10"
@@ -34,6 +36,8 @@ thiserror = "2"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 tracing = "0.1"
+unicode-casefold = "0.2"
+unicode-normalization = "0.1"
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 zeroize = "1"

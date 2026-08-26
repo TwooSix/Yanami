@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::playback::ChapterInfo;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ItemsResult {
     #[serde(default)]
@@ -27,6 +27,16 @@ pub struct BaseItem {
     pub id: String,
     pub name: String,
     #[serde(default)]
+    pub aliases: Vec<String>,
+    #[serde(default)]
+    pub original_title: Option<String>,
+    #[serde(default)]
+    pub sort_name: Option<String>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub etag: Option<String>,
+    #[serde(default)]
     pub playlist_item_id: Option<String>,
     #[serde(default)]
     pub can_edit_items: Option<bool>,
@@ -46,6 +56,8 @@ pub struct BaseItem {
     pub premiere_date: Option<String>,
     #[serde(default)]
     pub date_last_saved: Option<String>,
+    #[serde(default)]
+    pub date_modified: Option<String>,
     #[serde(default)]
     pub provider_ids: BTreeMap<String, String>,
     #[serde(default)]

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0",
+  "id": "PlaybackMedia-v1",
+  "state": "not-provisioned",
+  "description": "Provisioning contract for fixed, pre-encoded playback assets. Lab provisioning records actual SHA-256 values in the run manifest.",
+  "transcodingDuringRunAllowed": false,
+  "requiredAssets": [
+    { "id": "h264-4k60", "resolution": "3840x2160", "fps": 60, "codec": "H.264", "durationSeconds": 600, "sha256": null },
+    { "id": "hevc-main10-hdr-4k60", "resolution": "3840x2160", "fps": 60, "codec": "HEVC Main10 HDR", "durationSeconds": 600, "sha256": null },
+    { "id": "av1-main10-4k60", "resolution": "3840x2160", "fps": 60, "codec": "AV1 Main10", "durationSeconds": 600, "sha256": null },
+    { "id": "vp9-profile2-4k60", "resolution": "3840x2160", "fps": 60, "codec": "VP9 Profile 2", "durationSeconds": 600, "sha256": null },
+    { "id": "subtitle-density", "resolution": "3840x2160", "fps": 60, "codec": "H.264", "durationSeconds": 600, "overlays": ["subtitle", "dense-danmaku"], "sha256": null }
+  ],
+  "optionalCapabilityAssets": [
+    { "id": "8k30", "resolution": "7680x4320", "fps": 30 },
+    { "id": "8k60", "resolution": "7680x4320", "fps": 60 }
+  ],
+  "hashPolicy": "Every required local asset must have the exact SHA-256 pinned here and repeated in the probe run manifest.",
+  "activation": "A dedicated performance-policy PR changes state to provisioned and fills every required sha256 before playback can become a strict hard gate."
+}

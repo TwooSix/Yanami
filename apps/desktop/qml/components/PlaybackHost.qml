@@ -19,6 +19,10 @@ Item {
                          "returnPage=", host.hostWindow.currentPage)
             host.hostWindow.ensurePlayerPage()
             const page = host.hostWindow.playerPage
+            if (page.automaticQueueRefreshPending) {
+                page.consumeQueueRefresh(descriptor)
+                return
+            }
             page.preparingPlayback = false
             page.mediaTitle = descriptor.title
             page.previousItem = descriptor.previousItem
@@ -26,6 +30,8 @@ Item {
             page.playbackContext = descriptor.playbackContext
             page.playbackQueue = descriptor.playbackQueue
             page.currentQueueIndex = descriptor.currentQueueIndex
+            page.queueResolutionSucceeded =
+                descriptor.queueResolutionSucceeded === true
             page.resumeTicks = host.hostWindow.forcePlaybackFromBeginning
                 ? 0 : descriptor.resumeTicks
             host.hostWindow.forcePlaybackFromBeginning = false
@@ -45,7 +51,7 @@ Item {
             const warningMessage = host.hostWindow.playbackWarningMessage(
                 descriptor.playbackWarnings)
             if (warningMessage.length > 0)
-                host.hostWindow.showActionToast(warningMessage)
+                host.hostWindow.showActionToast(warningMessage, "warning")
             host.hostWindow.currentPage = 2
             console.info("playback_ui_navigated",
                          "itemId=", descriptor.itemId, "page=", 2)
@@ -55,7 +61,9 @@ Item {
             const page = host.hostWindow.playerPage
             if (!page)
                 return
-            if (page.switchingEpisode)
+            if (page.automaticQueueRefreshPending)
+                page.recoverQueueRefreshFailure(message)
+            else if (page.switchingEpisode)
                 page.recoverFromPlaybackSwitchFailure(message)
             else if (page.preparingPlayback)
                 page.failPreparation(message)

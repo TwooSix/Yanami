@@ -1,0 +1,75 @@
+{
+  "schemaVersion": "1.0",
+  "id": "PerformanceCalibration-v1",
+  "currentMode": "collect",
+  "allowedModes": ["collect", "debt", "enforce"],
+  "profileModeOverrides": {
+    "Release": "enforce"
+  },
+  "modeRules": {
+    "collect": {
+      "absolutePerformanceFailure": "debt",
+      "relativePerformanceFailure": "debt",
+      "correctnessFailure": "fail",
+      "infraFailure": "infra-invalid"
+    },
+    "debt": {
+      "absolutePerformanceFailure": "debt",
+      "relativePerformanceFailure": "fail",
+      "correctnessFailure": "fail",
+      "infraFailure": "infra-invalid"
+    },
+    "enforce": {
+      "absolutePerformanceFailure": "fail",
+      "relativePerformanceFailure": "fail",
+      "correctnessFailure": "fail",
+      "infraFailure": "infra-invalid"
+    }
+  },
+  "releaseP0DebtIsFailure": true,
+  "missingMeasurementStatusByMode": {
+    "collect": "debt",
+    "debt": "infra-invalid",
+    "enforce": "infra-invalid"
+  },
+  "lockAfterConsecutiveGreenNightlies": 5,
+  "baselineWindowGreenMainBuilds": 20,
+  "firstFailureRerunCount": 1,
+  "comparisonOrder": "A-B-A-B",
+  "missingProbeStatus": {
+    "PullRequest": "debt",
+    "Lab": "infra-invalid",
+    "Nightly": "infra-invalid",
+    "Weekly": "infra-invalid",
+    "Release": "infra-invalid"
+  },
+  "referenceEnvironmentRequired": ["Lab", "Nightly", "Weekly", "Release"],
+  "fixtureValidationRequired": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"],
+  "requiredFixturesBySuite": {
+    "search": "F110K-v1",
+    "backend": "F110K-v1",
+    "playback": "PlaybackMedia-v1",
+    "danmaku": {
+      "PullRequest": "DanmakuDensity-v1",
+      "Lab": ["DanmakuDensity-v1", "PlaybackMedia-v1"],
+      "Nightly": ["DanmakuDensity-v1", "PlaybackMedia-v1"],
+      "Weekly": ["DanmakuDensity-v1", "PlaybackMedia-v1"],
+      "Release": ["DanmakuDensity-v1", "PlaybackMedia-v1"]
+    },
+    "upscaling": {
+      "PullRequest": "UpscalingCapability-v1",
+      "Lab": ["UpscalingCapability-v1", "PlaybackMedia-v1", "UpscalingModelPack-v1"],
+      "Nightly": ["UpscalingCapability-v1", "PlaybackMedia-v1", "UpscalingModelPack-v1"],
+      "Weekly": ["UpscalingCapability-v1", "PlaybackMedia-v1", "UpscalingModelPack-v1"],
+      "Release": ["UpscalingCapability-v1", "PlaybackMedia-v1", "UpscalingModelPack-v1"]
+    }
+  },
+  "exitCodes": {
+    "pass": 0,
+    "debt": 0,
+    "fail": 1,
+    "infra-invalid": 2
+  },
+  "lockedMetrics": [],
+  "notes": "Start date and promotion to debt/enforce are intentionally policy-PR decisions. Current product deficits do not redefine SLO-v1."
+}

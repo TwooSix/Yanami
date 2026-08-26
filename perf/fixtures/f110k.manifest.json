@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "1.0",
+  "id": "F110K-v1",
+  "description": "Deterministic large media-library fixture for search and catalog performance gates.",
+  "generator": "scripts/performance/New-F110KFixture.ps1",
+  "generatorVersion": "1.3",
+  "seed": 20260823,
+  "counts": {
+    "movieAndSeries": 10000,
+    "episodes": 100000,
+    "total": 110000,
+    "queries": 20000
+  },
+  "encoding": "UTF-8-no-BOM",
+  "lineEndings": "LF",
+  "fixtureSha256": "82cd6f0e2760556e9622dfed290856c1dfaea4374fb5d017fe7d87616ec63fa1",
+  "fixtureHashDefinition": "sha256(lowercase(itemsSha256 + ':' + queriesSha256))",
+  "files": [
+    {
+      "name": "f110k-items.jsonl",
+      "sha256": "780d9d6db161ff9bc491a8dbd34a50fe228b637ad7d431709fb326e0d33ea502"
+    },
+    {
+      "name": "search-queries-v1.jsonl",
+      "sha256": "c0c4220d517dd22bb1660ca5a5b64985f8e3dcc833c72f8ec7ef8834b2377bc6"
+    }
+  ],
+  "searchSemantics": {
+    "catalogKinds": ["Movie", "Series", "Season", "Episode"],
+    "resultGroups": [
+      {"name": "title", "kinds": ["Movie", "Series"], "priority": 0},
+      {"name": "episode", "kinds": ["Episode"], "priority": 1}
+    ],
+    "normalization": ["case", "full-width", "Unicode"],
+    "matching": ["exact", "prefix", "substring", "pinyin-full", "pinyin-initials"],
+    "ime": "committed-text-only",
+    "topKPerGroup": 50,
+    "maximumPublishedResults": 100,
+    "seasonIntentResultKind": "Episode",
+    "seasonIntentExpectationEncoding": "rank1 Season metadata identifies the requested series/season; the Season id is not a result-row expectation",
+    "fuzzyEditDistanceRequired": false
+  },
+  "queryCorpus": [
+    "exact", "prefix", "substring", "case-fold", "full-width",
+    "unicode-normalized", "pinyin-full", "pinyin-initials",
+    "season", "episode-number", "one-han", "two-han", "no-result",
+    "backspace", "middle-insert", "paste", "rapid-rewrite"
+  ],
+  "derivedEntities": {
+    "Season": {
+      "sourceFields": ["Episode.seriesId", "Episode.season"],
+      "idFormat": "season:{seriesId}:{season}",
+      "independentlySearchable": false,
+      "purpose": "catalog membership and season-intent oracle"
+    }
+  },
+  "oracle": {
+    "independentFromProduction": true,
+    "exactTitleRank1": 1.0,
+    "recallAt50WhenEachResultGroupHasAtMost50": 1.0,
+    "mrrAt10": 0.99,
+    "ndcgAt10": 0.98
+  }
+}

@@ -5,6 +5,10 @@ Item {
     id: root
 
     property bool active: false
+    property bool blocksInput: true
+    property bool showPanel: true
+    property color indicatorOutlineColor: "transparent"
+    property real indicatorOutlineWidth: 0
     property int showDelay: 180
     property int minimumVisibleTime: 250
     property bool shown: false
@@ -32,24 +36,25 @@ Item {
 
     MouseArea {
         anchors.fill: parent
-        enabled: root.active
+        enabled: root.active && root.blocksInput
         acceptedButtons: Qt.AllButtons
     }
 
     WheelHandler {
-        enabled: root.active
+        enabled: root.active && root.blocksInput
         blocking: true
         onWheel: event => event.accepted = true
     }
 
     GlassPanel {
         id: hud
+        objectName: "loadingOverlayHud"
         anchors.centerIn: parent
-        width: 62
-        height: 62
-        radius: 21
-        color: "#D91B1E27"
-        border.color: "#24FFFFFF"
+        width: root.showPanel ? 62 : 32
+        height: root.showPanel ? 62 : 32
+        radius: root.showPanel ? 21 : 16
+        color: root.showPanel ? "#D91B1E27" : "transparent"
+        border.color: root.showPanel ? "#24FFFFFF" : "transparent"
         scale: root.shown ? 1 : 0.94
 
         LoadingIndicator {
@@ -57,6 +62,8 @@ Item {
             width: 28
             height: 28
             running: root.shown || root.opacity > 0
+            outlineColor: root.indicatorOutlineColor
+            outlineWidth: root.indicatorOutlineWidth
         }
 
         Behavior on scale {

@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use yanami_application::{ApplicationError, ErrorEnvelope};
 
 pub(crate) const DESKTOP_SCHEMA_VERSION: u64 = 8;
-pub(crate) const BACKEND_ABI_VERSION: u32 = 2;
+pub(crate) const BACKEND_ABI_VERSION: u32 = 3;
 
 pub(crate) fn encode_response(value: &impl Serialize) -> Result<String, ApplicationError> {
     let mut value = serde_json::to_value(value)

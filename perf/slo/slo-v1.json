@@ -1,0 +1,607 @@
+{
+  "schemaVersion": "1.0",
+  "id": "SLO-v1",
+  "percentileMethod": "linear-r7",
+  "percentileDefinition": "Sort ascending; h=(n-1)*p; linearly interpolate floor(h) and ceil(h).",
+  "thresholdSetByProfile": {
+    "PullRequest": "hosted",
+    "Lab": "strict",
+    "Nightly": "strict",
+    "Weekly": "strict",
+    "Release": "strict"
+  },
+  "defaultMinimumSamples": {
+    "hosted": 5,
+    "strict": 10
+  },
+  "reproducibility": {
+    "searchLatency": { "maximumCv": 0.05, "minimumSamples": 10 },
+    "warmStartup": { "maximumCv": 0.05, "minimumSamples": 30 },
+    "coldStartup": { "maximumCv": 0.10, "minimumSamples": 20 }
+  },
+  "relativeRules": {
+    "search_component": { "percent": 10, "absolute": 0.5 },
+    "backend_component": { "percent": 10, "absolute": 5 },
+    "ui_present": { "percent": 10, "absolute": 2 },
+    "startup_playback": { "percent": 10, "absolute": 40 },
+    "memory": { "percent": 10, "absolute": 32 },
+    "resource": { "percent": 10, "absolute": 2 },
+    "ratio": { "percent": 10, "absolute": 0.0001 }
+  },
+  "metrics": [
+    {
+      "id": "search.query.hot_ms", "suite": "search", "category": "search_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "production-media-catalog", "producerProbeKind": "rust-production-component-probe", "minimumSamplesByProfile": { "PullRequest": 100, "Lab": 500, "Nightly": 20000, "Weekly": 20000, "Release": 20000 },
+      "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"],
+      "absolute": {
+        "hosted": { "p95": { "op": "<=", "value": 12 }, "p99": { "op": "<=", "value": 25 } },
+        "strict": { "p50": { "op": "<=", "value": 1.5 }, "p95": { "op": "<=", "value": 4 }, "p99": { "op": "<=", "value": 8 } }
+      }
+    },
+    {
+      "id": "search.query.cold_ms", "suite": "search", "category": "search_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "production-media-catalog", "producerProbeKind": "rust-production-component-probe",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 20 }, "p99": { "op": "<=", "value": 35 } } }
+    },
+    {
+      "id": "search.input_to_model_ms", "suite": "search", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "producerProbeKind": "desktop-runtime", "minimumSamplesByProfile": { "Lab": 100, "Nightly": 450, "Weekly": 450, "Release": 450 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 12 }, "p99": { "op": "<=", "value": 20 } } }
+    },
+    {
+      "id": "search.input_to_present_ms", "suite": "search", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "producerProbeKind": "desktop-runtime", "minimumSamplesByProfile": { "Lab": 100, "Nightly": 450, "Weekly": 450, "Release": 450 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 33.4 }, "p99": { "op": "<=", "value": 50.1 } } }
+    },
+    {
+      "id": "search.index_open_ms", "suite": "search", "category": "search_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "production-media-catalog", "producerProbeKind": "rust-production-component-probe", "reproducibilityRule": "searchLatency",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 300 } } }
+    },
+    {
+      "id": "search.index_rebuild_110k_ms", "suite": "search", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "production-media-catalog", "producerProbeKind": "rust-production-component-probe", "minimumSamples": { "strict": 3 }, "reproducibilityRule": "searchLatency",
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 5000 } } }
+    },
+    {
+      "id": "search.incremental_1000_ms", "suite": "search", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "production-media-catalog", "producerProbeKind": "rust-production-component-probe", "reproducibilityRule": "searchLatency",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 100 } } }
+    },
+    {
+      "id": "search.query_during_incremental_ms", "suite": "search", "category": "search_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "production-media-catalog", "producerProbeKind": "rust-production-component-probe",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 6 } } }
+    },
+    {
+      "id": "search.index_disk_mib", "suite": "search", "category": "memory", "unit": "MiB", "priority": "P1", "direction": "upper", "relativeStatistic": "max", "evidence": "production-media-catalog", "producerProbeKind": "rust-production-component-probe", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 192 } } }
+    },
+    {
+      "id": "search.steady_rss_increment_mib", "suite": "search", "category": "memory", "unit": "MiB", "priority": "P1", "direction": "upper", "relativeStatistic": "max", "evidence": "production-media-catalog", "producerProbeKind": "rust-production-component-probe", "minimumSamples": { "strict": 3 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 128 } } }
+    },
+    {
+      "id": "search.frame_over_20_ratio", "suite": "search", "category": "ratio", "unit": "ratio", "priority": "P0", "direction": "upper", "relativeStatistic": "max", "evidence": "external-present", "producerProbeKind": "desktop-runtime", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 0.005 } } }
+    },
+    {
+      "id": "search.frame_over_33_ratio", "suite": "search", "category": "ratio", "unit": "ratio", "priority": "P0", "direction": "upper", "relativeStatistic": "max", "evidence": "external-present", "producerProbeKind": "desktop-runtime", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 0.001 } } }
+    },
+    {
+      "id": "search.exact_title_rank1_ratio", "suite": "search", "category": "correctness", "unit": "ratio", "priority": "P0", "direction": "higher", "enforcement": "correctness", "evidence": "production-media-catalog", "producerProbeKind": "rust-production-component-probe", "minimumSamples": { "hosted": 1, "strict": 1 },
+      "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "hosted": { "min": { "op": ">=", "value": 1 } }, "strict": { "min": { "op": ">=", "value": 1 } } }
+    },
+    {
+      "id": "search.recall_at_50", "suite": "search", "category": "correctness", "unit": "ratio", "priority": "P0", "direction": "higher", "enforcement": "correctness", "evidence": "production-media-catalog", "producerProbeKind": "rust-production-component-probe", "minimumSamples": { "hosted": 1, "strict": 1 },
+      "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "hosted": { "min": { "op": ">=", "value": 1 } }, "strict": { "min": { "op": ">=", "value": 1 } } }
+    },
+    {
+      "id": "search.mrr_at_10", "suite": "search", "category": "correctness", "unit": "ratio", "priority": "P0", "direction": "higher", "enforcement": "correctness", "evidence": "production-media-catalog", "producerProbeKind": "rust-production-component-probe", "minimumSamples": { "hosted": 1, "strict": 1 },
+      "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "hosted": { "min": { "op": ">=", "value": 0.99 } }, "strict": { "min": { "op": ">=", "value": 0.99 } } }
+    },
+    {
+      "id": "search.ndcg_at_10", "suite": "search", "category": "correctness", "unit": "ratio", "priority": "P0", "direction": "higher", "enforcement": "correctness", "evidence": "production-media-catalog", "producerProbeKind": "rust-production-component-probe", "minimumSamples": { "hosted": 1, "strict": 1 },
+      "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "hosted": { "min": { "op": ">=", "value": 0.98 } }, "strict": { "min": { "op": ">=", "value": 0.98 } } }
+    },
+
+    {
+      "id": "backend.cached_page_200_to_model_ms", "aliases": ["backend.page200.cached_model_ms"], "suite": "backend", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 50 }, "p99": { "op": "<=", "value": 100 } } }
+    },
+    {
+      "id": "backend.cold_first_page_lan_ms", "suite": "backend", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "controlled-network",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 500 } } }
+    },
+    {
+      "id": "backend.cold_first_page_wan_ms", "suite": "backend", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "controlled-network",
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 900 } } }
+    },
+    {
+      "id": "backend.page_200_lan_to_model_ms", "suite": "backend", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "controlled-network",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 180 } } }
+    },
+    {
+      "id": "backend.page_200_wan_to_model_ms", "suite": "backend", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "controlled-network",
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 400 } } }
+    },
+    {
+      "id": "backend.full_sync_110k_loopback_ms", "suite": "backend", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "minimumSamples": { "strict": 3 }, "evidence": "controlled-network",
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 4000 } } }
+    },
+    {
+      "id": "backend.full_sync_110k_lan_ms", "suite": "backend", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "minimumSamples": { "strict": 3 }, "evidence": "controlled-network",
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 8000 } } }
+    },
+    {
+      "id": "backend.full_sync_110k_wan_ms", "suite": "backend", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "minimumSamples": { "strict": 3 }, "evidence": "controlled-network",
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 25000 } } }
+    },
+    {
+      "id": "backend.incremental_sync_1000_lan_ms", "suite": "backend", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "controlled-network",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 1500 } } }
+    },
+    {
+      "id": "backend.http_50rtt_64k_ms", "suite": "backend", "category": "backend_component", "unit": "ms", "priority": "P1", "direction": "upper", "relativeStatistic": "p95", "evidence": "controlled-network",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 100 } } }
+    },
+    {
+      "id": "backend.http_50rtt_1mib_ms", "suite": "backend", "category": "backend_component", "unit": "ms", "priority": "P1", "direction": "upper", "relativeStatistic": "p95", "evidence": "controlled-network",
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 220 } } }
+    },
+    {
+      "id": "backend.concurrent32_queue_wait_ms", "suite": "backend", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 10 }, "p99": { "op": "<=", "value": 25 } } }
+    },
+    {
+      "id": "backend.sync_contention_interactive_start_ms", "suite": "backend", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 10 } } }
+    },
+    {
+      "id": "backend.full_sync_peak_rss_increment_mib", "suite": "backend", "category": "memory", "unit": "MiB", "priority": "P1", "direction": "upper", "relativeStatistic": "max", "minimumSamples": { "strict": 3 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 256 } } }
+    },
+    {
+      "id": "backend.full_sync_residual_rss_increment_mib", "suite": "backend", "category": "memory", "unit": "MiB", "priority": "P1", "direction": "upper", "relativeStatistic": "max", "minimumSamples": { "strict": 3 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 64 } } }
+    },
+
+    {
+      "id": "interaction.feedback_present_ms", "suite": "interaction", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 16.7 }, "p99": { "op": "<=", "value": 33.4 } } }
+    },
+    {
+      "id": "interaction.local_content_present_ms", "suite": "interaction", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 50 }, "p99": { "op": "<=", "value": 100 } } }
+    },
+    {
+      "id": "interaction.input_queue_wait_ms", "suite": "interaction", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 8 }, "p99": { "op": "<=", "value": 16.7 } } }
+    },
+    {
+      "id": "interaction.frame_interval_ms", "suite": "interaction", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "minimumSamplesByProfile": { "Lab": 600, "Nightly": 1800, "Weekly": 1800, "Release": 1800 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 18.3 }, "p99": { "op": "<=", "value": 25 } } }
+    },
+    {
+      "id": "interaction.frame_over_33_ratio", "suite": "interaction", "category": "ratio", "unit": "ratio", "priority": "P0", "direction": "upper", "relativeStatistic": "max", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 0.001 } } }
+    },
+    {
+      "id": "interaction.long_task_over_50_count", "suite": "interaction", "category": "correctness", "unit": "count", "priority": "P0", "direction": "upper", "enforcement": "correctness", "minimumSamples": { "hosted": 1, "strict": 1 },
+      "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "hosted": { "max": { "op": "<=", "value": 0 } }, "strict": { "max": { "op": "<=", "value": 0 } } }
+    },
+    {
+      "id": "interaction.remote_feedback_present_ms", "suite": "interaction", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 33.4 } } }
+    },
+
+    {
+      "id": "playback.mpv_open_to_local_present_ms", "suite": "playback", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 350 }, "p99": { "op": "<=", "value": 600 } } }
+    },
+    {
+      "id": "playback.user_to_lan_present_ms", "suite": "playback", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 1200 }, "p99": { "op": "<=", "value": 1800 } } }
+    },
+    {
+      "id": "playback.seek_local_to_present_ms", "suite": "playback", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 250 } } }
+    },
+    {
+      "id": "playback.seek_lan_to_present_ms", "suite": "playback", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 600 } } }
+    },
+    {
+      "id": "playback.dropped_frame_ratio", "suite": "playback", "category": "ratio", "unit": "ratio", "priority": "P0", "direction": "upper", "relativeStatistic": "max", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 0.0005 } } }
+    },
+    {
+      "id": "playback.dropped_frame_1s_ratio", "suite": "playback", "category": "ratio", "unit": "ratio", "priority": "P0", "direction": "upper", "relativeStatistic": "max", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 0.01 } } }
+    },
+    {
+      "id": "playback.av_sync_abs_ms", "suite": "playback", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 20 }, "p99": { "op": "<=", "value": 40 } } }
+    },
+    {
+      "id": "playback.wan_rebuffer_ratio", "suite": "playback", "category": "ratio", "unit": "ratio", "priority": "P0", "direction": "upper", "relativeStatistic": "max", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 0.005 } } }
+    },
+    {
+      "id": "playback.wan_single_rebuffer_ms", "suite": "playback", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "max",
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 1000 } } }
+    },
+    {
+      "id": "playback.process_cpu_percent", "suite": "playback", "category": "ratio", "unit": "percent", "priority": "P1", "direction": "upper", "relativeStatistic": "p95",
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 35 } } }
+    },
+    {
+      "id": "playback.private_working_set_mib", "suite": "playback", "category": "memory", "unit": "MiB", "priority": "P1", "direction": "upper", "relativeStatistic": "p95",
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 1331.2 } } }
+    },
+    {
+      "id": "playback.memory_growth_30m_mib", "suite": "playback", "category": "memory", "unit": "MiB", "priority": "P1", "direction": "upper", "relativeStatistic": "max", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 64 } } }
+    },
+
+    {
+      "id": "danmaku.hosted_smoke.timeline_prepare_20k_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "minimumSamples": { "hosted": 5 },
+      "requiredProfiles": ["PullRequest"],
+      "absolute": { "hosted": { "p95": { "op": "<=", "value": 1000 }, "max": { "op": "<=", "value": 1500 } } }
+    },
+    {
+      "id": "danmaku.hosted_smoke.dense_seek_to_frame_candidate_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "minimumSamples": { "hosted": 21 },
+      "requiredProfiles": ["PullRequest"],
+      "absolute": { "hosted": { "p95": { "op": "<=", "value": 100 }, "max": { "op": "<=", "value": 250 } } }
+    },
+    {
+      "id": "danmaku.hosted_smoke.frame_interval_candidate_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p99", "minimumSamplesByProfile": { "PullRequest": 20 },
+      "requiredProfiles": ["PullRequest"],
+      "absolute": { "hosted": { "p99": { "op": "<=", "value": 100 }, "max": { "op": "<=", "value": 250 } } }
+    },
+    {
+      "id": "danmaku.hosted_smoke.frame_over_100_ratio", "suite": "danmaku", "category": "ratio", "unit": "ratio", "priority": "P0", "direction": "upper", "relativeStatistic": "max", "minimumSamples": { "hosted": 1 },
+      "requiredProfiles": ["PullRequest"],
+      "absolute": { "hosted": { "max": { "op": "<=", "value": 0.01 } } }
+    },
+    {
+      "id": "danmaku.hosted_smoke.frame_gap_over_250_count", "suite": "danmaku", "category": "correctness", "unit": "count", "priority": "P0", "direction": "upper", "enforcement": "correctness", "minimumSamples": { "hosted": 1 },
+      "requiredProfiles": ["PullRequest"],
+      "absolute": { "hosted": { "max": { "op": "<=", "value": 0 } } }
+    },
+    {
+      "id": "danmaku.cached_10k_to_first_pixel_present_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-pixel-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 100 }, "p99": { "op": "<=", "value": 150 } } }
+    },
+    {
+      "id": "danmaku.cached_50k_to_first_pixel_present_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-pixel-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 150 }, "p99": { "op": "<=", "value": 250 } } }
+    },
+    {
+      "id": "danmaku.cached_100k_to_first_pixel_present_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-pixel-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 250 }, "p99": { "op": "<=", "value": 400 } } }
+    },
+    {
+      "id": "danmaku.enable_to_pixel_present_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-pixel-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 33.4 }, "p99": { "op": "<=", "value": 50.1 } } }
+    },
+    {
+      "id": "danmaku.disable_to_pixel_absent_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-pixel-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 33.4 }, "p99": { "op": "<=", "value": 50.1 } } }
+    },
+    {
+      "id": "danmaku.style_to_pixel_present_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-pixel-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 33.4 }, "p99": { "op": "<=", "value": 50.1 } } }
+    },
+    {
+      "id": "danmaku.seek_to_correct_pixel_present_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-pixel-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 50.1 }, "p99": { "op": "<=", "value": 83.5 } } }
+    },
+    {
+      "id": "danmaku.schedule_error_abs_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-pixel-oracle", "minimumSamplesByProfile": { "Lab": 100, "Nightly": 1000, "Weekly": 3000, "Release": 1000 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 20 }, "p99": { "op": "<=", "value": 33.4 }, "max": { "op": "<=", "value": 50.1 } } }
+    },
+    {
+      "id": "danmaku.pause_to_motion_freeze_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-pixel-oracle",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 33.4 } } }
+    },
+    {
+      "id": "danmaku.paused_motion_displacement_px", "suite": "danmaku", "category": "correctness", "unit": "px", "priority": "P0", "direction": "upper", "enforcement": "correctness", "evidence": "external-pixel-oracle", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 1 } } }
+    },
+    {
+      "id": "danmaku.resume_to_motion_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-pixel-oracle",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 33.4 }, "p99": { "op": "<=", "value": 50.1 } } }
+    },
+    {
+      "id": "danmaku.playback_rate_sync_error_abs_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-pixel-oracle", "minimumSamplesByProfile": { "Lab": 40, "Nightly": 80, "Weekly": 160, "Release": 80 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 25 }, "p99": { "op": "<=", "value": 40 } } }
+    },
+    {
+      "id": "danmaku.frame_interval_4k60_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "minimumSamplesByProfile": { "Lab": 3000, "Nightly": 30000, "Weekly": 90000, "Release": 30000 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 18.3 }, "p99": { "op": "<=", "value": 25 } } }
+    },
+    {
+      "id": "danmaku.frame_over_33_ratio", "suite": "danmaku", "category": "ratio", "unit": "ratio", "priority": "P0", "direction": "upper", "relativeStatistic": "max", "evidence": "external-present", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 0.001 } } }
+    },
+    {
+      "id": "danmaku.present_gap_over_50_count", "suite": "danmaku", "category": "correctness", "unit": "count", "priority": "P0", "direction": "upper", "enforcement": "correctness", "evidence": "external-present", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 0 } } }
+    },
+    {
+      "id": "danmaku.load_contention_feedback_present_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-pixel-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 16.7 }, "p99": { "op": "<=", "value": 33.4 } } }
+    },
+    {
+      "id": "danmaku.added_video_dropped_frame_ratio", "suite": "danmaku", "category": "ratio", "unit": "ratio", "priority": "P0", "direction": "upper", "relativeStatistic": "max", "evidence": "mpv-paired-telemetry", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 0.0002 } } }
+    },
+    {
+      "id": "danmaku.added_process_cpu_percentage_points", "suite": "danmaku", "category": "resource", "unit": "percentage-points", "priority": "P1", "direction": "upper", "relativeStatistic": "p95", "evidence": "etw-paired-process",
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 10 } } }
+    },
+    {
+      "id": "danmaku.added_gpu_3d_percentage_points", "suite": "danmaku", "category": "resource", "unit": "percentage-points", "priority": "P1", "direction": "upper", "relativeStatistic": "p95", "evidence": "etw-paired-process",
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 15 } } }
+    },
+    {
+      "id": "danmaku.peak_rss_increment_100k_mib", "suite": "danmaku", "category": "memory", "unit": "MiB", "priority": "P1", "direction": "upper", "relativeStatistic": "max", "evidence": "etw-paired-process", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 192 } } }
+    },
+    {
+      "id": "danmaku.steady_rss_increment_100k_mib", "suite": "danmaku", "category": "memory", "unit": "MiB", "priority": "P1", "direction": "upper", "relativeStatistic": "p95", "evidence": "etw-paired-process",
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 128 } } }
+    },
+    {
+      "id": "danmaku.residual_rss_after_clear_mib", "suite": "danmaku", "category": "memory", "unit": "MiB", "priority": "P1", "direction": "upper", "relativeStatistic": "max", "evidence": "etw-paired-process", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 32 } } }
+    },
+    {
+      "id": "danmaku.memory_growth_30m_mib", "suite": "danmaku", "category": "memory", "unit": "MiB", "priority": "P1", "direction": "upper", "relativeStatistic": "max", "evidence": "etw-paired-process", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 64 } } }
+    },
+    {
+      "id": "danmaku.eligible_presented_ratio", "suite": "danmaku", "category": "correctness", "unit": "ratio", "priority": "P0", "direction": "higher", "enforcement": "correctness", "evidence": "external-pixel-oracle", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "min": { "op": ">=", "value": 1 } } }
+    },
+    {
+      "id": "danmaku.duplicate_early_or_stale_pixel_count", "suite": "danmaku", "category": "correctness", "unit": "count", "priority": "P0", "direction": "upper", "enforcement": "correctness", "evidence": "external-pixel-oracle", "minimumSamples": { "strict": 1 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 0 } } }
+    },
+
+    {
+      "id": "startup.warm.logged_out.ttfp_ms", "suite": "startup", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "minimumSamplesByProfile": { "Lab": 30, "Nightly": 30, "Weekly": 30, "Release": 30 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 350 }, "p99": { "op": "<=", "value": 450 }, "max": { "op": "<=", "value": 1500 } } }
+    },
+    {
+      "id": "startup.warm.logged_out.tti_ms", "suite": "startup", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "minimumSamplesByProfile": { "Lab": 30, "Nightly": 30, "Weekly": 30, "Release": 30 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 450 }, "p99": { "op": "<=", "value": 600 } } }
+    },
+    {
+      "id": "startup.warm.logged_in.ttfp_ms", "suite": "startup", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "minimumSamplesByProfile": { "Lab": 30, "Nightly": 30, "Weekly": 30, "Release": 30 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 400 }, "p99": { "op": "<=", "value": 500 }, "max": { "op": "<=", "value": 1500 } } }
+    },
+    {
+      "id": "startup.warm.logged_in.tti_ms", "suite": "startup", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "minimumSamplesByProfile": { "Lab": 30, "Nightly": 30, "Weekly": 30, "Release": 30 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 500 }, "p99": { "op": "<=", "value": 650 } } }
+    },
+    {
+      "id": "startup.warm.logged_in.ttcc_ms", "suite": "startup", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "minimumSamplesByProfile": { "Lab": 30, "Nightly": 30, "Weekly": 30, "Release": 30 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 550 }, "p99": { "op": "<=", "value": 700 } } }
+    },
+    {
+      "id": "startup.cold.logged_out.ttfp_ms", "suite": "startup", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "minimumSamplesByProfile": { "Nightly": 20, "Weekly": 20, "Release": 50 }, "minimumSamplesByStatistic": { "p99": 50 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 700 }, "p99": { "op": "<=", "value": 900 }, "max": { "op": "<=", "value": 2500 } } }
+    },
+    {
+      "id": "startup.cold.logged_out.tti_ms", "suite": "startup", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "minimumSamplesByProfile": { "Nightly": 20, "Weekly": 20, "Release": 50 }, "minimumSamplesByStatistic": { "p99": 50 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 850 }, "p99": { "op": "<=", "value": 1050 } } }
+    },
+    {
+      "id": "startup.cold.logged_in.ttfp_ms", "suite": "startup", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "minimumSamplesByProfile": { "Nightly": 20, "Weekly": 20, "Release": 50 }, "minimumSamplesByStatistic": { "p99": 50 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 750 }, "p99": { "op": "<=", "value": 950 }, "max": { "op": "<=", "value": 2500 } } }
+    },
+    {
+      "id": "startup.cold.logged_in.tti_ms", "suite": "startup", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "minimumSamplesByProfile": { "Nightly": 20, "Weekly": 20, "Release": 50 }, "minimumSamplesByStatistic": { "p99": 50 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 900 }, "p99": { "op": "<=", "value": 1100 } } }
+    },
+    {
+      "id": "startup.cold.logged_in.ttcc_ms", "suite": "startup", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "minimumSamplesByProfile": { "Nightly": 20, "Weekly": 20, "Release": 50 }, "minimumSamplesByStatistic": { "p99": 50 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 1000 }, "p99": { "op": "<=", "value": 1200 } } }
+    },
+    {
+      "id": "startup.cold.corrupt_cache.ttfp_ms", "suite": "startup", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "minimumSamplesByProfile": { "Nightly": 20, "Weekly": 20, "Release": 50 }, "minimumSamplesByStatistic": { "p99": 50 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 750 }, "p99": { "op": "<=", "value": 950 }, "max": { "op": "<=", "value": 2500 } } }
+    },
+    {
+      "id": "startup.cold.corrupt_cache.tti_ms", "suite": "startup", "category": "startup_playback", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present", "minimumSamplesByProfile": { "Nightly": 20, "Weekly": 20, "Release": 50 }, "minimumSamplesByStatistic": { "p99": 50 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 900 }, "p99": { "op": "<=", "value": 1100 } } }
+    },
+    {
+      "id": "startup.exposed_to_present_ms", "suite": "startup", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 33.3 }, "p99": { "op": "<=", "value": 50 } } }
+    },
+    {
+      "id": "startup.first_second_frame_interval_ms", "suite": "startup", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-present",
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 18.3 }, "p99": { "op": "<=", "value": 25 }, "max": { "op": "<=", "value": 50 } } }
+    },
+    {
+      "id": "upscaling.hosted_smoke.capability_resolve_ms", "suite": "upscaling", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "fixture-component-observation", "producerProbeKind": "native-upscaling-production-probe", "minimumSamplesByProfile": { "PullRequest": 1000 },
+      "requiredProfiles": ["PullRequest"],
+      "absolute": { "hosted": { "p95": { "op": "<=", "value": 5 }, "max": { "op": "<=", "value": 25 } } }
+    },
+    {
+      "id": "upscaling.hosted_smoke.preset_resolve_ms", "suite": "upscaling", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "fixture-component-observation", "producerProbeKind": "native-upscaling-production-probe", "minimumSamplesByProfile": { "PullRequest": 1000 },
+      "requiredProfiles": ["PullRequest"],
+      "absolute": { "hosted": { "p95": { "op": "<=", "value": 5 }, "max": { "op": "<=", "value": 25 } } }
+    },
+    {
+      "id": "upscaling.enable_to_first_enhanced_pixel_present_ms", "suite": "upscaling", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "external-pixel-present", "minimumSamplesByProfile": { "Lab": 100, "Nightly": 100, "Weekly": 300, "Release": 100 }, "minimumSamplesByStatistic": { "p99": 100 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 500 }, "p99": { "op": "<=", "value": 1000 } } }
+    },
+    {
+      "id": "upscaling.present_deadline_miss_ratio", "suite": "upscaling", "category": "ratio", "unit": "ratio", "priority": "P0", "direction": "upper", "relativeStatistic": "mean", "evidence": "external-present-mpv-correlated", "minimumSamplesByProfile": { "Lab": 3000, "Nightly": 30000, "Weekly": 90000, "Release": 30000 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "mean": { "op": "<=", "value": 0.001 } } },
+      "semantics": "Each sample is 0 or 1 for one source-frame deadline derived from source PTS and the fixed output cadence; a universal 16.7 ms assumption is forbidden."
+    },
+    {
+      "id": "upscaling.added_video_dropped_frame_ratio", "suite": "upscaling", "category": "ratio", "unit": "ratio", "priority": "P0", "direction": "upper", "relativeStatistic": "max", "evidence": "mpv-paired-telemetry", "minimumSamplesByProfile": { "Nightly": 10, "Weekly": 30, "Release": 10 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 0.0002 } } },
+      "semantics": "Each sample is recomputed from one paired enabled/disabled QPC window with at least 3000 source frames. The measurement index binds both run IDs, frame counts, and the exact capture interval; an unbound aggregate counter is invalid."
+    },
+    {
+      "id": "upscaling.gpu_engine_busy_percent", "suite": "upscaling", "category": "resource", "unit": "percent", "priority": "P1", "direction": "upper", "relativeStatistic": "p95", "evidence": "etw-gpu-process", "minimumSamplesByProfile": { "Nightly": 600, "Weekly": 1800, "Release": 600 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 90 }, "max": { "op": "<=", "value": 98 } } }
+    },
+    {
+      "id": "upscaling.gpu_memory_budget_ratio", "suite": "upscaling", "category": "ratio", "unit": "ratio", "priority": "P1", "direction": "upper", "relativeStatistic": "max", "evidence": "dxgi-video-memory", "minimumSamplesByProfile": { "Nightly": 600, "Weekly": 1800, "Release": 600 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "max": { "op": "<=", "value": 0.8 } } }
+    },
+    {
+      "id": "upscaling.yanami_render_wrapper_cpu_us", "suite": "upscaling", "category": "backend_component", "unit": "us", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "yanami-upscaling-runtime-trace", "minimumSamplesByProfile": { "Lab": 3000, "Nightly": 30000, "Weekly": 90000, "Release": 30000 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 100 }, "max": { "op": "<=", "value": 500 } } },
+      "semantics": "CPU time owned by Yanami around, but excluding, mpv_render_context_render. The render-thread probe is allocation-free and uses only relaxed fixed-size counters."
+    },
+    {
+      "id": "upscaling.config_apply_cpu_ms", "suite": "upscaling", "category": "backend_component", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "evidence": "yanami-upscaling-runtime-trace", "minimumSamplesByProfile": { "Lab": 100, "Nightly": 100, "Weekly": 300, "Release": 100 },
+      "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 5 }, "max": { "op": "<=", "value": 20 } } }
+    },
+    {
+      "id": "upscaling.yanami_health_poll_cpu_us", "suite": "upscaling", "category": "backend_component", "unit": "us", "priority": "P1", "direction": "upper", "relativeStatistic": "p95", "evidence": "yanami-upscaling-runtime-trace", "minimumSamplesByProfile": { "Nightly": 100, "Weekly": 300, "Release": 100 },
+      "requiredProfiles": ["Nightly", "Weekly", "Release"],
+      "absolute": { "strict": { "p95": { "op": "<=", "value": 250 }, "max": { "op": "<=", "value": 1000 } } }
+    }
+  ],
+  "invariants": [
+    { "id": "search.no_hot_path_network", "suite": "search", "evidence": "production-media-catalog", "producerProbeKind": "rust-production-component-probe", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "search.no_stale_commit", "suite": "search", "evidence": "production-search-coordinator-delayed-fake", "producerProbeKind": "desktop-component-probe", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "search.final_query_complete", "suite": "search", "evidence": "production-search-coordinator-delayed-fake", "producerProbeKind": "desktop-component-probe", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "search.queue_bounded", "suite": "search", "evidence": "production-search-coordinator-delayed-fake", "producerProbeKind": "desktop-component-probe", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "search.no_duplicates_or_cross_session_results", "suite": "search", "evidence": "production-search-coordinator-delayed-fake", "producerProbeKind": "desktop-component-probe", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "search.oracle_is_independent", "suite": "search", "evidence": "independent-fixture-oracle", "producerProbeKind": "rust-production-component-probe", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "search.rebuild_keeps_old_index_queryable", "suite": "search", "evidence": "production-media-catalog", "producerProbeKind": "rust-production-component-probe", "requiredProfiles": ["Nightly", "Weekly", "Release"] },
+    { "id": "backend.no_request_errors", "aliases": ["backend.request.errors"], "suite": "backend", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "backend.no_duplicate_pages", "suite": "backend", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "backend.cancellation_valid", "suite": "backend", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "backend.latest_wins", "suite": "backend", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "backend.session_generation_isolated", "suite": "backend", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "interaction.measurement_hooks_valid", "suite": "interaction", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "playback.telemetry_complete", "suite": "playback", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "playback.no_errors_or_premature_eof", "suite": "playback", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "playback.no_unexpected_local_or_lan_buffering", "suite": "playback", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "playback.hwdec_active_when_supported", "suite": "playback", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "playback.8k_capability_matrix_valid", "suite": "playback", "requiredProfiles": ["Weekly", "Release"], "semantics": "Pass only when the reference fingerprint explicitly declares 8K unsupported, or every declared-supported 8K30/60 asset completes the hard playback matrix with hardware decode active." },
+    { "id": "danmaku.fixture_hash_and_oracle_valid", "suite": "danmaku", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "danmaku.measurement_hooks_valid", "suite": "danmaku", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "danmaku.timeline_semantics_valid", "suite": "danmaku", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "danmaku.no_stale_generation", "suite": "danmaku", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "danmaku.pause_buffer_rate_sync_valid", "suite": "danmaku", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "danmaku.style_filter_updates_stable", "suite": "danmaku", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "danmaku.no_unbounded_queue_or_delegate_growth", "suite": "danmaku", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "danmaku.video_playback_uninterrupted", "suite": "danmaku", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "danmaku.external_pixel_evidence_valid", "suite": "danmaku", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "danmaku.strict_matrix_complete", "suite": "danmaku", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "startup.milestone_order_valid", "suite": "startup", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "startup.external_present_evidence_valid", "suite": "startup", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "startup.offline_independent", "suite": "startup", "requiredProfiles": ["Nightly", "Weekly", "Release"] },
+    { "id": "startup.no_white_window", "suite": "startup", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "upscaling.capability_policy_valid", "suite": "upscaling", "evidence": "fixture-component-observation", "producerProbeKind": "native-upscaling-production-probe", "requiredProfiles": ["PullRequest"] },
+    { "id": "upscaling.catalog_profiles_valid", "suite": "upscaling", "evidence": "fixture-component-observation", "producerProbeKind": "native-upscaling-production-probe", "requiredProfiles": ["PullRequest"] },
+    { "id": "upscaling.performance_protection_valid", "suite": "upscaling", "evidence": "fixture-component-observation", "producerProbeKind": "native-upscaling-production-probe", "requiredProfiles": ["PullRequest"] },
+    { "id": "upscaling.model_pack_identity_valid", "suite": "upscaling", "evidence": "pinned-upscaling-model-pack", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "upscaling.output_effect_and_geometry_valid", "suite": "upscaling", "evidence": "external-pixel-oracle", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "upscaling.no_errors_or_premature_eof", "suite": "upscaling", "evidence": "mpv-paired-telemetry", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "upscaling.effective_tier_stable", "suite": "upscaling", "evidence": "yanami-upscaling-runtime-trace", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"], "semantics": "Every timed window keeps requested and effective provider/profile/shader hashes equal; any fallback, auto-downgrade, or original-quality interval invalidates that preset scenario." },
+    { "id": "upscaling.timed_render_path_no_allocation_or_io", "suite": "upscaling", "evidence": "yanami-upscaling-runtime-trace", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "upscaling.strict_matrix_complete", "suite": "upscaling", "evidence": "upscaling-strict-scenario-index", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] }
+  ]
+}
