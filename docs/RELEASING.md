@@ -6,11 +6,11 @@ No workflow in this repository can create a tag or GitHub Release.
 ## Version model
 
 - `VERSION` and the Cargo workspace version identify the development line as
-  `0.1.0-dev.0`.
+  `0.2.0-dev.0`.
 - A successful package workflow on `main` derives an immutable candidate such
-  as `0.1.0-dev.42`, where `42` is the `Desktop packages` workflow run number.
+  as `0.2.0-dev.42`, where `42` is the `Desktop packages` workflow run number.
 - The same version is embedded in the application, package names,
-  `BUILD_INFO.json`, and the intended tag `v0.1.0-dev.42`.
+  `BUILD_INFO.json`, and the intended tag `v0.2.0-dev.42`.
 - Re-running the same workflow run rebuilds the same commit and version. A new
   workflow run receives a new candidate version.
 

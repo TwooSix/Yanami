@@ -73,7 +73,7 @@ jobs:
             if ($normalized -match '^(perf/|scripts/performance/|\.github/workflows/performance\.yml$)' -or
                 $normalized -match '^(Cargo\.toml|Cargo\.lock|VERSION)$' -or
                 $normalized -match '(^|/)CMakeLists\.txt$' -or
-                $normalized -match '^crates/(yanami-domain|yanami-application|yanami-desktop-bridge)/' -or
+                $normalized -match '^crates/(yanami-core|yanami-application|yanami-desktop-bridge)/' -or
                 $normalized -match '^apps/desktop/native/(ApplicationViewModel|DesktopBackendServices|RustBridgeRuntime)') {
               foreach ($suite in $suiteOrder) { [void]$selected.Add($suite) }
               continue
@@ -133,10 +133,12 @@ jobs:
       needs.classify.result == 'success' &&
       (github.event_name == 'pull_request' || github.event_name == 'push')
     runs-on: windows-2022
-    timeout-minutes: 12
+    timeout-minutes: 25
     env:
       PERF_OUTPUT: ${{ github.workspace }}\build\performance\hosted
-      YANAMI_PERF_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      # pull_request checks out GitHub's synthetic merge commit by default.
+      # Evidence must identify the commit that actually produced the binaries.
+      YANAMI_PERF_HEAD_SHA: ${{ github.sha }}
     steps:
       - name: Record docs-only skip
         if: needs.classify.outputs.relevant != 'true'
@@ -184,6 +186,19 @@ jobs:
           rustup toolchain install stable-x86_64-pc-windows-gnu
           --profile minimal
 
+      - name: Validate performance gate contracts
+        if: needs.classify.outputs.relevant == 'true'
+        shell: pwsh
+        env:
+          YANAMI_MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+          RUSTUP_TOOLCHAIN: stable-x86_64-pc-windows-gnu
+        run: |
+          $ucrtBin = Join-Path $env:YANAMI_MSYS2_ROOT "ucrt64\bin"
+          $env:PATH = "$env:USERPROFILE\.cargo\bin;$ucrtBin;$env:PATH"
+          & .\scripts\performance\Test-PerfGate.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Run hosted pull-request gates
         if: needs.classify.outputs.relevant == 'true'
         shell: pwsh
@@ -201,6 +216,15 @@ jobs:
             -CandidateSha $env:YANAMI_PERF_HEAD_SHA
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Publish hosted performance summary
+        if: always() && needs.classify.outputs.relevant == 'true'
+        shell: pwsh
+        run: |
+          $summary = Join-Path $env:PERF_OUTPUT "perf-summary.md"
+          if (Test-Path -LiteralPath $summary -PathType Leaf) {
+            Get-Content -LiteralPath $summary -Raw >> $env:GITHUB_STEP_SUMMARY
+          }
+
       - name: Upload hosted performance results
         if: always() && needs.classify.outputs.relevant == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -215,6 +239,7 @@ jobs:
     name: Performance / Windows lab
     needs: classify
     if: >-
+      vars.YANAMI_PERFORMANCE_RUNNER_ENABLED == 'true' &&
       needs.classify.result == 'success' &&
       needs.classify.outputs.relevant == 'true' &&
       (github.event_name == 'push' ||
@@ -228,7 +253,7 @@ jobs:
     env:
       PERF_OUTPUT: ${{ github.workspace }}\build\performance\lab
       YANAMI_PERF_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-      YANAMI_PERF_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      YANAMI_PERF_HEAD_SHA: ${{ github.sha }}
     steps:
       - name: Keep repository line endings stable
         shell: pwsh
@@ -280,7 +305,10 @@ jobs:
 
   nightly:
     name: Performance / Nightly
-    if: github.event_name == 'schedule' && github.event.schedule == '17 18 * * 1-6'
+    if: >-
+      vars.YANAMI_PERFORMANCE_RUNNER_ENABLED == 'true' &&
+      github.event_name == 'schedule' &&
+      github.event.schedule == '17 18 * * 1-6'
     runs-on: [self-hosted, Windows, X64, yanami-performance]
     timeout-minutes: 120
     env:
@@ -313,7 +341,10 @@ jobs:
 
   weekly:
     name: Performance / Weekly
-    if: github.event_name == 'schedule' && github.event.schedule == '17 18 * * 0'
+    if: >-
+      vars.YANAMI_PERFORMANCE_RUNNER_ENABLED == 'true' &&
+      github.event_name == 'schedule' &&
+      github.event.schedule == '17 18 * * 0'
     runs-on: [self-hosted, Windows, X64, yanami-performance]
     timeout-minutes: 240
     env:
@@ -346,7 +377,9 @@ jobs:
 
   release:
     name: Performance / Release
-    if: github.event_name == 'workflow_dispatch'
+    if: >-
+      vars.YANAMI_PERFORMANCE_RUNNER_ENABLED == 'true' &&
+      github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, Windows, X64, yanami-performance]
     timeout-minutes: 360
     env:
@@ -424,6 +457,7 @@ jobs:
     if: >-
       always() &&
       !cancelled() &&
+      vars.YANAMI_PERFORMANCE_RUNNER_ENABLED == 'true' &&
       needs.upscaling-strict-preflight.result == 'success' &&
       needs.upscaling-strict-preflight.outputs.provisioned == 'true' &&
       (github.event_name == 'schedule' ||
@@ -436,7 +470,7 @@ jobs:
     timeout-minutes: 120
     env:
       PERF_OUTPUT: ${{ github.workspace }}\build\performance\upscaling-strict
-      YANAMI_PERF_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      YANAMI_PERF_HEAD_SHA: ${{ github.sha }}
       YANAMI_PERF_SCHEDULE: ${{ github.event.schedule }}
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0

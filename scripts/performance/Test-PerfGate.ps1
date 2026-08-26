@@ -7,6 +7,11 @@ $workspace = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $modulePath = Join-Path $PSScriptRoot "PerfGate.psm1"
 Import-Module $modulePath -Force -ErrorAction Stop
 $assertions = 0
+$workspaceHeadSha = [string](& git -C $workspace rev-parse HEAD 2>$null)
+if ($LASTEXITCODE -ne 0 -or $workspaceHeadSha.Trim() -notmatch '^[0-9a-fA-F]{40,64}$') {
+    throw "PerfGate self-test requires a Git workspace with a resolvable HEAD."
+}
+$workspaceHeadSha = $workspaceHeadSha.Trim().ToLowerInvariant()
 
 function Assert-Equal {
     param([object]$Actual, [object]$Expected, [string]$Because)
@@ -825,12 +830,22 @@ try {
     Assert-True (Test-Path -LiteralPath (Join-Path $runnerOutput "performance-result.json")) "Runner must always write JSON output."
     Assert-True (Test-Path -LiteralPath (Join-Path $runnerOutput "perf-results.xml")) "Runner must always write JUnit output."
 
+    $workspaceMismatchOutput = Join-Path $testRoot "workspace-candidate-mismatch"
+    $workspaceMismatchResult = & (Join-Path $PSScriptRoot "run-gate.ps1") `
+        -Profile PullRequest `
+        -OutputDirectory $workspaceMismatchOutput `
+        -Suites upscaling `
+        -CandidateSha ("f" * 40) `
+        -NoExit
+    Assert-Equal $workspaceMismatchResult.status "infra-invalid" "Locally built performance evidence must not be relabeled as another commit."
+    Assert-True (@($workspaceMismatchResult.reasons | Where-Object { $_ -match "does not match the current workspace HEAD" }).Count -eq 1) "A local candidate mismatch must identify both the requested and checked-out revisions."
+
     $hostedUpscalingOutput = Join-Path $testRoot "hosted-upscaling"
     $hostedUpscalingResult = & (Join-Path $PSScriptRoot "run-gate.ps1") `
         -Profile PullRequest `
         -OutputDirectory $hostedUpscalingOutput `
         -Suites upscaling `
-        -CandidateSha "head-test" `
+        -CandidateSha $workspaceHeadSha `
         -NoExit
     Assert-Equal $hostedUpscalingResult.status "pass" "The runner-attested native upscaling production probe must satisfy only the PullRequest contract."
     $hostedUpscalingResults = @($hostedUpscalingResult.metrics | Where-Object { [string]$_.id -like "upscaling.hosted_smoke.*" })

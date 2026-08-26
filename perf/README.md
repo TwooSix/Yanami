@@ -299,6 +299,13 @@ collector and declare that evidence in the raw metric attributes. Danmaku pixel
 semantics additionally require the correlated external pixel oracle. Missing
 strict evidence is never converted into a pass.
 
+The fixed-machine jobs in `.github/workflows/performance.yml` are enabled only
+when the repository variable `YANAMI_PERFORMANCE_RUNNER_ENABLED` is exactly
+`true`. Keep it unset while no isolated runner with the `yanami-performance`
+label is online; pull requests still run the hosted smoke without waiting for
+an unavailable machine. Register and validate the runner before enabling the
+variable.
+
 ## Base/head and reruns
 
 The runner never checks out another revision in the user's working tree. A lab

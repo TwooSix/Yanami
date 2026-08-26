@@ -23,9 +23,13 @@
 
 ## Highlights
 
-- **Modern experience** — a modern, fluid application experience.
+- **Modern experience** — a modern, fluid, cross-platform application experience.
 - **Danmaku support** — danmaku matching and playback powered by
   [DanDanPlay](https://www.dandanplay.com/).
+- **Anime upscaling** — real-time anime upscaling powered by
+  [Anime4K](https://github.com/bloc97/Anime4K).
+- **Controller support** — a couch-friendly app experience every bit as capable
+  as mouse control.
 
 ## Quick start
 
@@ -37,7 +41,7 @@ stable release channel yet.
 > macOS desktop builds have **not** been tested on real machines yet; their
 > instructions and future binaries should be treated as experimental.
 
-Development candidates use versions such as `0.1.0-dev.42`. Choose the asset
+Development candidates use versions such as `0.2.0-dev.42`. Choose the asset
 whose platform and CPU architecture match your computer.
 
 ### Windows 10/11

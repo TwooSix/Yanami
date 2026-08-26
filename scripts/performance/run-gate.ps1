@@ -2200,6 +2200,16 @@ try {
         $comparisonPaths = @($ComparisonResultPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
         $hadExplicitInput = @($InputPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0 -or $comparisonPaths.Count -gt 0
         $hadExplicitRetryInput = @($RetryInputPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0
+        if (-not $hadExplicitInput -and -not $SkipProbeDiscovery -and
+            -not [string]::IsNullOrWhiteSpace([string]$CandidateSha)) {
+            $workspaceHeadSha = Get-WorkspaceHeadSha
+            if ($workspaceHeadSha -eq "unavailable") {
+                throw "The current workspace HEAD could not be resolved for local performance evidence."
+            }
+            if ($workspaceHeadSha -ne ([string]$CandidateSha).Trim().ToLowerInvariant()) {
+                throw "The requested candidate SHA '$CandidateSha' does not match the current workspace HEAD '$workspaceHeadSha'."
+            }
+        }
         if ($comparisonPaths.Count -gt 0) {
             if (@($InputPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0 -or $BaseResultPath -or @($RetryInputPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0 -or $DesktopExecutable) {
                 throw "-ComparisonResultPath cannot be combined with -InputPath, -BaseResultPath, -RetryInputPath, or -DesktopExecutable."

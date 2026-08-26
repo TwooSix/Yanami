@@ -1934,7 +1934,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "yanami-application"
-version = "0.1.0-dev.0"
+version = "0.2.0-dev.0"
 dependencies = [
  "chrono",
  "futures-util",
@@ -1955,7 +1955,7 @@ dependencies = [
 
 [[package]]
 name = "yanami-core"
-version = "0.1.0-dev.0"
+version = "0.2.0-dev.0"
 dependencies = [
  "http",
  "serde",
@@ -1966,7 +1966,7 @@ dependencies = [
 
 [[package]]
 name = "yanami-danmaku"
-version = "0.1.0-dev.0"
+version = "0.2.0-dev.0"
 dependencies = [
  "base64",
  "md-5",
@@ -1984,7 +1984,7 @@ dependencies = [
 
 [[package]]
 name = "yanami-desktop-bridge"
-version = "0.1.0-dev.0"
+version = "0.2.0-dev.0"
 dependencies = [
  "secrecy",
  "serde",
@@ -1997,7 +1997,7 @@ dependencies = [
 
 [[package]]
 name = "yanami-emby"
-version = "0.1.0-dev.0"
+version = "0.2.0-dev.0"
 dependencies = [
  "base64",
  "futures-util",
@@ -2016,7 +2016,7 @@ dependencies = [
 
 [[package]]
 name = "yanami-performance-probe"
-version = "0.1.0-dev.0"
+version = "0.2.0-dev.0"
 dependencies = [
  "chrono",
  "pinyin",
@@ -2037,7 +2037,7 @@ dependencies = [
 
 [[package]]
 name = "yanami-storage"
-version = "0.1.0-dev.0"
+version = "0.2.0-dev.0"
 dependencies = [
  "keyring",
  "pinyin",

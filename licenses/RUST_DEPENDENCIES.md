@@ -1,6 +1,6 @@
 # Rust dependency inventory
 
-This inventory is generated from the locked Cargo dependency graph for Yanami 0.1.0-dev.0.
+This inventory is generated from the locked Cargo dependency graph for Yanami 0.2.0-dev.0.
 License identifiers are package metadata; the linked source distributions contain the corresponding notices and license texts.
 
 | Package | Version | License | Source |
