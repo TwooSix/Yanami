@@ -3,6 +3,7 @@
 #include "BackendPorts.hpp"
 #include "AsyncOperationState.hpp"
 #include "AsyncResourceState.hpp"
+#include "DiagnosticsViewModel.hpp"
 #include "ImageEditorViewModel.hpp"
 #include "MediaTargetFlowViewModel.hpp"
 #include "MetadataEditorViewModel.hpp"
@@ -511,6 +512,7 @@ class ApplicationViewModel final : public QObject
     Q_PROPERTY(MediaTargetFlowViewModel *mediaTarget READ mediaTarget CONSTANT)
     Q_PROPERTY(PreferencesViewModel *preferences READ preferences CONSTANT)
     Q_PROPERTY(UpscalingViewModel *upscaling READ upscaling CONSTANT)
+    Q_PROPERTY(DiagnosticsViewModel *diagnostics READ diagnostics CONSTANT)
     Q_PROPERTY(ApplicationStatusViewModel *status READ status CONSTANT)
     Q_PROPERTY(UpdateChecker *updates READ updates CONSTANT)
 
@@ -531,6 +533,7 @@ public:
     MediaTargetFlowViewModel *mediaTarget() const { return m_mediaTarget; }
     PreferencesViewModel *preferences() const { return m_preferences; }
     UpscalingViewModel *upscaling() const { return m_upscaling; }
+    DiagnosticsViewModel *diagnostics() const { return m_diagnostics; }
     ApplicationStatusViewModel *status() const { return m_status; }
     UpdateChecker *updates() const { return m_updates; }
 
@@ -549,6 +552,7 @@ private:
     MediaTargetFlowViewModel *m_mediaTarget = nullptr;
     PreferencesViewModel *m_preferences = nullptr;
     UpscalingViewModel *m_upscaling = nullptr;
+    DiagnosticsViewModel *m_diagnostics = nullptr;
     ApplicationStatusViewModel *m_status = nullptr;
     UpdateChecker *m_updates = nullptr;
     quint64 m_sessionGeneration = 0;

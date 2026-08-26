@@ -204,6 +204,8 @@ qt_add_executable(yanami-desktop
     native/BackendInfrastructure.hpp
     native/DesktopBackendServices.cpp
     native/DesktopBackendServices.hpp
+    native/DiagnosticsViewModel.cpp
+    native/DiagnosticsViewModel.hpp
     native/SessionCoordinator.cpp
     native/SessionCoordinator.hpp
     native/CatalogCoordinator.cpp
@@ -1017,6 +1019,10 @@ if(BUILD_TESTING)
         native/AsyncOperationState.hpp
         native/AsyncResourceState.cpp
         native/AsyncResourceState.hpp
+        native/DiagnosticsViewModel.cpp
+        native/DiagnosticsViewModel.hpp
+        native/DevelopmentHooks.cpp
+        native/DevelopmentHooks.hpp
         native/ImageEditorViewModel.cpp
         native/ImageEditorViewModel.hpp
         native/MetadataEditorViewModel.cpp
@@ -1025,6 +1031,8 @@ if(BUILD_TESTING)
         native/MediaTargetFlowViewModel.hpp
         native/MediaStore.cpp
         native/MediaStore.hpp
+        native/RuntimeLogger.cpp
+        native/RuntimeLogger.hpp
         native/UpdateChecker.cpp
         native/UpdateChecker.hpp
         native/UpscalingAssetManager.cpp

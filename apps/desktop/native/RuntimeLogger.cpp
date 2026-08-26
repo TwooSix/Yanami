@@ -12,6 +12,7 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QStandardPaths>
 #include <QThread>
 #include <QUrl>
@@ -39,6 +40,8 @@ constexpr int archiveRetentionDays = 14;
 constexpr qsizetype maximumArchiveCount = 30;
 constexpr qint64 rotationRetryMilliseconds = 60'000;
 constexpr qint64 informationalFlushBytes = 64LL * 1024LL;
+constexpr qsizetype maximumExportFileCount = 2;
+constexpr qint64 maximumExportBytes = 20LL * 1024LL * 1024LL;
 
 struct LoggerState
 {
@@ -125,7 +128,47 @@ QString redactSensitiveData(QString message)
         QStringLiteral(R"(\bbearer\s+[A-Za-z0-9._~+/=-]+)"),
         QRegularExpression::CaseInsensitiveOption);
     message.replace(bearerPattern, QStringLiteral("Bearer <redacted>"));
+
+    const QString homePath = QDir::cleanPath(QDir::homePath());
+    if (!homePath.isEmpty() && !QDir(homePath).isRoot()) {
+        QStringList homeVariants = {
+            homePath,
+            QDir::fromNativeSeparators(homePath),
+            QDir::toNativeSeparators(homePath),
+        };
+        homeVariants.removeDuplicates();
+        std::sort(homeVariants.begin(), homeVariants.end(),
+            [](const QString &left, const QString &right) {
+                return left.size() > right.size();
+            });
+#ifdef Q_OS_WIN
+        constexpr Qt::CaseSensitivity pathCaseSensitivity =
+            Qt::CaseInsensitive;
+#else
+        constexpr Qt::CaseSensitivity pathCaseSensitivity =
+            Qt::CaseSensitive;
+#endif
+        for (const QString &variant : std::as_const(homeVariants)) {
+            if (!variant.isEmpty()) {
+                message.replace(
+                    variant,
+                    QStringLiteral("<user-home>"),
+                    pathCaseSensitivity);
+            }
+        }
+    }
     return message;
+}
+
+bool pathsReferToSameLocation(const QString &left, const QString &right)
+{
+    const QString cleanLeft = QDir::cleanPath(left);
+    const QString cleanRight = QDir::cleanPath(right);
+#ifdef Q_OS_WIN
+    return cleanLeft.compare(cleanRight, Qt::CaseInsensitive) == 0;
+#else
+    return cleanLeft == cleanRight;
+#endif
 }
 
 const char *levelName(QtMsgType type)
@@ -633,6 +676,202 @@ QString currentLogPath()
     LoggerState &state = loggerState();
     const QMutexLocker locker(&state.mutex);
     return state.activePath;
+}
+
+LogExportResult exportRecentLogs(const QString &destinationPath)
+{
+    LogExportResult result;
+    const QString resolvedDestination =
+        QFileInfo(destinationPath).absoluteFilePath();
+    if (destinationPath.trimmed().isEmpty()
+        || resolvedDestination.trimmed().isEmpty()) {
+        result.error = LogExportError::InvalidDestination;
+        return result;
+    }
+
+    QString activePath;
+    {
+        LoggerState &state = loggerState();
+        const QMutexLocker locker(&state.mutex);
+        if (!state.installed || state.activePath.isEmpty()) {
+            result.error = LogExportError::LoggerUnavailable;
+            return result;
+        }
+        writeLifecycleEntry(
+            state, QStringLiteral("diagnostics export requested"));
+        if (state.file.isOpen() && !state.file.flush()) {
+            result.error = LogExportError::ReadFailed;
+            result.detail = state.file.errorString();
+            return result;
+        }
+        state.bytesSinceFlush = 0;
+        activePath = state.activePath;
+    }
+
+    const QFileInfo activeFile(activePath);
+    const QFileInfo destinationFile(resolvedDestination);
+    const QString comparableDestination = destinationFile.exists()
+        ? destinationFile.canonicalFilePath()
+        : destinationFile.absoluteFilePath();
+    const QString comparableActive = activeFile.canonicalFilePath().isEmpty()
+        ? activeFile.absoluteFilePath()
+        : activeFile.canonicalFilePath();
+    if (pathsReferToSameLocation(comparableDestination, comparableActive)) {
+        result.error = LogExportError::InvalidDestination;
+        return result;
+    }
+
+    QDir sourceDirectory(activeFile.absolutePath());
+    QList<QFileInfo> sourceFiles;
+    const QFileInfoList candidates = sourceDirectory.entryInfoList(
+        QDir::Files | QDir::NoDotAndDotDot,
+        QDir::NoSort);
+    for (const QFileInfo &candidate : candidates) {
+        const ManagedLog log = managedLog(candidate, activeFile);
+        if (log.kind == ManagedLogKind::None || candidate.isSymLink())
+            continue;
+        if (log.kind == ManagedLogKind::Active
+            && log.pid != QCoreApplication::applicationPid()
+            && processIsRunning(log.pid)) {
+            continue;
+        }
+        sourceFiles.append(candidate);
+    }
+    std::sort(sourceFiles.begin(), sourceFiles.end(),
+        [](const QFileInfo &left, const QFileInfo &right) {
+            if (left.lastModified() != right.lastModified())
+                return left.lastModified() > right.lastModified();
+            return left.fileName() > right.fileName();
+        });
+    if (sourceFiles.size() > maximumExportFileCount)
+        sourceFiles.resize(maximumExportFileCount);
+    std::reverse(sourceFiles.begin(), sourceFiles.end());
+    if (sourceFiles.isEmpty()) {
+        result.error = LogExportError::NoLogsAvailable;
+        return result;
+    }
+
+    QDir destinationDirectory(destinationFile.absolutePath());
+    if (!destinationDirectory.exists()
+        && !destinationDirectory.mkpath(QStringLiteral("."))) {
+        result.error = LogExportError::DestinationUnavailable;
+        return result;
+    }
+    const QString comparableDestinationDirectory =
+        destinationDirectory.canonicalPath().isEmpty()
+        ? destinationDirectory.absolutePath()
+        : destinationDirectory.canonicalPath();
+    const QString comparableSourceDirectory =
+        sourceDirectory.canonicalPath().isEmpty()
+        ? sourceDirectory.absolutePath()
+        : sourceDirectory.canonicalPath();
+    if (pathsReferToSameLocation(
+            comparableDestinationDirectory, comparableSourceDirectory)) {
+        result.error = LogExportError::DestinationUnavailable;
+        return result;
+    }
+
+    QSaveFile output(resolvedDestination);
+    if (!output.open(QIODevice::WriteOnly)) {
+        result.error = LogExportError::DestinationUnavailable;
+        result.detail = output.errorString();
+        return result;
+    }
+
+    const auto write = [&output, &result](const QByteArray &data) {
+        if (output.write(data) == data.size())
+            return true;
+        result.error = LogExportError::WriteFailed;
+        result.detail = output.errorString();
+        return false;
+    };
+
+    const QByteArray header = QByteArrayLiteral(
+        "# Yanami diagnostics log bundle\n")
+        + "generatedAt="
+        + QDateTime::currentDateTime().toString(Qt::ISODateWithMs).toUtf8()
+        + "\nversion=" + QCoreApplication::applicationVersion().toUtf8()
+        + "\nqtVersion=" + QByteArray(qVersion())
+        + "\nnotice=Known credentials, URL details, and the user-home path "
+          "are redacted. Logs can still contain media titles or device "
+          "details; review before sharing.\n\n";
+    if (!write(header)) {
+        output.cancelWriting();
+        return result;
+    }
+
+    qint64 remainingBytes = maximumExportBytes;
+    for (const QFileInfo &sourceInfo : std::as_const(sourceFiles)) {
+        if (remainingBytes <= 0)
+            break;
+
+        QFile source(sourceInfo.absoluteFilePath());
+        if (!source.open(QIODevice::ReadOnly)) {
+            result.detail = source.errorString();
+            continue;
+        }
+
+        const qint64 sourceSize = source.size();
+        const qint64 bytesToCopy = std::min(sourceSize, remainingBytes);
+        const bool truncated = bytesToCopy < sourceSize;
+        if (truncated && !source.seek(sourceSize - bytesToCopy)) {
+            result.detail = source.errorString();
+            continue;
+        }
+
+        QByteArray contents = source.read(bytesToCopy);
+        if (contents.size() != bytesToCopy) {
+            result.detail = source.errorString();
+            continue;
+        }
+        // Reapply the current redaction policy while bundling so logs written
+        // by an older Yanami build receive newer privacy protections too.
+        contents = redactSensitiveData(QString::fromUtf8(contents)).toUtf8();
+
+        const QByteArray sectionHeader =
+            "===== BEGIN " + sourceInfo.fileName().toUtf8()
+            + " modified="
+            + sourceInfo.lastModified().toString(Qt::ISODateWithMs).toUtf8()
+            + " bytes=" + QByteArray::number(bytesToCopy)
+            + (truncated ? " earlier-bytes-omitted=true" : "")
+            + " =====\n";
+        if (!write(sectionHeader)) {
+            output.cancelWriting();
+            return result;
+        }
+        if (truncated
+            && !write(QByteArrayLiteral("[earlier log bytes omitted]\n"))) {
+            output.cancelWriting();
+            return result;
+        }
+
+        if (!write(contents)) {
+            output.cancelWriting();
+            return result;
+        }
+        if (!write(QByteArrayLiteral("\n===== END LOG =====\n\n"))) {
+            output.cancelWriting();
+            return result;
+        }
+        remainingBytes -= contents.size();
+        ++result.exportedFileCount;
+    }
+
+    if (result.exportedFileCount == 0) {
+        output.cancelWriting();
+        result.error = result.detail.isEmpty()
+            ? LogExportError::NoLogsAvailable
+            : LogExportError::ReadFailed;
+        return result;
+    }
+    if (!output.commit()) {
+        result.error = LogExportError::WriteFailed;
+        result.detail = output.errorString();
+        return result;
+    }
+
+    result.destinationPath = resolvedDestination;
+    return result;
 }
 
 } // namespace RuntimeLogger

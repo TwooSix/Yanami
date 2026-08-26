@@ -781,6 +781,14 @@ private slots:
                 "press B / Back to exit"))
             && !settings.contains(QStringLiteral(
                 "function onActionPressed(action, repeated)")));
+        QVERIFY(settings.contains(QStringLiteral(
+            "border.width: sectionButton.visualFocus"))
+            && settings.contains(QStringLiteral(
+                "? 2 : (sectionButton.selected ? 1 : 0)"))
+            && settings.contains(QStringLiteral(
+                "border.color: sectionButton.visualFocus"))
+            && settings.contains(QStringLiteral(
+                "? Theme.accent : \"#52FF6687\"")));
         QVERIFY(mainWindow.contains(QStringLiteral(
             "pageActive: window.currentPage === 3"))
             && mainWindow.contains(QStringLiteral(
@@ -805,6 +813,35 @@ private slots:
                 "controllerExitTarget"))
             && search.contains(QStringLiteral(
                 "controllerDownHandler")));
+    }
+
+    void aboutPageExportsDiagnosticsAndLinksSupportSafely()
+    {
+        const QDir qmlRoot(QStringLiteral(YANAMI_QML_SOURCE_DIR));
+        const QString about = source(qmlRoot.filePath(
+            QStringLiteral("pages/AboutPage.qml")));
+        const QString localeText = source(qmlRoot.filePath(
+            QStringLiteral("LocaleText.qml")));
+
+        QVERIFY2(!about.isEmpty(), "AboutPage.qml must be readable");
+        QVERIFY(about.contains(QStringLiteral(
+            "https://afdian.com/a/twooosix")));
+        QVERIFY(about.contains(QStringLiteral(
+            "app.diagnostics.exportLogs()"))
+            && about.contains(QStringLiteral(
+                "app.diagnostics.openExportFolder()"))
+            && about.contains(QStringLiteral(
+                "function openExternalUrl(url, failureMessage)"))
+            && about.contains(QStringLiteral(
+                "if (!Qt.openUrlExternally(url))")));
+
+        QVERIFY2(!localeText.isEmpty(), "LocaleText.qml must be readable");
+        QVERIFY(localeText.contains(QStringLiteral(
+            "if (subtitle.length === 0 || subtitle === itemType)"))
+            && localeText.contains(QStringLiteral(
+                "return itemTypeLabel(itemType)"))
+            && localeText.contains(QStringLiteral(
+                "case \"MusicVideo\": return qsTr(\"Music video\")")));
     }
 
     void asyncImageKeysStayInsideTheCacheRoot()

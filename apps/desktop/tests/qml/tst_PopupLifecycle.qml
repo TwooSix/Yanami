@@ -753,6 +753,55 @@ TestCase {
         compare(openerFocusTarget.activeFocus, true)
     }
 
+    function test_volumeSliderFillEndpointTracksTheHandleCenter() {
+        volumeControlFixture.visible = true
+        volumeControlFixture.showVolume()
+        tryCompare(volumeControlFixture, "opened", true)
+
+        const slider = findChild(volumeControlFixture, "volume-slider")
+        const axis = findChild(volumeControlFixture, "volume-slider-axis")
+        const rail = findChild(volumeControlFixture, "volume-slider-rail")
+        const progress = findChild(
+            volumeControlFixture, "volume-slider-progress")
+        const handle = findChild(
+            volumeControlFixture, "volume-slider-handle")
+        verify(slider !== null, "missing volume slider")
+        verify(axis !== null, "missing volume slider axis")
+        verify(rail !== null, "missing volume slider rail")
+        verify(progress !== null, "missing volume slider progress")
+        verify(handle !== null, "missing volume slider handle")
+
+        const values = [0, 50, 100]
+        for (let index = 0; index < values.length; ++index) {
+            volumeControlFixture.volume = values[index]
+            wait(0)
+            const handleCenter = handle.mapToItem(
+                axis, handle.width / 2, handle.height / 2)
+            const progressTop = progress.mapToItem(
+                axis, progress.width / 2, 0)
+            const railCenter = rail.mapToItem(
+                axis, rail.width / 2, rail.height / 2)
+            verify(Math.abs(handleCenter.x - railCenter.x) < 0.001,
+                   "handle and rail axes diverged at " + values[index])
+            verify(Math.abs(progressTop.x - handleCenter.x) < 0.001,
+                   "fill and handle axes diverged at " + values[index])
+            verify(Math.abs(progressTop.y - handleCenter.y) < 0.001,
+                   "fill endpoint missed handle center at " + values[index])
+        }
+
+        volumeControlFixture.volume = 50
+        wait(0)
+        const centerBeforeHover = handle.mapToItem(
+            axis, handle.width / 2, handle.height / 2)
+        mouseMove(slider, slider.width / 2, slider.height / 2)
+        tryCompare(slider, "hovered", true)
+        wait(130)
+        const centerAfterHover = handle.mapToItem(
+            axis, handle.width / 2, handle.height / 2)
+        verify(Math.abs(centerAfterHover.x - centerBeforeHover.x) < 0.001)
+        verify(Math.abs(centerAfterHover.y - centerBeforeHover.y) < 0.001)
+    }
+
     function test_controllerVolumeMeterRevealsHiddenPlayerChrome() {
         compare(hiddenVolumeChromeFixture.visible, false)
 

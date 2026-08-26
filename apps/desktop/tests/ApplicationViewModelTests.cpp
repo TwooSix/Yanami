@@ -424,11 +424,13 @@ private slots:
         QVERIFY(viewModel.imageEditor());
         QVERIFY(viewModel.preferences());
         QVERIFY(viewModel.upscaling());
+        QVERIFY(viewModel.diagnostics());
         QVERIFY(viewModel.status());
         QVERIFY(viewModel.updates());
         QCOMPARE(viewModel.session()->parent(), &viewModel);
         QCOMPARE(viewModel.mediaActions()->parent(), &viewModel);
         QCOMPARE(viewModel.upscaling()->parent(), &viewModel);
+        QCOMPARE(viewModel.diagnostics()->parent(), &viewModel);
         QVERIFY(viewModel.upscaling()->metaObject()->indexOfProperty(
             "resolvedPresetId") >= 0);
     }

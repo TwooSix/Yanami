@@ -742,9 +742,10 @@ Item {
                             color: sectionButton.selected
                                    ? Theme.accentSoft
                                    : sectionButton.hovered ? "#18FFFFFF" : "transparent"
-                            border.width: sectionButton.selected || sectionButton.visualFocus ? 1 : 0
-                            border.color: sectionButton.selected
-                                          ? "#52FF6687" : Theme.outlineStrong
+                            border.width: sectionButton.visualFocus
+                                ? 2 : (sectionButton.selected ? 1 : 0)
+                            border.color: sectionButton.visualFocus
+                                ? Theme.accent : "#52FF6687"
                         }
                     }
                 }
@@ -2200,15 +2201,6 @@ Item {
                                 }
                             }
                         }
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: qsTr("The Xbox software path is implemented; physical Xbox acceptance is pending. PlayStation, Nintendo Switch, TV remote, and generic profiles are experimental until validated on their physical hardware.")
-                        color: Theme.textMuted
-                        font.family: Theme.fontForText(text)
-                        font.pixelSize: 11
-                        wrapMode: Text.WordWrap
                     }
                 }
             }

@@ -183,7 +183,9 @@ private slots:
         qCWarning(runtimeLoggerTestLog).noquote()
             << "endpoint=https://user:password@example.com:8443/private/path?api_key=url-secret"
                " token=plain-secret Authorization=Bearer bearer-secret"
-               " Bearer loose-secret";
+               " Bearer loose-secret"
+            << "localPath="
+            << QDir::home().filePath(QStringLiteral("private/runtime.log"));
         RuntimeLogger::shutdown();
 
         const QString log = QString::fromUtf8(readFile(activePath));
@@ -197,6 +199,67 @@ private slots:
         QVERIFY(!log.contains(QStringLiteral("plain-secret")));
         QVERIFY(!log.contains(QStringLiteral("bearer-secret")));
         QVERIFY(!log.contains(QStringLiteral("loose-secret")));
+        QVERIFY(log.contains(QStringLiteral("<user-home>")));
+        QVERIFY(!log.contains(QDir::cleanPath(QDir::homePath())));
+    }
+
+    void liveExportFlushesAndBundlesOnlyManagedLogs()
+    {
+        QVERIFY(RuntimeLogger::install());
+        const QString activePath = RuntimeLogger::currentLogPath();
+        const QString priorArchive = archivePath(
+            activePath, QStringLiteral("export-prior"));
+        const QByteArray priorContents =
+            QByteArrayLiteral("prior_process_marker token=legacy-secret "
+                              "url=https://example.com/legacy/private\n"
+                              "legacy_home=")
+            + QDir::toNativeSeparators(QDir::homePath()).toUtf8()
+            + QByteArrayLiteral("/old-runtime.log\n");
+        QVERIFY(replaceFile(
+            priorArchive,
+            priorContents,
+            QDateTime::currentDateTime().addSecs(-60)));
+        const QString unrelated = QDir(QFileInfo(activePath).absolutePath())
+            .filePath(QStringLiteral("unrelated.log"));
+        QVERIFY(replaceFile(
+            unrelated, QByteArrayLiteral("must_not_be_exported\n")));
+
+        qCInfo(runtimeLoggerTestLog).noquote()
+            << "live_export_marker"
+            << "token=export-secret"
+            << "url=https://example.com/private/export";
+
+        const QString exportDirectory =
+            m_temporaryDirectory->filePath(QStringLiteral("exports"));
+        QVERIFY(QDir().mkpath(exportDirectory));
+        const QString exportPath = QDir(exportDirectory).filePath(
+            QStringLiteral("Yanami-diagnostics.log"));
+        const RuntimeLogger::LogExportResult result =
+            RuntimeLogger::exportRecentLogs(exportPath);
+        QVERIFY2(result.succeeded(), qPrintable(result.detail));
+        QCOMPARE(result.destinationPath, QFileInfo(exportPath).absoluteFilePath());
+        QCOMPARE(result.exportedFileCount, 2);
+
+        const QByteArray bundle = readFile(exportPath);
+        QVERIFY(bundle.contains("# Yanami diagnostics log bundle"));
+        QVERIFY(bundle.contains("live_export_marker"));
+        QVERIFY(bundle.contains("prior_process_marker"));
+        QVERIFY(bundle.contains("token=<redacted>"));
+        QVERIFY(bundle.contains("https://example.com/<redacted>"));
+        QVERIFY(bundle.contains("<user-home>"));
+        QVERIFY(!bundle.contains("export-secret"));
+        QVERIFY(!bundle.contains("legacy-secret"));
+        QVERIFY(!bundle.contains(QDir::cleanPath(QDir::homePath()).toUtf8()));
+        QVERIFY(!bundle.contains(
+            QDir::toNativeSeparators(QDir::homePath()).toUtf8()));
+        QVERIFY(!bundle.contains("private/export"));
+        QVERIFY(!bundle.contains("legacy/private"));
+        QVERIFY(!bundle.contains("must_not_be_exported"));
+
+        qCInfo(runtimeLoggerTestLog).noquote() << "logger_continues_after_export";
+        RuntimeLogger::shutdown();
+        const QByteArray activeLog = readFile(activePath);
+        QVERIFY(activeLog.contains("logger_continues_after_export"));
     }
 
     void oversizedActiveFileRotatesOnInstall()

@@ -764,7 +764,10 @@ ApplicationWindow {
                         anchors.fill: parent
                         active: window.aboutLoaded
                         asynchronous: true
-                        sourceComponent: AboutPage {}
+                        sourceComponent: AboutPage {
+                            onFeedbackRequested: (message, tone) =>
+                                window.showActionToast(message, tone)
+                        }
                         onLoaded: {
                             if (window.currentPage === 5
                                     && InputModality.focusNavigationActive) {

@@ -150,6 +150,10 @@ Item {
 
             Slider {
                 id: volumeSlider
+                objectName: "volume-slider"
+                readonly property real handleBoxSize: 18
+                readonly property real axisX: Math.round(
+                    leftPadding + availableWidth / 2)
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.top: parent.top
                 anchors.topMargin: 8
@@ -160,48 +164,71 @@ Item {
                 to: 100
                 value: root.volume
                 live: true
+                hoverEnabled: true
+                leftPadding: 0
+                rightPadding: 0
+                topPadding: 0
+                bottomPadding: 0
                 Accessible.name: qsTr("Volume")
                 onMoved: root.volumeRequested(value)
 
                 background: Item {
-                    x: volumeSlider.leftPadding
-                    y: volumeSlider.topPadding
-                    width: volumeSlider.availableWidth
-                    height: volumeSlider.availableHeight
+                    objectName: "volume-slider-axis"
+                    x: 0
+                    y: 0
+                    width: volumeSlider.width
+                    height: volumeSlider.height
 
                     Rectangle {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: 5
-                        height: parent.height
-                        radius: 2.5
+                        objectName: "volume-slider-rail"
+                        x: volumeSlider.axisX - width / 2
+                        y: volumeSlider.topPadding
+                            + volumeSlider.handleBoxSize / 2
+                        width: 4
+                        height: volumeSlider.availableHeight
+                            - volumeSlider.handleBoxSize
+                        radius: width / 2
                         color: "#34FFFFFF"
                     }
 
                     Rectangle {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.bottom: parent.bottom
-                        width: 5
-                        height: volumeSlider.position * parent.height
-                        radius: 2.5
+                        objectName: "volume-slider-progress"
+                        x: volumeSlider.axisX - width / 2
+                        y: volumeHandle.y + volumeHandle.height / 2
+                        width: 4
+                        height: volumeSlider.topPadding
+                            + volumeSlider.availableHeight
+                            - volumeSlider.handleBoxSize / 2 - y
+                        radius: width / 2
                         color: Theme.accent
                     }
                 }
 
-                handle: Rectangle {
-                    x: volumeSlider.leftPadding
-                        + (volumeSlider.availableWidth - width) / 2
-                    y: volumeSlider.topPadding
+                handle: Item {
+                    id: volumeHandle
+                    objectName: "volume-slider-handle"
+                    x: volumeSlider.axisX - width / 2
+                    y: Math.round(volumeSlider.topPadding
                         + (1 - volumeSlider.position)
-                            * (volumeSlider.availableHeight - height)
-                    width: volumeSlider.pressed || volumeSlider.hovered ? 18 : 15
-                    height: width
-                    radius: width / 2
-                    color: "white"
-                    border.width: 1
-                    border.color: "#33000000"
+                            * (volumeSlider.availableHeight - height))
+                    width: volumeSlider.handleBoxSize
+                    height: volumeSlider.handleBoxSize
 
-                    Behavior on width {
-                        NumberAnimation { duration: 110; easing.type: Easing.OutCubic }
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: volumeSlider.pressed || volumeSlider.hovered ? 18 : 16
+                        height: width
+                        radius: width / 2
+                        color: "white"
+                        border.width: 1
+                        border.color: "#33000000"
+
+                        Behavior on width {
+                            NumberAnimation {
+                                duration: 110
+                                easing.type: Easing.OutCubic
+                            }
+                        }
                     }
                 }
             }

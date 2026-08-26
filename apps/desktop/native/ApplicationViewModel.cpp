@@ -1203,6 +1203,7 @@ void ApplicationViewModel::initialize(const BackendPortSet &ports)
     m_mediaTarget = new MediaTargetFlowViewModel(ports.media, this);
     m_preferences = new PreferencesViewModel(this);
     m_upscaling = new UpscalingViewModel(m_preferences, this);
+    m_diagnostics = new DiagnosticsViewModel(this);
     m_status = new ApplicationStatusViewModel(ports.status, this);
     m_updates = new UpdateChecker(this);
 
