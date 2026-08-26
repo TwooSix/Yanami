@@ -5,6 +5,20 @@ implement search indexes, startup shortcuts, rendering changes, or playback
 optimizations. Any implementation that satisfies the same observable contract
 is acceptable.
 
+## Automation boundary
+
+The Windows job in Core CI runs deterministic correctness and catastrophe smoke
+checks after its existing desktop build. There is no separate performance
+workflow and no self-hosted, scheduled, or workflow-dispatch path: a
+hosted/offscreen renderer cannot certify a physical GPU, native Presents,
+decoded playback, or Anime4K output, and a repository without a maintained lab
+runner must not advertise permanently skipped jobs as release gates.
+
+The strict `Lab`, `Nightly`, `Weekly`, and `Release` profiles remain local
+evidence evaluators for an operator-controlled machine. Their contracts are
+useful for release acceptance, but GitHub Actions never substitutes hosted
+measurements for the required raw playback, pixel, Present, and GPU evidence.
+
 ## What is versioned
 
 - `slo/slo-v1.json` is the non-rolling absolute contract for search, backend,
@@ -169,14 +183,13 @@ removed adapter-classification or recommendation fields.
 Strict upscaling requires `PlaybackMedia-v1` and `UpscalingModelPack-v1` to be
 provisioned by a dedicated performance-policy change. The current model-pack
 contract and approved measurement normalizer are intentionally
-`not-provisioned`. The normal Lab/Nightly/Weekly/Release jobs therefore exclude
-strict Upscaling, while a separate preflight reports that state and enables the
-isolated three-tier job only after all contracts are provisioned. Once enabled,
-the runner invokes an absolute-path normalizer whose executable SHA-256 is in
-the model-pack allow-list. It discards imported metric/invariant values and
-accepts only freshly normalized samples bound to the candidate, fixture set,
-environment fingerprint, provider/preset/runtime/model identity, playback
-fixture, process ID, QPC window, and hashes of every raw evidence file.
+`not-provisioned`, so manual strict certification is blocked rather than
+silently downgraded. Once provisioned, the local runner invokes an
+absolute-path normalizer whose executable SHA-256 is in the model-pack
+allow-list. It discards imported metric/invariant values and accepts only
+freshly normalized samples bound to the candidate, fixture set, environment
+fingerprint, provider/preset/runtime/model identity, playback fixture, process
+ID, QPC window, and hashes of every raw evidence file.
 
 Performance, balanced, and quality are measured as three distinct scenarios;
 each scenario is evaluated against the SLO independently before the runner
@@ -299,12 +312,11 @@ collector and declare that evidence in the raw metric attributes. Danmaku pixel
 semantics additionally require the correlated external pixel oracle. Missing
 strict evidence is never converted into a pass.
 
-The fixed-machine jobs in `.github/workflows/performance.yml` are enabled only
-when the repository variable `YANAMI_PERFORMANCE_RUNNER_ENABLED` is exactly
-`true`. Keep it unset while no isolated runner with the `yanami-performance`
-label is online; pull requests still run the hosted smoke without waiting for
-an unavailable machine. Register and validate the runner before enabling the
-variable.
+There are no fixed-machine jobs in GitHub Actions. Run strict profiles directly
+on the isolated reference machine and retain their complete output directories
+with the candidate package. A hosted workflow result is never release evidence
+for a requirement marked `external-present`, `external-pixel-present`,
+`controlled-network`, or GPU-certified.
 
 ## Base/head and reruns
 
@@ -334,6 +346,29 @@ fingerprint, identical suite coverage, and identical fixture hashes. It then
 rebuilds aggregate A and B manifests from their raw samples and requires at
 least one actual comparable metric. A fixed runner can provide the four paths
 as a semicolon-separated `YANAMI_PERF_ABAB_RESULT_PATHS` value.
+
+For release acceptance, each source result must itself use the `Release`
+profile and contain all strict suites and raw evidence. The final evaluator is:
+
+```powershell
+pwsh -NoProfile -File scripts/performance/run-gate.ps1 `
+  -Profile Release `
+  -Mode enforce `
+  -OutputDirectory build/performance/release-acceptance `
+  -Suites Search,Backend,Interaction,Playback,Danmaku,Upscaling,Startup `
+  -BaseSha <merge-base> `
+  -CandidateSha <candidate> `
+  -ComparisonResultPath @(
+    '<A1-release-performance-result.json>',
+    '<B1-release-performance-result.json>',
+    '<A2-release-performance-result.json>',
+    '<B2-release-performance-result.json>'
+  )
+```
+
+Only `status=pass` together with `relativeComparison.state=evaluated` is a
+release acceptance result. A direct Release-profile source run is collection
+material, not publication approval by itself.
 
 An ordinary `-BaseResultPath` may be schema-validated for diagnostics, but can
 never activate a relative hard gate. If a base SHA is named without four valid
