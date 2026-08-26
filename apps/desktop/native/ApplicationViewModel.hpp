@@ -8,6 +8,7 @@
 #include "MetadataEditorViewModel.hpp"
 #include "MediaStore.hpp"
 #include "UpdateChecker.hpp"
+#include "UpscalingViewModel.hpp"
 
 #include <QObject>
 #include <QHash>
@@ -446,6 +447,8 @@ class PreferencesViewModel final : public QObject
     Q_OBJECT
     Q_PROPERTY(QVariantMap danmakuStyle READ danmakuStyle
             NOTIFY danmakuStyleChanged)
+    Q_PROPERTY(QVariantMap upscalingSettings READ upscalingSettings
+            NOTIFY upscalingSettingsChanged)
     Q_PROPERTY(int librarySortMode READ librarySortMode
             WRITE setLibrarySortMode NOTIFY librarySortModeChanged)
 
@@ -453,15 +456,19 @@ public:
     explicit PreferencesViewModel(QObject *parent = nullptr);
 
     QVariantMap danmakuStyle() const;
+    QVariantMap upscalingSettings() const { return m_upscalingSettings; }
     int librarySortMode() const { return m_librarySortMode; }
     Q_INVOKABLE void saveDanmakuStyle(const QVariantMap &style);
+    Q_INVOKABLE void saveUpscalingSettings(const QVariantMap &settings);
     void setLibrarySortMode(int sortMode);
 
 signals:
     void danmakuStyleChanged();
+    void upscalingSettingsChanged();
     void librarySortModeChanged();
 
 private:
+    QVariantMap m_upscalingSettings;
     int m_librarySortMode = 1;
 };
 
@@ -503,6 +510,7 @@ class ApplicationViewModel final : public QObject
     Q_PROPERTY(MetadataEditorViewModel *metadataEditor READ metadataEditor CONSTANT)
     Q_PROPERTY(MediaTargetFlowViewModel *mediaTarget READ mediaTarget CONSTANT)
     Q_PROPERTY(PreferencesViewModel *preferences READ preferences CONSTANT)
+    Q_PROPERTY(UpscalingViewModel *upscaling READ upscaling CONSTANT)
     Q_PROPERTY(ApplicationStatusViewModel *status READ status CONSTANT)
     Q_PROPERTY(UpdateChecker *updates READ updates CONSTANT)
 
@@ -522,6 +530,7 @@ public:
     MetadataEditorViewModel *metadataEditor() const { return m_metadataEditor; }
     MediaTargetFlowViewModel *mediaTarget() const { return m_mediaTarget; }
     PreferencesViewModel *preferences() const { return m_preferences; }
+    UpscalingViewModel *upscaling() const { return m_upscaling; }
     ApplicationStatusViewModel *status() const { return m_status; }
     UpdateChecker *updates() const { return m_updates; }
 
@@ -539,6 +548,7 @@ private:
     MetadataEditorViewModel *m_metadataEditor = nullptr;
     MediaTargetFlowViewModel *m_mediaTarget = nullptr;
     PreferencesViewModel *m_preferences = nullptr;
+    UpscalingViewModel *m_upscaling = nullptr;
     ApplicationStatusViewModel *m_status = nullptr;
     UpdateChecker *m_updates = nullptr;
     quint64 m_sessionGeneration = 0;

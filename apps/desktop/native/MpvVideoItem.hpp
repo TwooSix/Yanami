@@ -2,9 +2,12 @@
 
 #include "PlaybackCompletionGate.hpp"
 #include "PlaybackStallWatchdog.hpp"
+#include "UpscalingPerformancePolicy.hpp"
 
+#include <QByteArray>
 #include <QPointer>
 #include <QElapsedTimer>
+#include <QHash>
 #include <QQuickFramebufferObject>
 #include <QTimer>
 #include <QUrl>
@@ -17,6 +20,9 @@
 #include <memory>
 
 struct MpvRenderState;
+namespace YanamiUpscaling {
+struct ValidatedConfig;
+}
 
 class MpvVideoItem : public QQuickFramebufferObject
 {
@@ -34,6 +40,11 @@ class MpvVideoItem : public QQuickFramebufferObject
     Q_PROPERTY(QVariantList subtitleTracks READ subtitleTracks NOTIFY tracksChanged)
     Q_PROPERTY(qint64 selectedAudioTrack READ selectedAudioTrack NOTIFY tracksChanged)
     Q_PROPERTY(qint64 selectedSubtitleTrack READ selectedSubtitleTrack NOTIFY tracksChanged)
+    Q_PROPERTY(bool upscalingActive READ upscalingActive NOTIFY upscalingStateChanged)
+    Q_PROPERTY(QString effectiveUpscalingProfile READ effectiveUpscalingProfile NOTIFY upscalingStateChanged)
+    Q_PROPERTY(bool upscalingConfigurationPending
+            READ upscalingConfigurationPending
+            NOTIFY upscalingConfigurationPendingChanged)
 
 public:
     enum class PlaybackState {
@@ -64,8 +75,19 @@ public:
     QVariantList subtitleTracks() const { return m_subtitleTracks; }
     qint64 selectedAudioTrack() const { return m_selectedAudioTrack; }
     qint64 selectedSubtitleTrack() const { return m_selectedSubtitleTrack; }
+    bool upscalingActive() const { return m_upscalingActive; }
+    QString effectiveUpscalingProfile() const
+    { return m_effectiveUpscalingProfile; }
+    bool upscalingConfigurationPending() const
+    { return m_pendingUpscalingConfiguration != nullptr; }
 
     Q_INVOKABLE void open(const QUrl &url, const QVariantMap &headers = {});
+    Q_INVOKABLE void openWithUpscaling(
+        const QUrl &url,
+        const QVariantMap &headers,
+        const QVariantMap &runtimeConfig);
+    Q_INVOKABLE bool configureUpscaling(
+        const QVariantMap &runtimeConfig);
     Q_INVOKABLE void stop();
     Q_INVOKABLE void seek(double seconds);
     Q_INVOKABLE void setVolume(double volume);
@@ -105,12 +127,30 @@ signals:
     // file remains loaded so the final frame can stay visible.
     void playbackCompleted();
     void seekRequested(double positionSeconds);
+    void upscalingStateChanged();
+    void upscalingFallback(
+        const QString &profileId,
+        const QString &errorCode,
+        const QString &message);
+    void upscalingTierChanged(
+        const QString &fromProfile,
+        const QString &toProfile,
+        const QString &reason);
+    void upscalingConfigurationPendingChanged();
+    void upscalingConfigurationFinished(
+        bool enabled,
+        bool success,
+        double dispatchCpuMs,
+        double completionMs);
 
 private slots:
     void drainEvents();
 
 private:
     friend class MpvRenderer;
+
+    struct PendingUpscalingConfiguration;
+    struct DeferredOpenRequest;
 
     static void wakeup(void *context);
     void setPlaybackState(PlaybackState state);
@@ -124,13 +164,73 @@ private:
     void resetPlaybackStall();
     qint64 playbackStallNow() const;
     QVariantMap performanceSnapshot() const;
+    bool ensurePerformanceObserversRegistered();
+    bool beginUpscalingRuntimeConfig(
+        const QVariantMap &runtimeConfig,
+        const QString &transitionFromProfile = {},
+        double transitionRenderP95Ms = 0.0,
+        bool transitionToOriginal = false,
+        const QString &completionFallbackCode = {},
+        const QString &completionFallbackMessage = {});
+    bool setUpscalingShaderPathsAsync(
+        const QStringList &paths,
+        quint64 replyUserdata);
+    bool setUpscalingStringPropertyAsync(
+        const QByteArray &name,
+        const QByteArray &value,
+        quint64 replyUserdata);
+    void appendUpscalingBaselineWrites(
+        PendingUpscalingConfiguration &pending);
+    void appendUpscalingTargetWrites(
+        PendingUpscalingConfiguration &pending,
+        const YanamiUpscaling::ValidatedConfig &config);
+    void dispatchNextUpscalingProperty();
+    void beginUpscalingRollback(const QString &errorCode);
+    void completeUpscalingRuntimeConfig();
+    void commitUpscalingState(
+        const YanamiUpscaling::ValidatedConfig &config);
+    void recordUpscalingApplied(
+        const YanamiUpscaling::ValidatedConfig &config,
+        double dispatchCpuMs,
+        double completionMs);
+    void finishUpscalingRuntimeConfig(int errorCode);
+    void continueAfterUpscalingConfiguration();
+    void clearUpscalingState();
+    void resetUpscalingRenderCounters();
+    void pollUpscalingHealth();
+    void dispatchPendingLoad();
 
     std::shared_ptr<mpv_handle> m_mpvOwner;
     mpv_handle *m_mpv = nullptr;
     std::shared_ptr<MpvRenderState> m_renderState;
     std::atomic_bool m_eventDrainQueued{false};
+    QByteArray m_pendingLoadTarget;
+    quint64 m_pendingLoadGeneration = 0;
+    bool m_pendingLoadWaitsForUpscaling = false;
+    std::unique_ptr<PendingUpscalingConfiguration>
+        m_pendingUpscalingConfiguration;
+    std::unique_ptr<DeferredOpenRequest> m_deferredOpenRequest;
+    QVariantMap m_queuedUpscalingRuntimeConfig;
+    bool m_hasQueuedUpscalingRuntimeConfig = false;
+    quint64 m_nextUpscalingRequestSerial = 0;
     bool m_performanceTraceEnabled = false;
     bool m_performanceObserversRegistered = false;
+    bool m_upscalingPropertiesDirty = false;
+    QHash<QByteArray, QByteArray> m_upscalingBaselineOptions;
+    QVariantList m_upscalingFallbacks;
+    QTimer m_upscalingHealthTimer;
+    YanamiUpscaling::PerformanceProtection m_upscalingProtection;
+    bool m_upscalingActive = false;
+    bool m_upscalingPerformanceProtection = false;
+    QString m_effectiveUpscalingProfile;
+    QString m_effectiveUpscalingProvider;
+    QString m_effectiveUpscalingVersion;
+    double m_upscalingLastRenderP95Ms = 0.0;
+    double m_upscalingLastRenderAverageMs = 0.0;
+    double m_upscalingLastRenderMaximumMs = 0.0;
+    qint64 m_upscalingPreviousOutputDroppedFrames = 0;
+    qint64 m_upscalingPreviousMistimedFrames = 0;
+    qint64 m_upscalingPreviousDelayedFrames = 0;
     bool m_paused = false;
     bool m_pauseRequested = false;
     // Native libmpv paused-for-cache and the synthetic no-progress watchdog

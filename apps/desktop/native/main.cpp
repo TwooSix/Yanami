@@ -592,6 +592,8 @@ int main(int argc, char *argv[])
         auto *root = engine.rootObjects().constFirst();
         if (auto *window = qobject_cast<QWindow *>(root))
             windowController.configureWindow(window);
+        if (auto *quickWindow = qobject_cast<QQuickWindow *>(root))
+            applicationViewModel.upscaling()->observeWindow(quickWindow);
         if (YanamiPerformance::PerformanceTrace::enabled()) {
             if (auto *quickWindow = qobject_cast<QQuickWindow *>(root)) {
                 auto *inputProbe = new InputToFrameProbe(

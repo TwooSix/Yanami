@@ -227,6 +227,20 @@ function Find-DanmakuProbeInBuildDirectory {
     return $null
 }
 
+function Find-UpscalingProbeInBuildDirectory {
+    param([string]$BuildDirectory)
+    if (-not $BuildDirectory) { return $null }
+    foreach ($candidate in @(
+        (Join-Path $BuildDirectory "yanami-upscaling-perf-probe.exe"),
+        (Join-Path $BuildDirectory "apps\desktop\yanami-upscaling-perf-probe.exe")
+    )) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return [System.IO.Path]::GetFullPath($candidate)
+        }
+    }
+    return $null
+}
+
 function Build-DesktopProbeBesideArtifact {
     param([string]$DesktopProbePath)
     $buildDirectory = Find-CMakeBuildDirectoryForArtifact -ArtifactPath $DesktopProbePath
@@ -282,6 +296,35 @@ function Build-DanmakuProbeBesideArtifact {
         $env:RUSTUP_TOOLCHAIN = $oldToolchain
     }
     return Find-DanmakuProbeInBuildDirectory -BuildDirectory $buildDirectory
+}
+
+function Build-UpscalingProbeBesideArtifact {
+    param([string]$ArtifactPath)
+    if (-not $ArtifactPath) { return $null }
+    $buildDirectory = Find-CMakeBuildDirectoryForArtifact -ArtifactPath $ArtifactPath
+    if (-not $buildDirectory) { return $null }
+    $cachePath = Join-Path $buildDirectory "CMakeCache.txt"
+    $cmakeEntry = Select-String -LiteralPath $cachePath -Pattern '^CMAKE_COMMAND:INTERNAL=(.+)$' | Select-Object -First 1
+    if (-not $cmakeEntry) { return $null }
+    $cmake = $cmakeEntry.Matches[0].Groups[1].Value.Trim()
+    if (-not (Test-Path -LiteralPath $cmake -PathType Leaf)) { return $null }
+
+    $oldPath = $env:PATH
+    $oldToolchain = $env:RUSTUP_TOOLCHAIN
+    try {
+        $toolBin = Split-Path -Parent $cmake
+        $env:PATH = "$toolBin;$env:USERPROFILE\.cargo\bin;$env:PATH"
+        $env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-gnu"
+        & $cmake --build $buildDirectory --target yanami-upscaling-perf-probe --parallel 2>&1 | ForEach-Object { Write-Host $_ }
+        if ($LASTEXITCODE -ne 0) {
+            throw "Building yanami-upscaling-perf-probe for the current run failed with code $LASTEXITCODE."
+        }
+    }
+    finally {
+        $env:PATH = $oldPath
+        $env:RUSTUP_TOOLCHAIN = $oldToolchain
+    }
+    return Find-UpscalingProbeInBuildDirectory -BuildDirectory $buildDirectory
 }
 
 function Build-DesktopExecutableBesideProbe {
@@ -754,6 +797,167 @@ function Initialize-DanmakuFixture {
     return [pscustomobject]@{ directory = $directory; sha256 = $fixtureSha256 }
 }
 
+function Initialize-UpscalingCapabilityFixture {
+    $manifestPath = Join-Path $workspace "perf\fixtures\upscaling-capability-v1.manifest.json"
+    $fixturePath = Join-Path $workspace "perf\fixtures\upscaling-capability-v1.json"
+    $contract = Read-YanamiPerfJson -Path $manifestPath
+    if ([string]$contract.id -ne "UpscalingCapability-v1" -or
+        [string]$contract.file -ne [System.IO.Path]::GetFileName($fixturePath)) {
+        throw "UpscalingCapability-v1 manifest is malformed."
+    }
+    $actualSha = (Get-FileHash -LiteralPath $fixturePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $expectedSha = ([string]$contract.sha256).ToLowerInvariant()
+    if ($actualSha -ne $expectedSha) {
+        throw "UpscalingCapability-v1 fixture hash mismatch: expected $expectedSha, got $actualSha."
+    }
+    Write-Host "Validated UpscalingCapability-v1 fixture: $actualSha"
+    return [pscustomobject][ordered]@{
+        path = $fixturePath
+        manifestPath = $manifestPath
+        sha256 = $actualSha
+    }
+}
+
+function Assert-UpscalingFixtureEvidence {
+    param(
+        [object[]]$Manifests,
+        [bool]$StrictRequired
+    )
+
+    $capabilityContract = Read-YanamiPerfJson -Path (
+        Join-Path $workspace "perf\fixtures\upscaling-capability-v1.manifest.json")
+    $expectedCapabilitySha = ([string]$capabilityContract.sha256).ToLowerInvariant()
+    foreach ($probeManifest in @($Manifests)) {
+        foreach ($fixture in @($probeManifest.fixtures | Where-Object { [string]$_.id -eq "UpscalingCapability-v1" })) {
+            if (-not [bool]$fixture.validated -or
+                ([string]$fixture.sha256).ToLowerInvariant() -ne $expectedCapabilitySha) {
+                throw "Probe '$($probeManifest.runId)' reported invalid UpscalingCapability-v1 evidence."
+            }
+        }
+    }
+    if (-not $StrictRequired) { return }
+
+    $playbackContract = Read-YanamiPerfJson -Path (
+        Join-Path $workspace "perf\fixtures\playback-media-v1.manifest.json")
+    $modelContract = Read-YanamiPerfJson -Path (
+        Join-Path $workspace "perf\fixtures\upscaling-model-pack-v1.manifest.json")
+    if ([string]$playbackContract.state -ne "provisioned") {
+        throw "Strict upscaling requires provisioned PlaybackMedia-v1; the pinned policy is currently '$($playbackContract.state)'."
+    }
+    if ([string]$modelContract.state -ne "provisioned") {
+        throw "Strict upscaling requires provisioned UpscalingModelPack-v1; the pinned policy is currently '$($modelContract.state)'."
+    }
+    foreach ($requiredId in @("UpscalingCapability-v1", "PlaybackMedia-v1", "UpscalingModelPack-v1")) {
+        $matches = @($Manifests.fixtures | Where-Object { [string]$_.id -eq $requiredId -and [bool]$_.validated })
+        if ($matches.Count -eq 0) {
+            throw "Strict upscaling evidence requires validated fixture '$requiredId'."
+        }
+    }
+    foreach ($scenarioManifest in @($Manifests | Where-Object {
+        [string]$_.profile -ne "PullRequest" -and "upscaling" -in @($_.suites)
+    })) {
+        $scenarioDetails = $scenarioManifest.environment.details
+        $modelMatches = @($modelContract.requiredModelPacks | Where-Object {
+            [string]$_.provider -eq [string]$scenarioDetails.provider -and
+            [string]$_.preset -eq [string]$scenarioDetails.preset -and
+            [string]$_.sha256 -match '^[0-9a-fA-F]{64}$' -and
+            [string]$_.sha256 -eq [string]$scenarioDetails.modelPackSha256 -and
+            [long]$_.sizeBytes -gt 0 -and
+            -not [string]::IsNullOrWhiteSpace([string]$_.version) -and
+            -not [string]::IsNullOrWhiteSpace([string]$_.licenseId)
+        })
+        if ($modelMatches.Count -ne 1) {
+            throw "Strict upscaling scenario '$([string]$scenarioDetails.upscalingScenarioId)' is not bound to exactly one fully pinned model-pack entry."
+        }
+    }
+
+    $scenarioManifests = @($Manifests | Where-Object {
+        [string]$_.profile -ne "PullRequest" -and
+        "upscaling" -in @($_.suites | ForEach-Object { ([string]$_).ToLowerInvariant() }) -and
+        @($_.metrics | Where-Object {
+            [string]$_.id -like "upscaling.*" -and
+            -not ([string]$_.id).StartsWith("upscaling.hosted_smoke.", [System.StringComparison]::Ordinal)
+        }).Count -gt 0
+    })
+    if ($scenarioManifests.Count -ne 3) {
+        throw "Strict upscaling matrix requires exactly three independently normalized scenario manifests; found $($scenarioManifests.Count)."
+    }
+    $presets = @($scenarioManifests | ForEach-Object {
+        [string]$_.environment.details.preset
+    } | Sort-Object -Unique)
+    if (($presets -join ",") -ne "balanced,performance,quality") {
+        throw "Strict upscaling matrix requires exactly one performance, balanced, and quality scenario."
+    }
+    $scenarioIds = @($scenarioManifests | ForEach-Object {
+        [string]$_.environment.details.upscalingScenarioId
+    } | Sort-Object -Unique)
+    if ($scenarioIds.Count -ne 3) {
+        throw "Strict upscaling matrix scenario IDs must be non-empty and distinct."
+    }
+    foreach ($field in @("candidateSha")) {
+        $values = @($scenarioManifests | ForEach-Object { [string]$_.$field } | Sort-Object -Unique)
+        if ($values.Count -ne 1) { throw "Strict upscaling matrix has inconsistent '$field'." }
+    }
+    $fingerprints = @($scenarioManifests | ForEach-Object {
+        [string]$_.environment.fingerprint
+    } | Sort-Object -Unique)
+    if ($fingerprints.Count -ne 1) {
+        throw "Strict upscaling matrix scenarios must use the same environment fingerprint."
+    }
+    foreach ($field in @("upscalingMatrixId", "provider", "providerRuntimeVersion")) {
+        $values = @($scenarioManifests | ForEach-Object {
+            [string]$_.environment.details.$field
+        } | Sort-Object -Unique)
+        if ($values.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$values[0])) {
+            throw "Strict upscaling matrix has inconsistent environment.details.$field."
+        }
+    }
+    $playbackHashes = @($scenarioManifests | ForEach-Object {
+        @($_.fixtures | Where-Object { [string]$_.id -eq "PlaybackMedia-v1" }) |
+            ForEach-Object { [string]$_.sha256 }
+    } | Sort-Object -Unique)
+    if ($playbackHashes.Count -ne 1 -or $playbackHashes[0] -notmatch '^[0-9a-fA-F]{64}$') {
+        throw "Strict upscaling matrix scenarios must share one pinned PlaybackMedia-v1 hash."
+    }
+    $rawIdentities = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($scenarioManifest in $scenarioManifests) {
+        foreach ($artifact in @($scenarioManifest.artifacts | Where-Object {
+            [bool]$_.runnerValidated -and [string]$_.role -ne "upscaling-model-pack-index"
+        })) {
+            $identity = "$([string]$artifact.fileName)|$(([string]$artifact.sha256).ToLowerInvariant())"
+            if (-not $rawIdentities.Add($identity)) {
+                throw "Strict upscaling raw evidence '$identity' was reused across preset scenarios."
+            }
+        }
+    }
+
+    $matrixId = [string]$scenarioManifests[0].environment.details.upscalingMatrixId
+    $scenarioSummary = @($scenarioManifests | ForEach-Object {
+        [pscustomobject][ordered]@{
+            scenarioId = [string]$_.environment.details.upscalingScenarioId
+            preset = [string]$_.environment.details.preset
+            modelPackSha256 = [string]$_.environment.details.modelPackSha256
+        }
+    })
+    foreach ($scenarioManifest in $scenarioManifests) {
+        $scenarioManifest.invariants = @($scenarioManifest.invariants | Where-Object {
+            [string]$_.id -ne "upscaling.strict_matrix_complete"
+        })
+    }
+    $scenarioManifests[0].invariants += [pscustomobject][ordered]@{
+        id = "upscaling.strict_matrix_complete"
+        passed = $true
+        details = [pscustomobject][ordered]@{
+            evidence = "upscaling-strict-scenario-index"
+            rawDerived = $true
+            runnerGenerated = $true
+            matrixId = $matrixId
+            scenarios = $scenarioSummary
+        }
+    }
+}
+
 function Assert-DanmakuFixtureEvidence {
     param([object[]]$Manifests)
 
@@ -785,6 +989,12 @@ function Get-DanmakuEvidenceArtifactRoles {
         "external-pixel-oracle" { return @("presentmon-trace", "pixel-capture-index") }
         "mpv-paired-telemetry" { return @("mpv-telemetry", "paired-baseline-index") }
         "etw-paired-process" { return @("etw-process-counters", "paired-baseline-index") }
+        "external-present-mpv-correlated" { return @("presentmon-trace", "mpv-telemetry", "frame-correlation-index") }
+        "etw-gpu-process" { return @("etw-gpu-engine-counters") }
+        "dxgi-video-memory" { return @("dxgi-video-memory-counters") }
+        "yanami-upscaling-runtime-trace" { return @("yanami-upscaling-runtime-trace") }
+        "pinned-upscaling-model-pack" { return @("upscaling-model-pack-index") }
+        "upscaling-strict-scenario-index" { return @("upscaling-scenario-index") }
         default { return @() }
     }
 }
@@ -1002,6 +1212,459 @@ function Assert-DanmakuStrictEvidenceArtifacts {
         -NotePropertyName strictEvidenceValidation `
         -NotePropertyValue $attestation `
         -Force
+    return $Manifest
+}
+
+function Assert-UpscalingStrictEvidenceArtifacts {
+    param(
+        [Parameter(Mandatory = $true)][object]$Manifest,
+        [Parameter(Mandatory = $true)][string]$ManifestPath
+    )
+
+    if ([string]$Manifest.profile -eq "PullRequest") { return $Manifest }
+    $upscalingObservations = @($Manifest.metrics | Where-Object { [string]$_.id -like "upscaling.*" }) +
+        @($Manifest.invariants | Where-Object { [string]$_.id -like "upscaling.*" })
+    if ($upscalingObservations.Count -eq 0) { return $Manifest }
+
+    $details = if ($null -ne $Manifest.environment.PSObject.Properties["details"]) {
+        $Manifest.environment.details
+    } else { $null }
+    $scenarioId = if ($null -ne $details) { [string]$details.upscalingScenarioId } else { "" }
+    if ([string]::IsNullOrWhiteSpace($scenarioId)) {
+        throw "Strict upscaling evidence requires environment.details.upscalingScenarioId."
+    }
+    if (-not [bool]$details.gpuCertified -or -not [bool]$details.presentCertified) {
+        throw "Strict upscaling evidence must declare gpuCertified=true and presentCertified=true; hosted/offscreen evidence cannot be promoted."
+    }
+    foreach ($field in @("upscalingMatrixId", "provider", "preset", "providerRuntimeVersion", "modelPackSha256")) {
+        $value = if ($null -ne $details.PSObject.Properties[$field]) { [string]$details.$field } else { "" }
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            throw "Strict upscaling evidence is missing environment.details.$field."
+        }
+    }
+    if (-not ([string]$details.provider).Equals(
+            "anime4k", [System.StringComparison]::Ordinal)) {
+        throw "Strict upscaling certification permits only provider='anime4k'."
+    }
+    if ([string]$details.preset -notin @("performance", "balanced", "quality")) {
+        throw "Strict upscaling preset must be performance, balanced, or quality."
+    }
+    if ([string]$details.modelPackSha256 -notmatch '^[0-9a-fA-F]{64}$') {
+        throw "Strict upscaling modelPackSha256 is invalid."
+    }
+    $rendering = if ($null -ne $Manifest.environment.PSObject.Properties["rendering"]) {
+        $Manifest.environment.rendering
+    } else { $null }
+    if ($null -eq $rendering) {
+        throw "Strict upscaling evidence must declare the native rendering environment."
+    }
+    $referenceContract = Read-YanamiPerfJson -Path (
+        Join-Path $workspace "perf\environments\windows-reference-v1.json")
+    $expectedRendering = $referenceContract.upscalingStrictRendering
+    foreach ($field in @(
+        "renderWidthPixels",
+        "renderHeightPixels",
+        "displayRefreshHz",
+        "dpiScalePercent",
+        "hdrEnabled",
+        "vrrEnabled",
+        "windowMode",
+        "qtRhiRenderer"
+    )) {
+        $actual = if ($null -ne $rendering.PSObject.Properties[$field]) { [string]$rendering.$field } else { "<missing>" }
+        $expected = [string]$expectedRendering.$field
+        if (-not $actual.Equals($expected, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Strict upscaling rendering field '$field' must be '$expected', got '$actual'."
+        }
+    }
+    if (-not ([string]$rendering.mpvRenderApi).Equals(
+            [string]$expectedRendering.mpvRenderApi,
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Strict upscaling evidence must use the production '$($expectedRendering.mpvRenderApi)' video-render path."
+    }
+    $openGlMajor = [int]$rendering.openGlMajor
+    $openGlMinor = [int]$rendering.openGlMinor
+    $minimumOpenGlMajor = [int]$expectedRendering.minimumOpenGlMajor
+    $minimumOpenGlMinor = [int]$expectedRendering.minimumOpenGlMinor
+    if ($openGlMajor -lt $minimumOpenGlMajor -or
+        ($openGlMajor -eq $minimumOpenGlMajor -and $openGlMinor -lt $minimumOpenGlMinor)) {
+        throw "Strict upscaling evidence requires OpenGL $minimumOpenGlMajor.$minimumOpenGlMinor or newer."
+    }
+    if ([int]$rendering.maximumTextureSize -lt [int]$expectedRendering.minimumTextureSize) {
+        throw "Strict upscaling evidence requires maximumTextureSize >= $($expectedRendering.minimumTextureSize)."
+    }
+
+    $modelPackContract = Read-YanamiPerfJson -Path (
+        Join-Path $workspace "perf\fixtures\upscaling-model-pack-v1.manifest.json")
+    $normalizerContract = $modelPackContract.strictEvidenceBundle.measurementNormalizer
+    $declaredNormalizers = @($normalizerContract.approvedExecutables |
+        Where-Object { $null -ne $_ })
+    if ($null -eq $normalizerContract -or
+        [string]$normalizerContract.state -ne "provisioned" -or
+        $declaredNormalizers.Count -eq 0) {
+        throw "Strict upscaling requires a provisioned, hash-pinned measurement normalizer; imported samples and indexes are never trusted."
+    }
+    $normalizerPath = [string]$env:YANAMI_PERF_UPSCALING_NORMALIZER
+    if ([string]::IsNullOrWhiteSpace($normalizerPath) -or
+        -not [System.IO.Path]::IsPathFullyQualified($normalizerPath) -or
+        -not (Test-Path -LiteralPath $normalizerPath -PathType Leaf)) {
+        throw "Strict upscaling requires YANAMI_PERF_UPSCALING_NORMALIZER to name the provisioned absolute normalizer executable."
+    }
+    $normalizerPath = [System.IO.Path]::GetFullPath($normalizerPath)
+    $normalizerSha = (Get-FileHash -LiteralPath $normalizerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $approvedNormalizers = @($normalizerContract.approvedExecutables | Where-Object {
+        ([string]$_.sha256).ToLowerInvariant() -eq $normalizerSha -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.name) -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.version) -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.kind)
+    })
+    if ($approvedNormalizers.Count -ne 1) {
+        throw "Strict upscaling normalizer executable SHA-256 '$normalizerSha' is not uniquely approved by UpscalingModelPack-v1."
+    }
+    $approvedNormalizer = $approvedNormalizers[0]
+
+    $requiredRoles = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($observation in $upscalingObservations) {
+        $evidence = ""
+        if ($null -ne $observation.PSObject.Properties["attributes"] -and
+            $null -ne $observation.attributes.PSObject.Properties["evidence"]) {
+            $evidence = [string]$observation.attributes.evidence
+            if ([string]$observation.attributes.scenarioId -ne $scenarioId) {
+                throw "Strict upscaling metric '$($observation.id)' is not bound to scenario '$scenarioId'."
+            }
+        } elseif ($null -ne $observation.PSObject.Properties["details"] -and
+            $observation.details -isnot [string] -and
+            $null -ne $observation.details.PSObject.Properties["evidence"]) {
+            $evidence = [string]$observation.details.evidence
+            if ([string]$observation.details.scenarioId -ne $scenarioId) {
+                throw "Strict upscaling invariant '$($observation.id)' is not bound to scenario '$scenarioId'."
+            }
+        }
+        foreach ($role in @(Get-DanmakuEvidenceArtifactRoles -Evidence $evidence)) {
+            [void]$requiredRoles.Add($role)
+        }
+    }
+    if ($requiredRoles.Count -eq 0) {
+        throw "Strict upscaling observations did not declare a recognized external evidence contract."
+    }
+
+    $manifestDirectory = [System.IO.Path]::GetDirectoryName(
+        [System.IO.Path]::GetFullPath($ManifestPath))
+    foreach ($artifact in @($Manifest.artifacts)) {
+        $artifact | Add-Member -NotePropertyName runnerValidated -NotePropertyValue $false -Force
+    }
+    $validatedRoles = New-Object System.Collections.Generic.List[string]
+    foreach ($role in @($requiredRoles | Sort-Object)) {
+        $matches = @($Manifest.artifacts | Where-Object {
+            [string]$_.role -eq $role -and [string]$_.scenarioId -eq $scenarioId
+        })
+        if ($matches.Count -ne 1) {
+            throw "Strict upscaling scenario '$scenarioId' requires exactly one '$role' artifact; found $($matches.Count)."
+        }
+        $artifact = $matches[0]
+        $fileName = [string]$artifact.fileName
+        if ([string]::IsNullOrWhiteSpace($fileName) -or
+            [System.IO.Path]::GetFileName($fileName) -ne $fileName) {
+            throw "Strict upscaling artifact '$role' must use a flat fileName."
+        }
+        $artifactPath = Join-Path $manifestDirectory $fileName
+        if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf) -or
+            (Get-Item -LiteralPath $artifactPath).Length -le 0) {
+            throw "Strict upscaling artifact '$role' is missing or empty: $artifactPath"
+        }
+        $expectedSha = ([string]$artifact.sha256).ToLowerInvariant()
+        if ($expectedSha -notmatch '^[0-9a-f]{64}$') {
+            throw "Strict upscaling artifact '$role' has an invalid SHA-256."
+        }
+        $actualSha = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualSha -ne $expectedSha) {
+            throw "Strict upscaling artifact '$role' hash mismatch."
+        }
+        if ([string]$artifact.candidateSha -ne [string]$Manifest.candidateSha) {
+            throw "Strict upscaling artifact '$role' is not bound to candidate '$($Manifest.candidateSha)'."
+        }
+        $collector = $artifact.collector
+        if ($null -eq $collector -or
+            [string]::IsNullOrWhiteSpace([string]$collector.name) -or
+            [string]::IsNullOrWhiteSpace([string]$collector.version) -or
+            [string]::IsNullOrWhiteSpace([string]$collector.kind) -or
+            -not ([string]$collector.clockDomain).Equals("QPC", [System.StringComparison]::OrdinalIgnoreCase) -or
+            [string]$collector.executableSha256 -notmatch '^[0-9a-fA-F]{64}$') {
+            throw "Strict upscaling artifact '$role' requires a versioned QPC collector with executable SHA-256."
+        }
+
+        if ($role -in @(
+            "pixel-capture-index",
+            "paired-baseline-index",
+            "frame-correlation-index",
+            "upscaling-model-pack-index",
+            "upscaling-scenario-index"
+        )) {
+            try { $index = Get-Content -LiteralPath $artifactPath -Raw -Encoding UTF8 | ConvertFrom-Json }
+            catch { throw "Strict upscaling artifact '$role' must be valid JSON: $($_.Exception.Message)" }
+            if ([string]$index.schemaVersion -ne "1.0" -or
+                [string]$index.candidateSha -ne [string]$Manifest.candidateSha -or
+                [string]$index.environmentFingerprint -ne [string]$Manifest.environment.fingerprint -or
+                [string]$index.scenarioId -ne $scenarioId) {
+                throw "Strict upscaling artifact '$role' index is not bound to this schema, candidate, environment, and scenario."
+            }
+            $fixtureIds = @($index.fixtureIds | ForEach-Object { [string]$_ })
+            foreach ($requiredFixtureId in @("PlaybackMedia-v1", "UpscalingModelPack-v1")) {
+                if ($requiredFixtureId -notin $fixtureIds) {
+                    throw "Strict upscaling artifact '$role' is not bound to fixture '$requiredFixtureId'."
+                }
+            }
+            if ($role -eq "pixel-capture-index") {
+                if (@($index.captures).Count -eq 0) {
+                    throw "Strict upscaling pixel-capture-index must list at least one capture."
+                }
+                foreach ($capture in @($index.captures)) {
+                    $captureName = [string]$capture.fileName
+                    $captureSha = ([string]$capture.sha256).ToLowerInvariant()
+                    $capturePath = Join-Path $manifestDirectory $captureName
+                    if ([System.IO.Path]::GetFileName($captureName) -ne $captureName -or
+                        $captureSha -notmatch '^[0-9a-f]{64}$' -or
+                        -not (Test-Path -LiteralPath $capturePath -PathType Leaf) -or
+                        (Get-Item -LiteralPath $capturePath).Length -le 0 -or
+                        (Get-FileHash -LiteralPath $capturePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $captureSha) {
+                        throw "Strict upscaling pixel capture '$captureName' is missing, empty, or hash-invalid."
+                    }
+                    Copy-ValidatedEvidenceFile -SourcePath $capturePath -FileName $captureName -ExpectedSha256 $captureSha
+                }
+            }
+            if ($role -eq "paired-baseline-index" -and
+                ([string]$index.upscalingEnabledRunId -eq [string]$index.upscalingDisabledRunId -or
+                 [string]::IsNullOrWhiteSpace([string]$index.upscalingEnabledRunId) -or
+                 [string]::IsNullOrWhiteSpace([string]$index.upscalingDisabledRunId))) {
+                throw "Strict upscaling paired baseline requires distinct enabled and disabled run IDs."
+            }
+            if ($role -eq "frame-correlation-index" -and @($index.frames).Count -eq 0) {
+                throw "Strict upscaling frame-correlation-index must contain source-PTS to native-Present rows."
+            }
+            if ($role -eq "upscaling-model-pack-index" -and
+                [string]$index.modelPackSha256 -ne [string]$details.modelPackSha256) {
+                throw "Strict upscaling model-pack index does not match the certified model hash."
+            }
+            if ($role -in @("upscaling-model-pack-index", "upscaling-scenario-index") -and
+                [string]$index.provider -ne [string]$details.provider) {
+                throw "Strict upscaling artifact '$role' is not bound to certified provider '$($details.provider)'."
+            }
+            if ($role -eq "upscaling-scenario-index") {
+                if ([string]$index.preset -ne [string]$details.preset -or
+                    [string]$index.matrixId -ne [string]$details.upscalingMatrixId) {
+                    throw "Strict upscaling scenario index must bind exactly its own preset and matrix ID."
+                }
+            }
+        }
+
+        $artifact | Add-Member -NotePropertyName runnerValidated -NotePropertyValue $true -Force
+        $artifact | Add-Member -NotePropertyName validatedBytes -NotePropertyValue ([long](Get-Item -LiteralPath $artifactPath).Length) -Force
+        Copy-ValidatedEvidenceFile -SourcePath $artifactPath -FileName $fileName -ExpectedSha256 $actualSha
+        $validatedRoles.Add($role)
+    }
+
+    # Imported measurements are deliberately ignored. A hash-pinned tool on
+    # the fixed runner must regenerate them from the validated raw artifacts.
+    $measurementIndexName = "upscaling-measurement-$([guid]::NewGuid().ToString('N')).json"
+    $measurementIndexPath = Join-Path $resolvedOutput $measurementIndexName
+    & $normalizerPath `
+        --schema-version ([string]$normalizerContract.requiredIndexSchema) `
+        --manifest $ManifestPath `
+        --output $measurementIndexPath
+    if ($LASTEXITCODE -ne 0 -or
+        -not (Test-Path -LiteralPath $measurementIndexPath -PathType Leaf) -or
+        (Get-Item -LiteralPath $measurementIndexPath).Length -le 0) {
+        throw "Strict upscaling measurement normalizer failed to produce a non-empty index (exit=$LASTEXITCODE)."
+    }
+    try {
+        $measurementIndex = Get-Content -LiteralPath $measurementIndexPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        throw "Strict upscaling measurement normalizer produced invalid JSON: $($_.Exception.Message)"
+    }
+    foreach ($field in @($normalizerContract.requiredBindings)) {
+        $property = $measurementIndex.PSObject.Properties[[string]$field]
+        if ($null -eq $property -or $null -eq $property.Value -or
+            ($property.Value -is [string] -and [string]::IsNullOrWhiteSpace([string]$property.Value))) {
+            throw "Strict upscaling measurement index is missing binding '$field'."
+        }
+    }
+    if ([string]$measurementIndex.schemaVersion -ne [string]$normalizerContract.requiredIndexSchema -or
+        [string]$measurementIndex.candidateSha -ne [string]$Manifest.candidateSha -or
+        [string]$measurementIndex.environmentFingerprint -ne [string]$Manifest.environment.fingerprint -or
+        [string]$measurementIndex.scenarioId -ne $scenarioId -or
+        [string]$measurementIndex.matrixId -ne [string]$details.upscalingMatrixId -or
+        [string]$measurementIndex.provider -ne [string]$details.provider -or
+        [string]$measurementIndex.preset -ne [string]$details.preset -or
+        [string]$measurementIndex.providerRuntimeVersion -ne [string]$details.providerRuntimeVersion -or
+        [string]$measurementIndex.modelPackSha256 -ne [string]$details.modelPackSha256) {
+        throw "Strict upscaling measurement index is not bound to this candidate, environment, matrix, scenario, provider, preset, runtime, and model pack."
+    }
+    $playbackFixtures = @($Manifest.fixtures | Where-Object {
+        [string]$_.id -eq "PlaybackMedia-v1" -and [bool]$_.validated -and
+        [string]$_.sha256 -match '^[0-9a-fA-F]{64}$'
+    })
+    if ($playbackFixtures.Count -ne 1 -or
+        [string]$measurementIndex.playbackFixtureSha256 -ne [string]$playbackFixtures[0].sha256) {
+        throw "Strict upscaling measurement index is not bound to exactly one validated PlaybackMedia-v1 hash."
+    }
+    try {
+        $captureStartQpc = [long]$measurementIndex.captureStartQpc
+        $captureEndQpc = [long]$measurementIndex.captureEndQpc
+        $measurementProcessId = [long]$measurementIndex.processId
+    } catch {
+        throw "Strict upscaling measurement index has invalid PID/QPC bindings."
+    }
+    if ($measurementProcessId -le 0 -or $captureStartQpc -lt 0 -or $captureEndQpc -le $captureStartQpc) {
+        throw "Strict upscaling measurement index requires a positive PID and a non-empty QPC capture window."
+    }
+
+    $sourceArtifactReferences = @($measurementIndex.sourceArtifacts)
+    $sourceReferenceRoles = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($role in @($requiredRoles)) {
+        $sourceMatches = @($sourceArtifactReferences | Where-Object { [string]$_.role -eq $role })
+        $artifactMatches = @($Manifest.artifacts | Where-Object {
+            [string]$_.role -eq $role -and [string]$_.scenarioId -eq $scenarioId -and
+            [bool]$_.runnerValidated
+        })
+        if ($sourceMatches.Count -ne 1 -or $artifactMatches.Count -ne 1 -or
+            [string]$sourceMatches[0].fileName -ne [string]$artifactMatches[0].fileName -or
+            ([string]$sourceMatches[0].sha256).ToLowerInvariant() -ne
+                ([string]$artifactMatches[0].sha256).ToLowerInvariant()) {
+            throw "Strict upscaling measurement index does not bind validated raw role '$role' exactly once."
+        }
+        [void]$sourceReferenceRoles.Add($role)
+    }
+    if ($sourceArtifactReferences.Count -ne $sourceReferenceRoles.Count) {
+        throw "Strict upscaling measurement index contains an unrecognized or duplicate raw artifact reference."
+    }
+
+    $effectiveWindows = @($measurementIndex.effectiveProfileWindows)
+    if ($effectiveWindows.Count -eq 0) {
+        throw "Strict upscaling measurement index must prove at least one effective-profile window."
+    }
+    foreach ($window in $effectiveWindows) {
+        try {
+            $windowStartQpc = [long]$window.startQpc
+            $windowEndQpc = [long]$window.endQpc
+        } catch {
+            throw "Strict upscaling effective-profile window has invalid QPC values."
+        }
+        if ($windowStartQpc -lt $captureStartQpc -or $windowEndQpc -gt $captureEndQpc -or
+            $windowEndQpc -le $windowStartQpc -or
+            [string]$window.requestedProvider -ne [string]$details.provider -or
+            [string]$window.effectiveProvider -ne [string]$details.provider -or
+            [string]$window.requestedPreset -ne [string]$details.preset -or
+            [string]$window.effectivePreset -ne [string]$details.preset -or
+            [string]$window.requestedShaderSetSha256 -ne [string]$details.modelPackSha256 -or
+            [string]$window.effectiveShaderSetSha256 -ne [string]$details.modelPackSha256 -or
+            [bool]$window.fallbackObserved -or [bool]$window.downgradeObserved) {
+            throw "Strict upscaling timed window changed effective provider, preset, shader set, or fallback state."
+        }
+    }
+
+    $sloContract = Read-YanamiPerfJson -Path (Join-Path $workspace "perf\slo\slo-v1.json")
+    $normalizedMetrics = New-Object System.Collections.Generic.List[object]
+    $metricIds = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::Ordinal)
+    foreach ($metric in @($measurementIndex.metrics)) {
+        $metricId = [string]$metric.id
+        $definitions = @($sloContract.metrics | Where-Object {
+            [string]$_.id -eq $metricId -and [string]$_.suite -eq "upscaling" -and
+            -not ([string]$_.id).StartsWith("upscaling.hosted_smoke.", [System.StringComparison]::Ordinal)
+        })
+        if (-not $metricIds.Add($metricId) -or $definitions.Count -ne 1 -or
+            [string]$metric.unit -ne [string]$definitions[0].unit -or
+            @($metric.samples).Count -eq 0) {
+            throw "Strict upscaling normalizer emitted an unknown, duplicate, unit-invalid, or empty metric '$metricId'."
+        }
+        [void](Get-YanamiStatistics -Samples @($metric.samples))
+        $normalizedMetrics.Add([pscustomobject][ordered]@{
+            id = $metricId
+            unit = [string]$metric.unit
+            samples = @($metric.samples | ForEach-Object { [double]$_ })
+            attributes = [pscustomobject][ordered]@{
+                evidence = [string]$definitions[0].evidence
+                scenarioId = $scenarioId
+                preset = [string]$details.preset
+                rawDerived = $true
+                normalizerSha256 = $normalizerSha
+            }
+            scenarioMeasurements = @([pscustomobject][ordered]@{
+                scenarioId = $scenarioId
+                preset = [string]$details.preset
+                samples = @($metric.samples | ForEach-Object { [double]$_ })
+            })
+        })
+    }
+    $normalizedInvariants = New-Object System.Collections.Generic.List[object]
+    $invariantIds = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::Ordinal)
+    foreach ($invariant in @($measurementIndex.invariants)) {
+        $invariantId = [string]$invariant.id
+        if ($invariantId -eq "upscaling.strict_matrix_complete") {
+            throw "Strict matrix completeness is runner-generated and must not be supplied by the normalizer."
+        }
+        $definitions = @($sloContract.invariants | Where-Object {
+            [string]$_.id -eq $invariantId -and [string]$_.suite -eq "upscaling" -and
+            $_.requiredProfiles -contains [string]$Manifest.profile
+        })
+        if (-not $invariantIds.Add($invariantId) -or $definitions.Count -ne 1) {
+            throw "Strict upscaling normalizer emitted an unknown or duplicate invariant '$invariantId'."
+        }
+        $normalizedInvariants.Add([pscustomobject][ordered]@{
+            id = $invariantId
+            passed = [bool]$invariant.passed
+            details = [pscustomobject][ordered]@{
+                evidence = [string]$definitions[0].evidence
+                scenarioId = $scenarioId
+                preset = [string]$details.preset
+                rawDerived = $true
+                normalizerSha256 = $normalizerSha
+            }
+        })
+    }
+    $Manifest.metrics = @($Manifest.metrics | Where-Object {
+        [string]$_.id -notlike "upscaling.*" -or
+        ([string]$_.id).StartsWith("upscaling.hosted_smoke.", [System.StringComparison]::Ordinal)
+    }) + $normalizedMetrics.ToArray()
+    $Manifest.invariants = @($Manifest.invariants | Where-Object {
+        [string]$_.id -notlike "upscaling.*"
+    }) + $normalizedInvariants.ToArray()
+
+    $measurementIndexSha = (Get-FileHash -LiteralPath $measurementIndexPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $Manifest.artifacts += [pscustomobject][ordered]@{
+        role = "upscaling-measurement-index"
+        fileName = $measurementIndexName
+        sha256 = $measurementIndexSha
+        candidateSha = [string]$Manifest.candidateSha
+        scenarioId = $scenarioId
+        runnerValidated = $true
+        validatedBytes = [long](Get-Item -LiteralPath $measurementIndexPath).Length
+        collector = [pscustomobject][ordered]@{
+            name = [string]$approvedNormalizer.name
+            version = [string]$approvedNormalizer.version
+            kind = [string]$approvedNormalizer.kind
+            clockDomain = "QPC"
+            executableSha256 = $normalizerSha
+        }
+    }
+    $validatedRoles.Add("upscaling-measurement-index")
+    $Manifest.environment | Add-Member -NotePropertyName upscalingStrictEvidenceValidation -NotePropertyValue ([pscustomobject][ordered]@{
+        validator = "scripts/performance/run-gate.ps1"
+        normalizerPath = $normalizerPath
+        normalizerSha256 = $normalizerSha
+        scenarioId = $scenarioId
+        validatedAtUtc = [DateTime]::UtcNow.ToString("o")
+        validatedRoles = $validatedRoles.ToArray()
+    }) -Force
+    if ($env:YANAMI_PERF_REFERENCE_MATCH -ne "1") {
+        throw "Strict upscaling evidence requires the current fixed runner to attest YANAMI_PERF_REFERENCE_MATCH=1."
+    }
+    if ([string]$Manifest.environment.fingerprint -ne [string]$env:YANAMI_PERF_RUN_FINGERPRINT) {
+        throw "Strict upscaling evidence fingerprint does not match the current fixed runner."
+    }
     return $Manifest
 }
 
@@ -1289,6 +1952,27 @@ function Invoke-DanmakuProbe {
     }
 }
 
+function Invoke-UpscalingHostedProbe {
+    param(
+        [Parameter(Mandatory = $true)][string]$Executable,
+        [Parameter(Mandatory = $true)][string]$Destination,
+        [Parameter(Mandatory = $true)][string]$ProbeMode,
+        [Parameter(Mandatory = $true)][object]$Fixture
+    )
+
+    & $Executable `
+        --fixture ([string]$Fixture.path) `
+        --fixture-manifest ([string]$Fixture.manifestPath) `
+        --output $Destination `
+        --mode $ProbeMode 2>&1 | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) {
+        throw "Native upscaling production probe exited with code $LASTEXITCODE."
+    }
+    if (-not (Test-Path -LiteralPath $Destination -PathType Leaf)) {
+        throw "Native upscaling production probe did not write $Destination."
+    }
+}
+
 function Invoke-RustComponentProbe {
     param([string]$Destination, [string]$ProbeMode, [string[]]$RequestedSuites)
     $oldSuites = $env:YANAMI_PERF_SUITES
@@ -1509,6 +2193,7 @@ try {
         $desktopProbeDiscoveryUsed = $null
         $danmakuProbeUsed = $null
         $danmakuProbeDiscoveryUsed = $null
+        $upscalingProbeUsed = $null
         $rustProbeUsed = $false
         $ababEvidence = $null
         $originalBaseResultPath = $BaseResultPath
@@ -1536,9 +2221,11 @@ try {
 
         $fixtureSuitesRequested = $requestedSuites.Count -eq 0 -or "search" -in $requestedSuites -or "backend" -in $requestedSuites
         $danmakuRequested = $requestedSuites.Count -eq 0 -or "danmaku" -in $requestedSuites
+        $upscalingRequested = $requestedSuites.Count -eq 0 -or "upscaling" -in $requestedSuites
         [void](Initialize-RunFingerprint)
         $f110k = if ($fixtureSuitesRequested) { Initialize-F110KFixture -RequestedDirectory $FixtureDirectory } else { $null }
         $danmakuFixture = if ($danmakuRequested) { Initialize-DanmakuFixture -RequestedDirectory $DanmakuFixtureDirectory } else { $null }
+        $upscalingFixture = if ($upscalingRequested) { Initialize-UpscalingCapabilityFixture } else { $null }
 
         if ($manifestPaths.Count -eq 0 -and -not $SkipProbeDiscovery) {
             $desktopProbeDiscovery = Find-DesktopProbe -ExplicitPath $ProbePath
@@ -1624,6 +2311,40 @@ try {
                     $danmakuProbeUsed = $danmakuProbe
                     $danmakuProbeDiscoveryUsed = $danmakuProbeDiscovery
                 }
+            }
+            if ($Profile -eq "PullRequest" -and $upscalingRequested) {
+                $upscalingProbe = if ($desktopProbeUsed) {
+                    Build-UpscalingProbeBesideArtifact -ArtifactPath $desktopProbeUsed
+                } else { $null }
+                if (-not $upscalingProbe) {
+                    foreach ($candidate in @(
+                        (Join-Path $workspace "build\desktop-windows\yanami-upscaling-perf-probe.exe"),
+                        (Join-Path $workspace "build\ci-windows\yanami-upscaling-perf-probe.exe"),
+                        (Join-Path $workspace "build\performance-windows\yanami-upscaling-perf-probe.exe")
+                    )) {
+                        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                            $upscalingProbe = Build-UpscalingProbeBesideArtifact -ArtifactPath $candidate
+                            if ($upscalingProbe) { break }
+                        }
+                    }
+                }
+                if (-not $upscalingProbe) {
+                    throw "The native yanami-upscaling-perf-probe could not be built from the current checkout."
+                }
+                $upscalingOutput = Join-Path $resolvedOutput "upscaling-hosted-run-manifest.json"
+                Invoke-UpscalingHostedProbe `
+                    -Executable $upscalingProbe `
+                    -Destination $upscalingOutput `
+                    -ProbeMode $effectiveMode `
+                    -Fixture $upscalingFixture
+                Add-ManifestArtifactEvidence `
+                    -ManifestPath $upscalingOutput `
+                    -ArtifactPath $upscalingProbe `
+                    -Role "native-upscaling-production-probe" `
+                    -DiscoverySource "desktop-build-tree:cmake-built-current-run" `
+                    -TrustedProducerLedger $trustedProducerAttestations
+                $manifestPaths.Add($upscalingOutput)
+                $upscalingProbeUsed = $upscalingProbe
             }
             # The Rust probe owns both the loopback backend observations and
             # the canonical production MediaCatalog Search component path.
@@ -1722,6 +2443,9 @@ try {
                     $loadedManifest = Assert-DanmakuStrictEvidenceArtifacts `
                         -Manifest $loadedManifest `
                         -ManifestPath $manifestPath
+                    $loadedManifest = Assert-UpscalingStrictEvidenceArtifacts `
+                        -Manifest $loadedManifest `
+                        -ManifestPath $manifestPath
                     Set-RunnerObservationProducerRunIds -Manifest $loadedManifest
                 }
             )
@@ -1746,8 +2470,20 @@ try {
                     }
                 }
             }
+            if ($null -ne $upscalingFixture) {
+                foreach ($probeManifest in $manifests) {
+                    foreach ($fixture in @($probeManifest.fixtures | Where-Object { [string]$_.id -eq "UpscalingCapability-v1" })) {
+                        if ([string]$fixture.sha256 -ne [string]$upscalingFixture.sha256) {
+                            throw "Probe '$($probeManifest.runId)' did not report the validated UpscalingCapability-v1 hash."
+                        }
+                    }
+                }
+            }
             Assert-DanmakuFixtureEvidence -Manifests $manifests
             Assert-PlaybackFixtureEvidence -Manifests $manifests
+            Assert-UpscalingFixtureEvidence `
+                -Manifests $manifests `
+                -StrictRequired ($requestedSuites.Count -gt 0 -and "upscaling" -in $requestedSuites -and $Profile -ne "PullRequest")
             $manifest = if ($manifests.Count -eq 1) { $manifests[0] } else { Merge-YanamiRunManifests -Manifests $manifests }
             if ($null -ne $ababEvidence) {
                 $manifest.environment | Add-Member -NotePropertyName comparisonEvaluator -NotePropertyValue $script:runEnvironmentDetails -Force
@@ -1768,7 +2504,7 @@ try {
             $hardFailure = $result.status -eq "infra-invalid" -or @($result.invariants | Where-Object { $_.status -eq "fail" }).Count -gt 0 -or @($result.metrics | Where-Object { $_.status -eq "fail" -and $_.category -eq "correctness" }).Count -gt 0
             $continuousFailure = @($result.metrics | Where-Object { $_.status -in @("fail", "debt") -and $_.category -ne "correctness" }).Count -gt 0
             $effectiveRetryPaths = @($RetryInputPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-            if ($effectiveRetryPaths.Count -eq 0 -and $continuousFailure -and -not $hardFailure -and -not $hadExplicitInput -and ($desktopProbeUsed -or $danmakuProbeUsed -or $rustProbeUsed)) {
+            if ($effectiveRetryPaths.Count -eq 0 -and $continuousFailure -and -not $hardFailure -and -not $hadExplicitInput -and ($desktopProbeUsed -or $danmakuProbeUsed -or $upscalingProbeUsed -or $rustProbeUsed)) {
                 if ($desktopProbeUsed) {
                     $desktopRetryOutput = Join-Path $resolvedOutput "desktop-run-manifest-retry.json"
                     Invoke-DesktopProbe -Executable $desktopProbeUsed -Destination $desktopRetryOutput -ProbeMode $effectiveMode -RequestedSuites $requestedSuites
@@ -1794,6 +2530,21 @@ try {
                         -DiscoverySource ([string]$danmakuProbeDiscoveryUsed.source) `
                         -TrustedProducerLedger $trustedProducerAttestations
                     $effectiveRetryPaths += $danmakuRetryOutput
+                }
+                if ($upscalingProbeUsed) {
+                    $upscalingRetryOutput = Join-Path $resolvedOutput "upscaling-hosted-run-manifest-retry.json"
+                    Invoke-UpscalingHostedProbe `
+                        -Executable $upscalingProbeUsed `
+                        -Destination $upscalingRetryOutput `
+                        -ProbeMode $effectiveMode `
+                        -Fixture $upscalingFixture
+                    Add-ManifestArtifactEvidence `
+                        -ManifestPath $upscalingRetryOutput `
+                        -ArtifactPath $upscalingProbeUsed `
+                        -Role "native-upscaling-production-probe" `
+                        -DiscoverySource "desktop-build-tree:cmake-built-current-run:retry" `
+                        -TrustedProducerLedger $trustedProducerAttestations
+                    $effectiveRetryPaths += $upscalingRetryOutput
                 }
                 if ($rustProbeUsed) {
                     $rustRetryOutput = Join-Path $resolvedOutput "rust-component-run-manifest-retry.json"
@@ -1825,6 +2576,9 @@ try {
                         $loadedRetryManifest = Assert-DanmakuStrictEvidenceArtifacts `
                             -Manifest $loadedRetryManifest `
                             -ManifestPath $retryManifestPath
+                        $loadedRetryManifest = Assert-UpscalingStrictEvidenceArtifacts `
+                            -Manifest $loadedRetryManifest `
+                            -ManifestPath $retryManifestPath
                         Set-RunnerObservationProducerRunIds -Manifest $loadedRetryManifest
                     }
                 )
@@ -1849,8 +2603,20 @@ try {
                         }
                     }
                 }
+                if ($null -ne $upscalingFixture) {
+                    foreach ($probeManifest in $retryManifests) {
+                        foreach ($fixture in @($probeManifest.fixtures | Where-Object { [string]$_.id -eq "UpscalingCapability-v1" })) {
+                            if ([string]$fixture.sha256 -ne [string]$upscalingFixture.sha256) {
+                                throw "Retry probe '$($probeManifest.runId)' did not report the validated UpscalingCapability-v1 hash."
+                            }
+                        }
+                    }
+                }
                 Assert-DanmakuFixtureEvidence -Manifests $retryManifests
                 Assert-PlaybackFixtureEvidence -Manifests $retryManifests
+                Assert-UpscalingFixtureEvidence `
+                    -Manifests $retryManifests `
+                    -StrictRequired ($requestedSuites.Count -gt 0 -and "upscaling" -in $requestedSuites -and $Profile -ne "PullRequest")
                 $retryManifest = if ($retryManifests.Count -eq 1) { $retryManifests[0] } else { Merge-YanamiRunManifests -Manifests $retryManifests }
                 $retryCandidateSha = if ($null -ne $retryManifest.PSObject.Properties["candidateSha"]) {
                     [string]$retryManifest.candidateSha
@@ -1902,7 +2668,7 @@ catch {
             schemaVersion = "1.0"; contractVersion = "SLO-v1"; runId = "infra-$([guid]::NewGuid().ToString('N'))"
             profile = $Profile; mode = "collect"; status = "infra-invalid"; generatedAtUtc = [DateTime]::UtcNow.ToString("o")
             candidateSha = $CandidateSha; baseSha = $BaseSha; environment = [pscustomobject]@{ fingerprint = "unavailable"; referenceMatch = $false }
-            fixtures = @(); suites = @("search", "backend", "interaction", "playback", "danmaku", "startup"); metrics = @(); invariants = @(); reasons = @($message)
+            fixtures = @(); suites = @("search", "backend", "interaction", "playback", "danmaku", "upscaling", "startup"); metrics = @(); invariants = @(); reasons = @($message)
         }
     }
     if ($BaseSha -or $BaseResultPath -or @($ComparisonResultPath).Count -gt 0) {
@@ -1923,7 +2689,7 @@ finally {
             schemaVersion = "1.0"; contractVersion = "SLO-v1"; runId = "infra-$([guid]::NewGuid().ToString('N'))"
             profile = $Profile; mode = "collect"; status = "infra-invalid"; generatedAtUtc = [DateTime]::UtcNow.ToString("o")
             candidateSha = $CandidateSha; baseSha = $BaseSha; environment = [pscustomobject]@{ fingerprint = "unavailable"; referenceMatch = $false }
-            fixtures = @(); suites = @("search", "backend", "interaction", "playback", "danmaku", "startup"); metrics = @(); invariants = @(); reasons = @("Runner ended without a result.")
+            fixtures = @(); suites = @("search", "backend", "interaction", "playback", "danmaku", "upscaling", "startup"); metrics = @(); invariants = @(); reasons = @("Runner ended without a result.")
         }
     }
     try {

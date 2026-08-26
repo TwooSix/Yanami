@@ -147,6 +147,47 @@ gross freeze, crash, malformed timeline, stale result, or unbounded-growth
 regression, but cannot certify native GPU rendering, a real displayed pixel, or
 any strict Danmaku SLO.
 
+The independently routable `upscaling` suite follows the same fail-closed
+boundary. Pull requests build and run the native
+`yanami-upscaling-perf-probe` over `UpscalingCapability-v1`. The probe links the
+production capability oracle, catalog resolver, and performance-protection
+policy instead of maintaining a script-side copy. It exercises
+the Anime4K renderer-compatibility policy, the performance/balanced/quality
+plans, pinned artifact metadata and shader order, and bounded one-way
+performance fallback.
+Its two latency metrics use
+`fixture-component-observation`, and every observation explicitly records
+`gpuCertified=false` and `presentCertified=false`. This hosted result is useful
+for freezes and policy regressions only. The fixture exposes exactly one
+production provider, `anime4k`, which is eligible on a hardware OpenGL 4.3+
+renderer with a 4096+ texture limit. Direct3D, Vulkan, Metal, software
+rendering, and insufficient OpenGL remain unsupported. This contract does not
+inspect GPU model identities or recommend a preset; preset selection belongs
+entirely to the user. The probe rejects any capability result that exposes the
+removed adapter-classification or recommendation fields.
+
+Strict upscaling requires `PlaybackMedia-v1` and `UpscalingModelPack-v1` to be
+provisioned by a dedicated performance-policy change. The current model-pack
+contract and approved measurement normalizer are intentionally
+`not-provisioned`. The normal Lab/Nightly/Weekly/Release jobs therefore exclude
+strict Upscaling, while a separate preflight reports that state and enables the
+isolated three-tier job only after all contracts are provisioned. Once enabled,
+the runner invokes an absolute-path normalizer whose executable SHA-256 is in
+the model-pack allow-list. It discards imported metric/invariant values and
+accepts only freshly normalized samples bound to the candidate, fixture set,
+environment fingerprint, provider/preset/runtime/model identity, playback
+fixture, process ID, QPC window, and hashes of every raw evidence file.
+
+Performance, balanced, and quality are measured as three distinct scenarios;
+each scenario is evaluated against the SLO independently before the runner
+generates `upscaling.strict_matrix_complete`. The timed window must retain the
+requested provider, tier, and shader hashes without fallback or downgrade.
+Strict upscaling is separately pinned to the production Qt OpenGL + libmpv
+OpenGL path and can certify only Anime4K; it cannot reuse an ordinary
+D3D11/offscreen playback certificate. Offscreen
+Qt frames, internal `frameSwapped`, a self-described evidence label, or a
+hosted resolver timing can never satisfy these metrics.
+
 ## Local commands
 
 Run the evaluator and fixture self-tests:
@@ -161,7 +202,7 @@ Run the path-independent PR smoke:
 pwsh -NoProfile -File scripts/performance/run-gate.ps1 `
   -Profile PullRequest `
   -OutputDirectory build/performance/pr `
-  -Suites Search,Backend,Interaction,Danmaku
+  -Suites Search,Backend,Interaction,Danmaku,Upscaling
 ```
 
 When `Startup` or `Interaction` is requested and no raw input manifest is

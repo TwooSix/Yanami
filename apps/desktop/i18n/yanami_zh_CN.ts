@@ -98,22 +98,22 @@
     <name>AppConfirmDialog</name>
     <message>
         <location filename="../qml/components/AppConfirmDialog.qml" line="10"/>
-        <location filename="../qml/components/AppConfirmDialog.qml" line="20"/>
+        <location filename="../qml/components/AppConfirmDialog.qml" line="21"/>
         <source>Confirm</source>
         <translation>确认</translation>
     </message>
     <message>
-        <location filename="../qml/components/AppConfirmDialog.qml" line="33"/>
+        <location filename="../qml/components/AppConfirmDialog.qml" line="34"/>
         <source>The operation failed.</source>
         <translation>操作失败。</translation>
     </message>
     <message>
-        <location filename="../qml/components/AppConfirmDialog.qml" line="90"/>
+        <location filename="../qml/components/AppConfirmDialog.qml" line="91"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../qml/components/AppConfirmDialog.qml" line="96"/>
+        <location filename="../qml/components/AppConfirmDialog.qml" line="97"/>
         <source>Working…</source>
         <translation>正在处理…</translation>
     </message>
@@ -283,82 +283,83 @@
         <translation>弹幕服务返回了无效响应。</translation>
     </message>
     <message>
-        <location filename="../native/DanmakuCoordinator.cpp" line="72"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="138"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="169"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="209"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="334"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="104"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="171"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="203"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="249"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="374"/>
         <source>The backend is unavailable.</source>
         <translation>后端当前不可用。</translation>
     </message>
     <message>
-        <location filename="../native/DanmakuCoordinator.cpp" line="85"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="117"/>
         <source>Enter an anime title to search.</source>
         <translation>请输入要搜索的动画标题。</translation>
     </message>
     <message>
-        <location filename="../native/DanmakuCoordinator.cpp" line="143"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="174"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="176"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="208"/>
         <source>Another operation is already in progress.</source>
         <translation>另一项操作正在进行中。</translation>
     </message>
     <message>
-        <location filename="../native/DanmakuCoordinator.cpp" line="149"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="182"/>
         <source>AppId and AppSecret are required.</source>
         <translation>必须填写 AppId 和 AppSecret。</translation>
     </message>
     <message>
-        <location filename="../native/DanmakuCoordinator.cpp" line="287"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="327"/>
         <source>DanDanPlay credentials validated and saved securely.</source>
         <translation>DanDanPlay 凭据已验证并安全保存。</translation>
     </message>
     <message>
-        <location filename="../native/DanmakuCoordinator.cpp" line="291"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="331"/>
         <source>DanDanPlay credentials removed.</source>
         <translation>已移除 DanDanPlay 凭据。</translation>
     </message>
     <message>
-        <location filename="../native/DanmakuCoordinator.cpp" line="326"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="366"/>
         <source>A media item is required for this action.</source>
         <translation>此操作需要指定媒体项目。</translation>
     </message>
     <message>
-        <location filename="../native/DanmakuCoordinator.cpp" line="332"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="535"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="556"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="793"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="372"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="585"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="606"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="898"/>
         <source>The action was canceled because the Emby session changed.</source>
         <translation>Emby 会话已变化，本次操作已取消。</translation>
     </message>
     <message>
-        <location filename="../native/DanmakuCoordinator.cpp" line="335"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="375"/>
         <source>This action requires an active Emby connection.</source>
         <translation>此操作需要有效的 Emby 连接。</translation>
     </message>
     <message>
-        <location filename="../native/DanmakuCoordinator.cpp" line="376"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="380"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="433"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="457"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="586"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="591"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="784"/>
-        <location filename="../native/DanmakuCoordinator.cpp" line="788"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="417"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="421"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="478"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="502"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="636"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="641"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="889"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="893"/>
         <source>The request was superseded.</source>
         <translation>请求已被更新的操作取代。</translation>
     </message>
     <message>
-        <location filename="../native/DanmakuCoordinator.cpp" line="470"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="515"/>
         <source>Too many actions are waiting. Please try again.</source>
         <translation>等待中的操作过多，请稍后重试。</translation>
     </message>
     <message>
-        <location filename="../native/DanmakuCoordinator.cpp" line="666"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="752"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="762"/>
         <source>The operation failed.</source>
         <translation>操作失败。</translation>
     </message>
     <message>
-        <location filename="../native/DanmakuCoordinator.cpp" line="828"/>
+        <location filename="../native/DanmakuCoordinator.cpp" line="933"/>
         <source>The operation was canceled.</source>
         <translation>操作已取消。</translation>
     </message>
@@ -502,14 +503,14 @@
 <context>
     <name>DanmakuViewModel</name>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="522"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="524"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="540"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="542"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="562"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="564"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="582"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="600"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="640"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="642"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="658"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="660"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="680"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="682"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="700"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="718"/>
         <source>Backend is unavailable.</source>
         <translation>后端当前不可用。</translation>
     </message>
@@ -624,13 +625,13 @@
 <context>
     <name>FavoritesViewModel</name>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="338"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="456"/>
         <source>Favorites could not be loaded.</source>
         <translation>无法加载收藏内容。</translation>
     </message>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="358"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="366"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="476"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="484"/>
         <source>Favorites are unavailable without an active server session.</source>
         <translation>未连接服务器时无法使用收藏内容。</translation>
     </message>
@@ -878,35 +879,35 @@
 <context>
     <name>HomeViewModel</name>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="158"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="255"/>
         <source>The library is unavailable without an active server session.</source>
         <translation>未连接服务器时无法使用媒体库。</translation>
     </message>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="167"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="184"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="264"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="281"/>
         <source>Activity is unavailable without an active server session.</source>
         <translation>未连接服务器时无法加载活动内容。</translation>
     </message>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="180"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="232"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="277"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="329"/>
         <source>Activity could not be refreshed.</source>
         <translation>无法刷新活动记录。</translation>
     </message>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="195"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="206"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="292"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="303"/>
         <source>The collection is unavailable without an active server session.</source>
         <translation>未连接服务器时无法使用此内容集合。</translation>
     </message>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="219"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="316"/>
         <source>The library could not be loaded.</source>
         <translation>无法加载媒体库。</translation>
     </message>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="244"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="341"/>
         <source>The collection could not be loaded.</source>
         <translation>无法加载内容集合。</translation>
     </message>
@@ -1250,7 +1251,7 @@
 <context>
     <name>MediaActionsViewModel</name>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="758"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="876"/>
         <source>Backend is unavailable.</source>
         <translation>后端当前不可用。</translation>
     </message>
@@ -1726,54 +1727,79 @@
 <context>
     <name>MpvVideoItem</name>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="255"/>
+        <location filename="../native/MpvVideoItem.cpp" line="370"/>
         <source>Unable to initialize the libmpv OpenGL renderer.</source>
         <translation>无法初始化 libmpv OpenGL 渲染器。</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="691"/>
+        <location filename="../native/MpvVideoItem.cpp" line="1188"/>
+        <source>Real-time upscaling cleanup failed. Restart playback to restore original quality.</source>
+        <translation>实时超分清理失败。请重新开始播放以恢复原画。</translation>
+    </message>
+    <message>
+        <location filename="../native/MpvVideoItem.cpp" line="1192"/>
+        <source>Real-time upscaling could not be applied. Playback is continuing in original quality.</source>
+        <translation>实时超分无法应用，已继续使用原画播放。</translation>
+    </message>
+    <message>
+        <location filename="../native/MpvVideoItem.cpp" line="1506"/>
         <source>Unable to switch the audio track.</source>
         <translation>无法切换音轨。</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="701"/>
+        <location filename="../native/MpvVideoItem.cpp" line="1516"/>
         <source>Unable to switch the subtitle track.</source>
         <translation>无法切换字幕轨道。</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="710"/>
+        <location filename="../native/MpvVideoItem.cpp" line="1525"/>
         <source>Unable to disable subtitles.</source>
         <translation>无法关闭字幕。</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="865"/>
+        <location filename="../native/MpvVideoItem.cpp" line="1688"/>
         <source>Playback failed: %1</source>
         <translation>播放失败：%1</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="1016"/>
+        <location filename="../native/MpvVideoItem.cpp" line="1839"/>
         <source>Playback ended before the media was complete.</source>
         <translation>播放在媒体完整结束前中断。</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="1140"/>
+        <location filename="../native/MpvVideoItem.cpp" line="1912"/>
+        <source>The selected upscaling shader could not be compiled. Playback is continuing in original quality.</source>
+        <translation>所选超分着色器无法编译，已继续使用原画播放。</translation>
+    </message>
+    <message>
+        <location filename="../native/MpvVideoItem.cpp" line="2018"/>
         <source>Audio track %1</source>
         <translation>音轨 %1</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="1141"/>
+        <location filename="../native/MpvVideoItem.cpp" line="2019"/>
         <source>Subtitle %1</source>
         <translation>字幕 %1</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="1236"/>
-        <location filename="../native/MpvVideoItem.cpp" line="1287"/>
+        <location filename="../native/MpvVideoItem.cpp" line="1191"/>
+        <source>Real-time upscaling was disabled because the lower performance tier could not be applied.</source>
+        <translation>无法应用更低性能档位，已关闭本次播放的实时超分。</translation>
+    </message>
+    <message>
+        <location filename="../native/MpvVideoItem.cpp" line="1257"/>
+        <source>Real-time upscaling was disabled for this playback to keep video smooth.</source>
+        <translation>为保持播放流畅，已关闭本次播放的实时超分。</translation>
+    </message>
+    <message>
+        <location filename="../native/MpvVideoItem.cpp" line="2278"/>
+        <location filename="../native/MpvVideoItem.cpp" line="2329"/>
         <source>The connection is slow. Playback will resume automatically.</source>
         <translation>连接较慢，恢复后将自动继续播放。</translation>
     </message>
     <message>
-        <location filename="../native/MpvVideoItem.cpp" line="733"/>
-        <location filename="../native/MpvVideoItem.cpp" line="1356"/>
+        <location filename="../native/MpvVideoItem.cpp" line="1548"/>
+        <location filename="../native/MpvVideoItem.cpp" line="2398"/>
         <source>libmpv rejected a playback command.</source>
         <translation>libmpv 拒绝了播放命令。</translation>
     </message>
@@ -1924,152 +1950,181 @@
     </message>
 </context>
 <context>
+    <name>PlaybackSettingsMenu</name>
+    <message>
+        <location filename="../qml/components/PlaybackSettingsMenu.qml" line="72"/>
+        <location filename="../qml/components/PlaybackSettingsMenu.qml" line="111"/>
+        <source>Real-time anime upscaling</source>
+        <translation>实时动画超分</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/PlaybackSettingsMenu.qml" line="74"/>
+        <source>Toggle real-time anime upscaling for the current playback.</source>
+        <translation>为当前播放开启或关闭实时动画超分。</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/PlaybackSettingsMenu.qml" line="75"/>
+        <source>Open Settings to check Anime4K availability and components before turning it on.</source>
+        <translation>请先在设置中检查 Anime4K 是否可用，并完成组件准备后再开启。</translation>
+    </message>
+</context>
+<context>
     <name>PlayerPage</name>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="377"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="403"/>
         <source>Skip Intro</source>
         <translation>跳过片头</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="420"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="446"/>
         <source>Playback position</source>
         <translation>播放进度</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1092"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="638"/>
+        <source>Playback settings</source>
+        <translation>播放设置</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/PlayerPage.qml" line="1166"/>
         <source>Preparing playback</source>
         <translation>正在准备播放</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1103"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1177"/>
         <source>Playback could not be prepared.</source>
         <translation>无法准备播放。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1126"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1200"/>
         <source>Could not check for another item</source>
         <translation>无法确认是否还有下一项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1128"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1202"/>
         <source>The next item could not be played</source>
         <translation>无法播放下一项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1131"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1205"/>
         <source>You’ve reached the final episode</source>
         <translation>本剧已播放至最后一集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1133"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1207"/>
         <source>The play queue has ended</source>
         <translation>播放队列已结束</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1134"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1208"/>
         <source>Playback complete</source>
         <translation>播放完毕</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1191"/>
-        <location filename="../qml/pages/PlayerPage.qml" line="1292"/>
-        <location filename="../qml/pages/PlayerPage.qml" line="1394"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1265"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1366"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1472"/>
         <source>The next item could not be played.</source>
         <translation>无法播放下一项。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1243"/>
-        <location filename="../qml/pages/PlayerPage.qml" line="1255"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1317"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1329"/>
         <source>Try again to check whether another item is available.</source>
         <translation>请重试以检查是否还有下一项。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1326"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1400"/>
         <source>Previous episode</source>
         <translation>上一集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1331"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1405"/>
         <source>Next episode</source>
         <translation>下一集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="487"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="513"/>
         <source>Danmaku</source>
         <translation>弹幕</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="526"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="168"/>
+        <source>Upscaling was reduced to %1 to keep playback smooth.</source>
+        <translation>为保持播放流畅，超分已降至 %1。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/PlayerPage.qml" line="552"/>
         <source>Subtitles · %1</source>
         <translation>字幕 · %1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="527"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="553"/>
         <source>Subtitles</source>
         <translation>字幕</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="540"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="567"/>
         <source>Audio · %1</source>
         <translation>音轨 · %1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="541"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="568"/>
         <source>Audio</source>
         <translation>音轨</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="553"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="581"/>
         <source>Original</source>
         <translation>原画</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="606"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="654"/>
         <source>Exit fullscreen</source>
         <translation>退出全屏</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="607"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="655"/>
         <source>Enter fullscreen</source>
         <translation>进入全屏</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="622"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="670"/>
         <source>Subtitle tracks</source>
         <translation>字幕轨道</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="642"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="690"/>
         <source>Audio tracks</source>
         <translation>音轨</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="658"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="706"/>
         <source>Playback quality</source>
         <translation>播放质量</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="661"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="709"/>
         <source>Original · Automatically select the best direct source</source>
         <translation>原画 · 自动选择最佳直连源</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="572"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="602"/>
         <source>Play queue</source>
         <translation>播放队列</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="575"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="605"/>
         <source>Play queue · %1 of %2</source>
         <translation>播放队列 · 第 %1 项，共 %2 项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1326"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1400"/>
         <source>Previous item</source>
         <translation>上一项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1331"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1405"/>
         <source>Next item</source>
         <translation>下一项</translation>
     </message>
@@ -2156,27 +2211,28 @@
 <context>
     <name>SearchCoordinator</name>
     <message>
-        <location filename="../native/SearchCoordinator.cpp" line="230"/>
+        <location filename="../native/SearchCoordinator.cpp" line="404"/>
         <source>Search requires an active Emby connection.</source>
         <translation>需要连接 Emby 后才能搜索。</translation>
     </message>
     <message>
-        <location filename="../native/SearchCoordinator.cpp" line="408"/>
+        <location filename="../native/SearchCoordinator.cpp" line="806"/>
         <source>Search could not be completed.</source>
         <translation>无法完成搜索。</translation>
     </message>
     <message>
-        <location filename="../native/SearchCoordinator.cpp" line="419"/>
+        <location filename="../native/SearchCoordinator.cpp" line="817"/>
+        <location filename="../native/SearchCoordinator.cpp" line="840"/>
         <source>The search response was invalid.</source>
         <translation>搜索响应无效。</translation>
     </message>
     <message>
-        <location filename="../native/SearchCoordinator.cpp" line="429"/>
+        <location filename="../native/SearchCoordinator.cpp" line="827"/>
         <source>The search response was incompatible.</source>
         <translation>搜索响应版本不兼容。</translation>
     </message>
     <message>
-        <location filename="../native/SearchCoordinator.cpp" line="461"/>
+        <location filename="../native/SearchCoordinator.cpp" line="665"/>
         <source>Background catalog indexing was interrupted and will retry automatically.</source>
         <translation>后台媒体目录索引暂时中断，将自动重试。</translation>
     </message>
@@ -2184,117 +2240,133 @@
 <context>
     <name>SearchPage</name>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="72"/>
+        <location filename="../qml/pages/SearchPage.qml" line="279"/>
         <source>Search</source>
         <translation>搜索</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="79"/>
+        <location filename="../qml/pages/SearchPage.qml" line="286"/>
         <source>Find movies, series, seasons, and episodes</source>
         <translation>查找电影、剧集、季与单集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="96"/>
+        <location filename="../qml/pages/SearchPage.qml" line="303"/>
         <source>Search library</source>
         <translation>搜索片库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="97"/>
+        <location filename="../qml/pages/SearchPage.qml" line="304"/>
         <source>Enter a title, episode, or season</source>
         <translation>输入片名、集名或季信息</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="112"/>
+        <location filename="../qml/pages/SearchPage.qml" line="320"/>
         <source>Clear</source>
         <translation>清除</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="124"/>
+        <location filename="../qml/pages/SearchPage.qml" line="332"/>
         <source>Search results</source>
         <translation>搜索结果</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="125"/>
+        <location filename="../qml/pages/SearchPage.qml" line="334"/>
         <source>Searching…</source>
         <translation>正在搜索…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="128"/>
+        <location filename="../qml/pages/SearchPage.qml" line="337"/>
         <source>Showing first %1 results</source>
         <translation>显示前 %1 项结果</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="131"/>
+        <location filename="../qml/pages/SearchPage.qml" line="340"/>
         <source>Showing %1 of %2 results</source>
         <translation>显示 %1 / %2 项结果</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="134"/>
+        <location filename="../qml/pages/SearchPage.qml" line="343"/>
+        <location filename="../qml/pages/SearchPage.qml" line="450"/>
         <source>%1 results</source>
         <translation>找到 %1 项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="135"/>
+        <location filename="../qml/pages/SearchPage.qml" line="344"/>
         <source>No matches</source>
         <translation>没有匹配结果</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="150"/>
+        <location filename="../qml/pages/SearchPage.qml" line="359"/>
         <source>Searching %1 cached items. %2</source>
         <translation>正在搜索本地缓存的 %1 项内容。%2</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="156"/>
+        <location filename="../qml/pages/SearchPage.qml" line="365"/>
         <source>Searching %1 cached items while indexing continues (%1 of %2).</source>
         <translation>正在搜索本地缓存的 %1 项内容；后台索引仍在继续（%1 / %2）。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="158"/>
+        <location filename="../qml/pages/SearchPage.qml" line="367"/>
         <source>Searching %1 cached items while indexing continues.</source>
         <translation>正在搜索本地缓存的 %1 项内容；后台索引仍在继续。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="162"/>
+        <location filename="../qml/pages/SearchPage.qml" line="371"/>
         <source>Searching %1 cached items; the catalog index is not complete yet.</source>
         <translation>正在搜索本地缓存的 %1 项内容；全库索引尚未完成。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="230"/>
+        <location filename="../qml/pages/SearchPage.qml" line="441"/>
+        <source>Series</source>
+        <translation>剧集</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SearchPage.qml" line="441"/>
+        <source>Movies</source>
+        <translation>电影</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SearchPage.qml" line="442"/>
+        <source>Episodes</source>
+        <translation>单集</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SearchPage.qml" line="551"/>
         <source>Start searching your Emby library</source>
         <translation>从你的 Emby 片库开始搜索</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="232"/>
+        <location filename="../qml/pages/SearchPage.qml" line="555"/>
         <source>Searching the cached catalog…</source>
         <translation>正在搜索本地媒体目录…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="234"/>
+        <location filename="../qml/pages/SearchPage.qml" line="557"/>
         <source>Building your local catalog…</source>
         <translation>正在建立本地媒体目录…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="235"/>
+        <location filename="../qml/pages/SearchPage.qml" line="558"/>
         <source>Try another keyword</source>
         <translation>换一个关键词试试</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="244"/>
+        <location filename="../qml/pages/SearchPage.qml" line="567"/>
         <source>Cached results appear instantly while the full catalog indexes in the background</source>
         <translation>已缓存的结果会立即显示，其余媒体目录会在后台继续索引</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="246"/>
+        <location filename="../qml/pages/SearchPage.qml" line="571"/>
         <source>More matches can appear as indexing progresses</source>
         <translation>随着索引推进，可能会出现更多匹配项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="247"/>
+        <location filename="../qml/pages/SearchPage.qml" line="572"/>
         <source>Try a shorter title, alias, or episode code</source>
         <translation>尝试输入更短的片名、别名或剧集编号</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="530"/>
+        <location filename="../qml/pages/SearchPage.qml" line="569"/>
         <source>The current keyword is preserved; results will update after search recovers.</source>
         <translation>当前关键词会保留；搜索恢复后结果会自动更新。</translation>
     </message>
@@ -2354,8 +2426,8 @@
 <context>
     <name>SessionViewModel</name>
     <message>
-        <location filename="../native/ApplicationViewModel.cpp" line="78"/>
-        <location filename="../native/ApplicationViewModel.cpp" line="95"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="175"/>
+        <location filename="../native/ApplicationViewModel.cpp" line="192"/>
         <source>Backend is unavailable.</source>
         <translation>后端当前不可用。</translation>
     </message>
@@ -2363,232 +2435,556 @@
 <context>
     <name>SettingsPage</name>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="142"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="235"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="569"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="663"/>
         <source>PREFERENCES</source>
         <translation>偏好设置</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="243"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="671"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="153"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="294"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="580"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="722"/>
         <source>Emby server</source>
         <translation>Emby 服务器</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="302"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="730"/>
         <source>Connect any HTTP or HTTPS address, including reverse-proxy path prefixes.</source>
         <translation>支持任意 HTTP 或 HTTPS 地址，包括反向代理路径前缀。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="428"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="856"/>
         <source>Display name</source>
         <translation>显示名称</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="61"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="429"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="475"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="857"/>
         <source>Home</source>
         <translation>家庭服务器</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="437"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="865"/>
         <source>Server address</source>
         <translation>服务器地址</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="464"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="892"/>
         <source>Username</source>
         <translation>用户名</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="465"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="893"/>
         <source>Your Emby username</source>
         <translation>你的 Emby 用户名</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="472"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="900"/>
         <source>Password</source>
         <translation>密码</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="473"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="901"/>
         <source>Your Emby password</source>
         <translation>你的 Emby 密码</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="359"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="787"/>
         <source>Connected</source>
         <translation>已连接</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="504"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="932"/>
         <source>Not connected</source>
         <translation>未连接</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="397"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="825"/>
         <source>Disconnect</source>
         <translation>断开连接</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="44"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="86"/>
+        <source>Tune Anime4K model and source handling</source>
+        <translation>调整 Anime4K 模型和片源处理</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="458"/>
         <source>Unencrypted HTTP connection</source>
         <translation>未加密的 HTTP 连接</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="45"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="459"/>
         <source>HTTP sends your Emby password and session token without encryption. Continue only if you trust the network path to this server; HTTPS is strongly recommended.</source>
         <translation>HTTP 会以未加密方式传输你的 Emby 密码和会话令牌。仅在你信任到该服务器的网络链路时继续；强烈建议使用 HTTPS。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="46"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="460"/>
         <source>Connect with HTTP</source>
         <translation>仍使用 HTTP 连接</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="449"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="877"/>
         <source>HTTPS connection: credentials are encrypted in transit.</source>
         <translation>HTTPS 连接：凭据在传输过程中已加密。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="450"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="878"/>
         <source>HTTP connection: credentials are not encrypted. Trusted local networks only.</source>
         <translation>HTTP 连接：凭据未经加密。请仅在可信网络中使用。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="515"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="943"/>
         <source>Connecting…</source>
         <translation>正在连接…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="515"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="943"/>
         <source>Connect to Emby</source>
         <translation>连接 Emby</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="841"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1435"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1442"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1458"/>
+        <source>Playback performance protection</source>
+        <translation>播放性能保护</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1477"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1484"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1503"/>
+        <source>Anime4K downgrade threshold</source>
+        <translation>Anime4K 降档阈值</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1485"/>
+        <source>Yanami continuously checks rendering time, output frame drops, and A/V sync. After three consecutive overloaded checks, it lowers Anime4K by one tier. If no lower tier remains, upscaling is disabled only for the current playback. This percentage sets the rendering-time threshold: 80% means a check is overloaded when rendering takes more than 80% of one frame (about 13.3 ms at 60 FPS).</source>
+        <translation>Yanami 会持续检查画面渲染耗时、输出掉帧和音画同步。连续 3 个检测周期负载过高时，会先降低一个 Anime4K 档位；如果已经没有更低档位，则仅在本次播放中关闭超分。这里的百分比表示渲染耗时触发线。例如 80% 表示渲染耗时超过一帧时长的 80%，就记为一次负载过高；60 FPS 时约为 13.3 ms。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1504"/>
+        <source>Rendering is marked overloaded when it uses more than this percentage of one frame.</source>
+        <translation>当渲染耗时超过单帧时长的这个百分比时，就记为一次负载过高。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1527"/>
+        <source>60% · Stricter</source>
+        <translation>60% · 更严格</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1534"/>
+        <source>90% · More tolerant</source>
+        <translation>90% · 更宽松</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1648"/>
+        <source>Model download · %1 percent</source>
+        <translation>模型下载 · %1%</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1949"/>
         <source>This release includes project credentials. Developer credentials entered below take precedence.</source>
         <translation>此发行版本已包含项目凭据。在下方填写的开发者凭据将优先使用。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="842"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1950"/>
         <source>Use developer credentials for local development. AppSecret is stored only in the operating-system credential vault.</source>
         <translation>本地开发可使用开发者凭据。AppSecret 只会存储在操作系统的凭据保险库中。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="891"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1999"/>
         <source>Developer override</source>
         <translation>开发者凭据优先</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="893"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2001"/>
         <source>Bundled release credentials</source>
         <translation>发行版内置凭据</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="906"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2014"/>
         <source>Remove override</source>
         <translation>移除开发者凭据</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="832"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1940"/>
         <source>DanDanPlay credentials</source>
         <translation>DanDanPlay 凭据</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="858"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1210"/>
+        <source>Anime4K unavailable</source>
+        <translation>Anime4K 不可用</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1966"/>
         <source>Developer application ID</source>
         <translation>开发者应用 ID</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="864"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1972"/>
         <source>Developer application secret</source>
         <translation>开发者应用密钥</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="894"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2002"/>
         <source>Not configured</source>
         <translation>未配置</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="912"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2020"/>
         <source>Validating…</source>
         <translation>正在验证…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="912"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2020"/>
         <source>Validate and save</source>
         <translation>验证并保存</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="154"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="554"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="581"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="982"/>
         <source>Language</source>
         <translation>语言</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="250"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="678"/>
         <source>Manage your media server and playback defaults.</source>
         <translation>管理媒体服务器和播放默认设置。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="375"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="803"/>
         <source>Username: %1</source>
         <translation>用户名：%1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="391"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="819"/>
         <source>Server address: %1</source>
         <translation>服务器地址：%1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="561"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="989"/>
         <source>Changes apply immediately and are remembered on this device.</source>
         <translation>更改会立即生效，并记住在此设备上的选择。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="580"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1008"/>
         <source>English</source>
         <translation>英文</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="588"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1016"/>
         <source>Simplified Chinese</source>
         <translation>简体中文</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="155"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="614"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="582"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1042"/>
         <source>Playback</source>
         <translation>播放</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="621"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1049"/>
         <source>Hardware decoding and original quality are preferred automatically.</source>
         <translation>自动优先使用硬件解码与原画播放。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="645"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1073"/>
         <source>AUTO  ·  ORIGINAL</source>
         <translation>自动  ·  原画</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="156"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="689"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="725"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="584"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1797"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1833"/>
         <source>Developer options</source>
         <translation>开发者选项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="690"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="733"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1798"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1841"/>
         <source>Advanced settings for local development and service integrations.</source>
         <translation>用于本地开发和服务集成的高级设置。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="64"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="73"/>
+        <source>Performance</source>
+        <translation>性能</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="74"/>
+        <source>Lowest GPU load · best for integrated graphics</source>
+        <translation>最低 GPU 负载 · 适合核显</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="65"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="77"/>
+        <source>Balanced</source>
+        <translation>平衡</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="78"/>
+        <source>Clearer lines with comfortable playback headroom</source>
+        <translation>更清晰的线条，并保留充足的播放余量</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="66"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="81"/>
+        <source>Quality</source>
+        <translation>质量</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="82"/>
+        <source>Highest real-time detail · for faster discrete GPUs</source>
+        <translation>最高实时细节 · 适合性能更强的独立显卡</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="67"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="85"/>
+        <source>Custom</source>
+        <translation>自定义</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="583"/>
+        <source>Anime upscaling</source>
+        <translation>动画超分</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1134"/>
+        <source>Real-time anime upscaling</source>
+        <translation>实时动画超分</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1142"/>
+        <source>Reconstruct cleaner lines and details while video is playing.</source>
+        <translation>在播放时实时重建更清晰的线条和细节。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1160"/>
+        <source>Enable real-time anime upscaling</source>
+        <translation>启用实时动画超分</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1172"/>
+        <source>On</source>
+        <translation>开启</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1172"/>
+        <source>Off</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1171"/>
+        <source>Unavailable</source>
+        <translation>不可用</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1234"/>
+        <source>Preset</source>
+        <translation>档位</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1298"/>
+        <source>Advanced configuration</source>
+        <translation>高级配置</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1306"/>
+        <source>Options shown here are specific to %1.</source>
+        <translation>以下选项仅适用于 %1。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1317"/>
+        <source>Reset</source>
+        <translation>恢复默认</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="32"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="58"/>
+        <source>Checking graphics capabilities…</source>
+        <translation>正在检测显卡能力…</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="34"/>
+        <source>This upscaling method is unavailable on the active playback renderer.</source>
+        <translation>当前播放渲染器无法使用此超分方案。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="249"/>
+        <source>Information about %1</source>
+        <translation>关于“%1”的说明</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1169"/>
+        <source>Checking</source>
+        <translation>检测中</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1211"/>
+        <source>Checking playback renderer</source>
+        <translation>正在检测播放渲染器</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1327"/>
+        <source>Content mode</source>
+        <translation>片源模式</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1328"/>
+        <source>Modes A and B use different restoration networks. Mode C combines upscaling with denoising; start with A and compare on difficult sources.</source>
+        <translation>A 与 B 使用不同的修复网络；C 将超分与降噪结合。建议先从 A 开始，再针对复杂片源对比选择。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1338"/>
+        <source>CNN size</source>
+        <translation>CNN 规模</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1339"/>
+        <source>Controls Anime4K model capacity from S to UL. Larger models can recover more detail but require more GPU time.</source>
+        <translation>控制 Anime4K 从 S 到 UL 的模型规模。模型越大，可能恢复更多细节，但会占用更多 GPU 时间。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1349"/>
+        <source>Restore passes</source>
+        <translation>修复阶段</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1350"/>
+        <source>Two passes add a second neural processing stage. This can help difficult sources but increases GPU workload.</source>
+        <translation>两阶段会增加第二次神经网络处理，可能改善复杂片源，但也会提高 GPU 负载。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1351"/>
+        <source>1 pass</source>
+        <translation>1 阶段</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1351"/>
+        <source>2 passes</source>
+        <translation>2 阶段</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1372"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1379"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1395"/>
+        <source>Automatic downscale</source>
+        <translation>自动降采样</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1380"/>
+        <source>Adapts the Anime4K shader chain when the source is already close to the output size, reducing unnecessary processing.</source>
+        <translation>当片源尺寸已接近输出尺寸时调整 Anime4K 着色器链，减少不必要的处理。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1386"/>
+        <source>Avoid unnecessary shader passes when the source is already close to output size.</source>
+        <translation>当片源尺寸已接近输出尺寸时，避免执行不必要的着色器阶段。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1443"/>
+        <source>Tracks playback smoothness. If Anime4K causes sustained frame drops, Yanami lowers its preset and can turn it off for that playback.</source>
+        <translation>持续检测到 Anime4K 导致掉帧时，Yanami 会先降低档位；如果仍不流畅，会在本次播放中暂时关闭超分。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1449"/>
+        <source>If playback starts dropping frames, Yanami lowers Anime4K first and temporarily turns it off only when needed.</source>
+        <translation>播放出现掉帧时，Yanami 会先降低 Anime4K 档位，必要时再暂时关闭超分。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1459"/>
+        <source>Automatically lowers Anime4K or turns it off when playback cannot stay smooth.</source>
+        <translation>播放不够流畅时，自动降低 Anime4K 档位或暂时关闭超分。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1589"/>
+        <source>Model components · %1 · %2</source>
+        <translation>模型组件 · %1 · %2</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1601"/>
+        <source>Download is required before this configuration can be used. Playback continues in original quality until it is ready.</source>
+        <translation>使用此配置前需要下载组件。准备完成前将继续以原画播放。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1603"/>
+        <source>Downloading · %1% complete</source>
+        <translation>正在下载 · 已完成 %1%</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1607"/>
+        <source>Checking installed components…</source>
+        <translation>正在检查已安装组件…</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1608"/>
+        <source>Verifying model components…</source>
+        <translation>正在校验模型组件…</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1611"/>
+        <source>The component download failed. Try again.</source>
+        <translation>组件下载失败，请重试。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1612"/>
+        <source>Ready · components verified</source>
+        <translation>已就绪 · 组件已校验</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1627"/>
+        <source>Try again</source>
+        <translation>重试</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1628"/>
+        <source>Download components</source>
+        <translation>下载组件</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1630"/>
+        <source>Download upscaling components?</source>
+        <translation>下载超分组件？</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1631"/>
+        <source>This configuration needs its model components before it can be used. Until the download and verification finish, videos will continue playing in original quality.</source>
+        <translation>此配置需要模型组件才能使用。下载和校验完成前，视频仍会以原画播放。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1632"/>
+        <source>Download</source>
+        <translation>下载</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1713"/>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1742"/>
+        <source>Installed</source>
+        <translation>已安装</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1755"/>
+        <source>Changes will apply to the next playback. A missing or unsupported component always falls back to original quality.</source>
+        <translation>更改将在下次播放时生效。组件缺失或不受支持时始终回退到原画。</translation>
+    </message>
+</context>
+<context>
+    <name>StatusToast</name>
+    <message>
+        <location filename="../qml/components/StatusToast.qml" line="132"/>
+        <source>Close notification</source>
+        <translation>关闭通知</translation>
     </message>
 </context>
 <context>
@@ -2610,14 +3006,6 @@
     </message>
 </context>
 <context>
-    <name>StatusToast</name>
-    <message>
-        <location filename="../qml/components/StatusToast.qml" line="132"/>
-        <source>Close notification</source>
-        <translation>关闭通知</translation>
-    </message>
-</context>
-<context>
     <name>UpdateChecker</name>
     <message>
         <location filename="../native/UpdateChecker.cpp" line="139"/>
@@ -2630,6 +3018,105 @@
         <location filename="../native/UpdateChecker.cpp" line="209"/>
         <source>The update service returned an invalid response.</source>
         <translation>更新服务返回了无效响应。</translation>
+    </message>
+</context>
+<context>
+    <name>UpscalingAssetManager</name>
+    <message>
+        <location filename="../native/UpscalingAssetManager.cpp" line="344"/>
+        <source>The component download was cancelled.</source>
+        <translation>组件下载已取消。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingAssetManager.cpp" line="411"/>
+        <source>Installed upscaling components failed verification.</source>
+        <translation>已安装的超分组件校验失败。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingAssetManager.cpp" line="530"/>
+        <source>Yanami could not create a safe component lock directory.</source>
+        <translation>Yanami 无法创建安全的组件锁目录。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingAssetManager.cpp" line="542"/>
+        <source>Another Yanami process is installing these components.</source>
+        <translation>另一个 Yanami 进程正在安装这些组件。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingAssetManager.cpp" line="572"/>
+        <source>The component download service is unavailable.</source>
+        <translation>组件下载服务当前不可用。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingAssetManager.cpp" line="583"/>
+        <source>The upscaling component catalog is invalid.</source>
+        <translation>超分组件清单无效。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingAssetManager.cpp" line="591"/>
+        <source>Yanami could not create a safe component directory.</source>
+        <translation>Yanami 无法创建安全的组件目录。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingAssetManager.cpp" line="600"/>
+        <source>Yanami could not write the downloaded component.</source>
+        <translation>Yanami 无法写入下载的组件。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingAssetManager.cpp" line="645"/>
+        <source>The downloaded component exceeded its expected size or could not be saved.</source>
+        <translation>下载的组件超出预期大小或无法保存。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingAssetManager.cpp" line="678"/>
+        <source>The upscaling component could not be downloaded.</source>
+        <translation>无法下载超分组件。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingAssetManager.cpp" line="695"/>
+        <source>The downloaded component failed verification and was not installed.</source>
+        <translation>下载的组件校验失败，未进行安装。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingAssetManager.cpp" line="701"/>
+        <source>The component directory changed before installation completed.</source>
+        <translation>组件安装完成前，其目录发生了变化。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingAssetManager.cpp" line="707"/>
+        <source>Yanami could not install the verified component.</source>
+        <translation>Yanami 无法安装已校验的组件。</translation>
+    </message>
+</context>
+<context>
+    <name>UpscalingCapabilityProbe</name>
+    <message>
+        <location filename="../native/UpscalingCapabilityProbe.cpp" line="294"/>
+        <source>Software rendering is active; a hardware OpenGL renderer is required.</source>
+        <translation>当前正在使用软件渲染；此功能需要硬件 OpenGL 渲染器。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingCapabilityProbe.cpp" line="298"/>
+        <source>Yanami&apos;s current libmpv renderer requires the OpenGL backend.</source>
+        <translation>Yanami 当前的 libmpv 渲染器需要 OpenGL 后端。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingCapabilityProbe.cpp" line="303"/>
+        <source>OpenGL 4.3 or newer is required.</source>
+        <translation>需要 OpenGL 4.3 或更高版本。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpscalingCapabilityProbe.cpp" line="307"/>
+        <source>A maximum OpenGL texture size of at least 4096 is required.</source>
+        <translation>OpenGL 最大纹理尺寸至少需要达到 4096。</translation>
+    </message>
+</context>
+<context>
+    <name>UpscalingViewModel</name>
+    <message>
+        <location filename="../native/UpscalingViewModel.cpp" line="320"/>
+        <source>Checking graphics capabilities…</source>
+        <translation>正在检测显卡能力…</translation>
     </message>
 </context>
 <context>

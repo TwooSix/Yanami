@@ -2,12 +2,17 @@
 
 #include "DevelopmentHooks.hpp"
 #include "PerformanceTrace.hpp"
+#include "UpscalingPerformancePolicy.hpp"
+#include "UpscalingRuntimeConfig.hpp"
 
+#include <QDir>
+#include <QFileInfo>
 #include <QMetaObject>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QElapsedTimer>
 #include <QEvent>
+#include <QFile>
 #include <QOpenGLContext>
 #include <QOpenGLFramebufferObject>
 #include <QOpenGLFramebufferObjectFormat>
@@ -17,10 +22,12 @@
 #include <QDebug>
 #include <QLoggingCategory>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QStringList>
 #include <QTimer>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <clocale>
 #include <cmath>
@@ -38,6 +45,50 @@ Q_LOGGING_CATEGORY(playbackLog, "yanami.playback.mpv")
 constexpr int playbackStallPollIntervalMs = 250;
 constexpr qint64 playbackStartupTimeoutMs = 30'000;
 constexpr qint64 playbackMaximumPollGapMs = 2'000;
+constexpr quint64 upscalingAsyncReplyTag = quint64{1} << 63;
+constexpr std::array<quint64, 26> upscalingRenderHistogramLimitsNs{
+    1'000'000,
+    2'000'000,
+    4'000'000,
+    6'000'000,
+    8'000'000,
+    9'000'000,
+    10'000'000,
+    10'500'000,
+    11'000'000,
+    11'500'000,
+    12'000'000,
+    12'500'000,
+    13'000'000,
+    13'500'000,
+    14'000'000,
+    14'500'000,
+    15'000'000,
+    15'500'000,
+    16'000'000,
+    16'500'000,
+    17'000'000,
+    18'000'000,
+    20'000'000,
+    25'000'000,
+    33'400'000,
+    50'000'000,
+};
+constexpr std::size_t upscalingRenderHistogramBucketCount =
+    upscalingRenderHistogramLimitsNs.size() + 1;
+constexpr std::array<quint64, 9> upscalingWrapperHistogramLimitsNs{
+    10'000,
+    25'000,
+    50'000,
+    75'000,
+    100'000,
+    150'000,
+    250'000,
+    500'000,
+    1'000'000,
+};
+constexpr std::size_t upscalingWrapperHistogramBucketCount =
+    upscalingWrapperHistogramLimitsNs.size() + 1;
 
 mpv_handle *createMpvHandle()
 {
@@ -176,16 +227,74 @@ constexpr uint64_t observerId(ObservedProperty property) noexcept
 
 } // namespace
 
+struct MpvVideoItem::PendingUpscalingConfiguration
+{
+    struct PropertyWrite
+    {
+        enum class Kind {
+            String,
+            ShaderPaths,
+        };
+
+        Kind kind = Kind::String;
+        QByteArray name;
+        QByteArray stringValue;
+        QStringList shaderPaths;
+        QString errorCode;
+        bool targetWrite = false;
+    };
+
+    YanamiUpscaling::ValidatedConfig config;
+    QList<PropertyWrite> writes;
+    qsizetype nextWriteIndex = 0;
+    quint64 replyUserdata = 0;
+    double dispatchCpuMs = 0.0;
+    QElapsedTimer completionTimer;
+    QString requestedProfileId;
+    QString failureErrorCode;
+    QString transitionFromProfile;
+    QString completionFallbackCode;
+    QString completionFallbackMessage;
+    double transitionRenderP95Ms = 0.0;
+    bool requestEnabled = false;
+    bool rollingBack = false;
+    bool rollbackFailed = false;
+    bool cancelled = false;
+    bool transitionToOriginal = false;
+};
+
+struct MpvVideoItem::DeferredOpenRequest
+{
+    QUrl url;
+    QVariantMap headers;
+    QVariantMap runtimeConfig;
+};
+
 struct MpvRenderState
 {
     QMutex itemMutex;
     QPointer<MpvVideoItem> item;
     bool diagnosticsEnabled = false;
     std::atomic_bool updateQueued{false};
+    std::atomic_bool rendererReady{false};
     std::atomic_uint64_t callbackCount{0};
     std::atomic_uint64_t renderCount{0};
     std::atomic_uint64_t renderTotalNanoseconds{0};
     std::atomic_uint64_t renderMaximumNanoseconds{0};
+    // Enabled only while an upscaling profile with performance protection is
+    // active. The render thread records one relaxed atomic bucket increment
+    // per frame; policy evaluation remains on the GUI thread once per second.
+    std::atomic_bool upscalingMonitoringEnabled{false};
+    std::atomic_uint64_t upscalingRenderCount{0};
+    std::atomic_uint64_t upscalingRenderTotalNanoseconds{0};
+    std::atomic_uint64_t upscalingRenderMaximumNanoseconds{0};
+    std::array<std::atomic_uint64_t,
+        upscalingRenderHistogramBucketCount> upscalingRenderHistogram{};
+    std::atomic_uint64_t upscalingWrapperCount{0};
+    std::atomic_uint64_t upscalingWrapperTotalNanoseconds{0};
+    std::atomic_uint64_t upscalingWrapperMaximumNanoseconds{0};
+    std::array<std::atomic_uint64_t,
+        upscalingWrapperHistogramBucketCount> upscalingWrapperHistogram{};
 };
 
 class MpvRenderer final : public QQuickFramebufferObject::Renderer
@@ -199,6 +308,7 @@ public:
 
     ~MpvRenderer() override
     {
+        m_state->rendererReady.store(false, std::memory_order_release);
         if (m_context) {
             mpv_render_context_set_update_callback(m_context, nullptr, nullptr);
             mpv_render_context_free(m_context);
@@ -225,9 +335,14 @@ public:
         if (!m_mpvOwner)
             return;
 
+        const bool monitorUpscaling =
+            m_state->upscalingMonitoringEnabled.load(std::memory_order_relaxed);
         QElapsedTimer renderTimer;
-        if (m_state->diagnosticsEnabled)
+        QElapsedTimer wrapperPreTimer;
+        if (m_state->diagnosticsEnabled || monitorUpscaling)
             renderTimer.start();
+        if (monitorUpscaling)
+            wrapperPreTimer.start();
 
         if (!m_context) {
             if (auto *context = QOpenGLContext::currentContext()) {
@@ -258,6 +373,18 @@ public:
                 return;
             }
             mpv_render_context_set_update_callback(m_context, &MpvRenderer::requestUpdate, this);
+            m_state->rendererReady.store(true, std::memory_order_release);
+            QMutexLocker locker(&m_state->itemMutex);
+            if (m_state->item) {
+                const QPointer<MpvVideoItem> item = m_state->item;
+                QMetaObject::invokeMethod(
+                    m_state->item,
+                    [item] {
+                        if (item)
+                            item->dispatchPendingLoad();
+                    },
+                    Qt::QueuedConnection);
+            }
         }
 
         const auto dimensions = framebufferObject()->size();
@@ -275,24 +402,80 @@ public:
             {MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, &blockForTargetTime},
             {MPV_RENDER_PARAM_INVALID, nullptr},
         };
+        const quint64 wrapperPreNanoseconds = monitorUpscaling
+            ? static_cast<quint64>(wrapperPreTimer.nsecsElapsed()) : 0;
         mpv_render_context_render(m_context, parameters);
-        if (m_state->diagnosticsEnabled) {
-            m_state->renderCount.fetch_add(1, std::memory_order_relaxed);
+        QElapsedTimer wrapperPostTimer;
+        if (monitorUpscaling)
+            wrapperPostTimer.start();
+        if (m_state->diagnosticsEnabled || monitorUpscaling) {
             const auto elapsed = static_cast<quint64>(renderTimer.nsecsElapsed());
-            m_state->renderTotalNanoseconds.fetch_add(
-                elapsed, std::memory_order_relaxed);
-            auto maximum = m_state->renderMaximumNanoseconds.load(
-                std::memory_order_relaxed);
-            while (elapsed > maximum
-                   && !m_state->renderMaximumNanoseconds.compare_exchange_weak(
-                       maximum,
-                       elapsed,
-                       std::memory_order_relaxed,
-                       std::memory_order_relaxed)) {
+            if (monitorUpscaling) {
+                m_state->upscalingRenderCount.fetch_add(
+                    1, std::memory_order_relaxed);
+                m_state->upscalingRenderTotalNanoseconds.fetch_add(
+                    elapsed, std::memory_order_relaxed);
+                auto maximum = m_state->upscalingRenderMaximumNanoseconds.load(
+                    std::memory_order_relaxed);
+                while (elapsed > maximum
+                       && !m_state->upscalingRenderMaximumNanoseconds
+                               .compare_exchange_weak(
+                                   maximum,
+                                   elapsed,
+                                   std::memory_order_relaxed,
+                                   std::memory_order_relaxed)) {
+                }
+                const auto bucket = static_cast<std::size_t>(
+                    std::lower_bound(
+                        upscalingRenderHistogramLimitsNs.cbegin(),
+                        upscalingRenderHistogramLimitsNs.cend(),
+                        elapsed)
+                    - upscalingRenderHistogramLimitsNs.cbegin());
+                m_state->upscalingRenderHistogram.at(bucket).fetch_add(
+                    1, std::memory_order_relaxed);
+            }
+            if (m_state->diagnosticsEnabled) {
+                m_state->renderCount.fetch_add(1, std::memory_order_relaxed);
+                m_state->renderTotalNanoseconds.fetch_add(
+                    elapsed, std::memory_order_relaxed);
+                auto maximum = m_state->renderMaximumNanoseconds.load(
+                    std::memory_order_relaxed);
+                while (elapsed > maximum
+                       && !m_state->renderMaximumNanoseconds.compare_exchange_weak(
+                           maximum,
+                           elapsed,
+                           std::memory_order_relaxed,
+                           std::memory_order_relaxed)) {
+                }
             }
         }
         QQuickOpenGLUtils::resetOpenGLState();
-
+        if (monitorUpscaling) {
+            const quint64 elapsed = wrapperPreNanoseconds
+                + static_cast<quint64>(wrapperPostTimer.nsecsElapsed());
+            m_state->upscalingWrapperCount.fetch_add(
+                1, std::memory_order_relaxed);
+            m_state->upscalingWrapperTotalNanoseconds.fetch_add(
+                elapsed, std::memory_order_relaxed);
+            auto maximum = m_state->upscalingWrapperMaximumNanoseconds.load(
+                std::memory_order_relaxed);
+            while (elapsed > maximum
+                   && !m_state->upscalingWrapperMaximumNanoseconds
+                           .compare_exchange_weak(
+                               maximum,
+                               elapsed,
+                               std::memory_order_relaxed,
+                               std::memory_order_relaxed)) {
+            }
+            const auto bucket = static_cast<std::size_t>(
+                std::lower_bound(
+                    upscalingWrapperHistogramLimitsNs.cbegin(),
+                    upscalingWrapperHistogramLimitsNs.cend(),
+                    elapsed)
+                - upscalingWrapperHistogramLimitsNs.cbegin());
+            m_state->upscalingWrapperHistogram.at(bucket).fetch_add(
+                1, std::memory_order_relaxed);
+        }
     }
 
 private:
@@ -411,6 +594,21 @@ MpvVideoItem::MpvVideoItem(QQuickItem *parent)
         throw std::runtime_error("libmpv TLS certificate verification is not enabled");
     qInfo().noquote() << "mpv security tlsVerify=" << effectiveTlsVerification;
 
+    for (const QByteArray &name : {
+             QByteArrayLiteral("scale"),
+             QByteArrayLiteral("cscale"),
+             QByteArrayLiteral("dscale"),
+             QByteArrayLiteral("sigmoid-upscaling"),
+             QByteArrayLiteral("correct-downscaling"),
+             QByteArrayLiteral("linear-downscaling"),
+             QByteArrayLiteral("scale-antiring"),
+             QByteArrayLiteral("cscale-antiring")}) {
+        const QString value = stringProperty(
+            m_mpv, QByteArrayLiteral("options/") + name);
+        if (!value.isEmpty())
+            m_upscalingBaselineOptions.insert(name, value.toUtf8());
+    }
+
     // Network and demux warnings are part of the normal support log. The
     // message is sanitized before it reaches the persistent logger.
     mpv_request_log_messages(m_mpv, "warn");
@@ -439,39 +637,8 @@ MpvVideoItem::MpvVideoItem(QQuickItem *parent)
     // the file loaded. eof-reached is the authoritative completion boundary.
     mpv_observe_property(
         m_mpv, observerId(ObservedProperty::EofReached), "eof-reached", MPV_FORMAT_FLAG);
-    if (m_performanceTraceEnabled) {
-        m_performanceObserversRegistered = true;
-        m_performanceObserversRegistered &= mpv_observe_property(
-            m_mpv,
-            observerId(ObservedProperty::DecoderFrameDropCount),
-            "decoder-frame-drop-count",
-            MPV_FORMAT_INT64) >= 0;
-        m_performanceObserversRegistered &= mpv_observe_property(
-            m_mpv,
-            observerId(ObservedProperty::FrameDropCount),
-            "frame-drop-count",
-            MPV_FORMAT_INT64) >= 0;
-        m_performanceObserversRegistered &= mpv_observe_property(
-            m_mpv,
-            observerId(ObservedProperty::MistimedFrameCount),
-            "mistimed-frame-count",
-            MPV_FORMAT_INT64) >= 0;
-        m_performanceObserversRegistered &= mpv_observe_property(
-            m_mpv,
-            observerId(ObservedProperty::DelayedFrameCount),
-            "vo-delayed-frame-count",
-            MPV_FORMAT_INT64) >= 0;
-        m_performanceObserversRegistered &= mpv_observe_property(
-            m_mpv,
-            observerId(ObservedProperty::AvSync),
-            "avsync",
-            MPV_FORMAT_DOUBLE) >= 0;
-        m_performanceObserversRegistered &= mpv_observe_property(
-            m_mpv,
-            observerId(ObservedProperty::EstimatedVideoFps),
-            "estimated-vf-fps",
-            MPV_FORMAT_DOUBLE) >= 0;
-    }
+    if (m_performanceTraceEnabled)
+        ensurePerformanceObserversRegistered();
     mpv_set_wakeup_callback(m_mpv, &MpvVideoItem::wakeup, this);
 
     m_playbackStallClock.start();
@@ -482,6 +649,14 @@ MpvVideoItem::MpvVideoItem(QQuickItem *parent)
         &QTimer::timeout,
         this,
         &MpvVideoItem::pollPlaybackStall);
+
+    m_upscalingHealthTimer.setInterval(1000);
+    m_upscalingHealthTimer.setTimerType(Qt::CoarseTimer);
+    connect(
+        &m_upscalingHealthTimer,
+        &QTimer::timeout,
+        this,
+        &MpvVideoItem::pollUpscalingHealth);
 
 #ifdef YANAMI_ENABLE_DEV_HOOKS
     if (m_renderState->diagnosticsEnabled) {
@@ -527,15 +702,614 @@ QQuickFramebufferObject::Renderer *MpvVideoItem::createRenderer() const
     return new MpvRenderer(const_cast<MpvVideoItem *>(this));
 }
 
+bool MpvVideoItem::ensurePerformanceObserversRegistered()
+{
+    if (m_performanceObserversRegistered)
+        return true;
+    if (!m_mpv)
+        return false;
+    bool registered = true;
+    registered &= mpv_observe_property(
+        m_mpv,
+        observerId(ObservedProperty::DecoderFrameDropCount),
+        "decoder-frame-drop-count",
+        MPV_FORMAT_INT64) >= 0;
+    registered &= mpv_observe_property(
+        m_mpv,
+        observerId(ObservedProperty::FrameDropCount),
+        "frame-drop-count",
+        MPV_FORMAT_INT64) >= 0;
+    registered &= mpv_observe_property(
+        m_mpv,
+        observerId(ObservedProperty::MistimedFrameCount),
+        "mistimed-frame-count",
+        MPV_FORMAT_INT64) >= 0;
+    registered &= mpv_observe_property(
+        m_mpv,
+        observerId(ObservedProperty::DelayedFrameCount),
+        "vo-delayed-frame-count",
+        MPV_FORMAT_INT64) >= 0;
+    registered &= mpv_observe_property(
+        m_mpv,
+        observerId(ObservedProperty::AvSync),
+        "avsync",
+        MPV_FORMAT_DOUBLE) >= 0;
+    registered &= mpv_observe_property(
+        m_mpv,
+        observerId(ObservedProperty::EstimatedVideoFps),
+        "estimated-vf-fps",
+        MPV_FORMAT_DOUBLE) >= 0;
+    m_performanceObserversRegistered = registered;
+    return registered;
+}
+
+bool MpvVideoItem::setUpscalingShaderPathsAsync(
+    const QStringList &paths, quint64 replyUserdata)
+{
+    std::vector<QByteArray> encoded;
+    encoded.reserve(paths.size());
+    for (const QString &path : paths)
+        encoded.push_back(QFile::encodeName(path));
+    std::vector<mpv_node> values(encoded.size());
+    for (std::size_t index = 0; index < encoded.size(); ++index) {
+        values[index].format = MPV_FORMAT_STRING;
+        values[index].u.string = encoded[index].data();
+    }
+    mpv_node_list list {
+        static_cast<int>(values.size()),
+        values.empty() ? nullptr : values.data(),
+        nullptr,
+    };
+    mpv_node node;
+    node.format = MPV_FORMAT_NODE_ARRAY;
+    node.u.list = &list;
+    return mpv_set_property_async(
+        m_mpv,
+        replyUserdata,
+        "glsl-shaders",
+        MPV_FORMAT_NODE,
+        &node) >= 0;
+}
+
+bool MpvVideoItem::setUpscalingStringPropertyAsync(
+    const QByteArray &name,
+    const QByteArray &value,
+    quint64 replyUserdata)
+{
+    char *encoded = const_cast<char *>(value.constData());
+    return mpv_set_property_async(
+        m_mpv,
+        replyUserdata,
+        name.constData(),
+        MPV_FORMAT_STRING,
+        &encoded) >= 0;
+}
+
+void MpvVideoItem::appendUpscalingBaselineWrites(
+    PendingUpscalingConfiguration &pending)
+{
+    pending.writes.append({
+        PendingUpscalingConfiguration::PropertyWrite::Kind::ShaderPaths,
+        QByteArrayLiteral("glsl-shaders"),
+        {},
+        {},
+        QStringLiteral("mpv-shader-list-rejected"),
+    });
+    // Yanami does not currently set shader parameters, but clearing this
+    // option prevents a future profile revision from leaking into the next
+    // episode or into original-quality playback.
+    pending.writes.append({
+        PendingUpscalingConfiguration::PropertyWrite::Kind::String,
+        QByteArrayLiteral("glsl-shader-opts"),
+        {},
+        {},
+        QStringLiteral("mpv-option-rejected"),
+    });
+
+    QList<QByteArray> baselineNames = m_upscalingBaselineOptions.keys();
+    std::sort(baselineNames.begin(), baselineNames.end());
+    for (const QByteArray &name : baselineNames) {
+        pending.writes.append({
+            PendingUpscalingConfiguration::PropertyWrite::Kind::String,
+            name,
+            m_upscalingBaselineOptions.value(name),
+            {},
+            QStringLiteral("mpv-option-rejected"),
+        });
+    }
+}
+
+void MpvVideoItem::appendUpscalingTargetWrites(
+    PendingUpscalingConfiguration &pending,
+    const YanamiUpscaling::ValidatedConfig &config)
+{
+    for (auto iterator = config.whitelistedOptions.cbegin();
+         iterator != config.whitelistedOptions.cend(); ++iterator) {
+        QByteArray encoded;
+        if (iterator.value().metaType().id() == QMetaType::Bool) {
+            encoded = iterator.value().toBool()
+                ? QByteArrayLiteral("yes") : QByteArrayLiteral("no");
+        } else if (iterator.value().canConvert<double>()
+                   && iterator.value().metaType().id() != QMetaType::QString) {
+            encoded = QByteArray::number(iterator.value().toDouble(), 'f', 3);
+        } else {
+            encoded = iterator.value().toString().toUtf8();
+        }
+        pending.writes.append({
+            PendingUpscalingConfiguration::PropertyWrite::Kind::String,
+            iterator.key().toUtf8(),
+            encoded,
+            {},
+            QStringLiteral("mpv-option-rejected"),
+            true,
+        });
+    }
+    pending.writes.append({
+        PendingUpscalingConfiguration::PropertyWrite::Kind::ShaderPaths,
+        QByteArrayLiteral("glsl-shaders"),
+        {},
+        config.orderedShaderPaths,
+        QStringLiteral("mpv-shader-list-rejected"),
+        true,
+    });
+}
+
+void MpvVideoItem::resetUpscalingRenderCounters()
+{
+    m_renderState->upscalingRenderCount.store(0, std::memory_order_relaxed);
+    m_renderState->upscalingRenderTotalNanoseconds.store(
+        0, std::memory_order_relaxed);
+    m_renderState->upscalingRenderMaximumNanoseconds.store(
+        0, std::memory_order_relaxed);
+    for (auto &bucket : m_renderState->upscalingRenderHistogram)
+        bucket.store(0, std::memory_order_relaxed);
+    m_renderState->upscalingWrapperCount.store(0, std::memory_order_relaxed);
+    m_renderState->upscalingWrapperTotalNanoseconds.store(
+        0, std::memory_order_relaxed);
+    m_renderState->upscalingWrapperMaximumNanoseconds.store(
+        0, std::memory_order_relaxed);
+    for (auto &bucket : m_renderState->upscalingWrapperHistogram)
+        bucket.store(0, std::memory_order_relaxed);
+    m_upscalingLastRenderP95Ms = 0.0;
+    m_upscalingLastRenderAverageMs = 0.0;
+    m_upscalingLastRenderMaximumMs = 0.0;
+    m_upscalingPreviousOutputDroppedFrames = m_outputDroppedFrames;
+    m_upscalingPreviousMistimedFrames = m_mistimedFrames;
+    m_upscalingPreviousDelayedFrames = m_delayedFrames;
+}
+
+void MpvVideoItem::clearUpscalingState()
+{
+    const bool changed = m_upscalingActive
+        || !m_effectiveUpscalingProfile.isEmpty();
+    m_upscalingActive = false;
+    m_upscalingPerformanceProtection = false;
+    m_effectiveUpscalingProfile.clear();
+    m_effectiveUpscalingProvider.clear();
+    m_effectiveUpscalingVersion.clear();
+    m_upscalingFallbacks.clear();
+    m_renderState->upscalingMonitoringEnabled.store(
+        false, std::memory_order_release);
+    m_upscalingHealthTimer.stop();
+    resetUpscalingRenderCounters();
+    if (changed)
+        emit upscalingStateChanged();
+}
+
+void MpvVideoItem::commitUpscalingState(
+    const YanamiUpscaling::ValidatedConfig &config)
+{
+    const bool changed = !m_upscalingActive
+        || m_effectiveUpscalingProfile != config.profileId;
+    m_upscalingActive = true;
+    m_effectiveUpscalingProfile = config.profileId;
+    m_effectiveUpscalingProvider = config.providerId;
+    m_effectiveUpscalingVersion = config.modelVersion;
+    m_upscalingFallbacks.clear();
+    for (const QVariantMap &fallback : config.fallbacks)
+        m_upscalingFallbacks.append(fallback);
+    m_upscalingPerformanceProtection = config.performanceProtection
+        && ensurePerformanceObserversRegistered();
+    m_upscalingProtection.reset(
+        m_upscalingFallbacks.size(), config.reservedHeadroomPercent);
+    resetUpscalingRenderCounters();
+    m_renderState->upscalingMonitoringEnabled.store(
+        m_upscalingPerformanceProtection, std::memory_order_release);
+    if (m_upscalingPerformanceProtection)
+        m_upscalingHealthTimer.start();
+    else
+        m_upscalingHealthTimer.stop();
+    if (changed)
+        emit upscalingStateChanged();
+}
+
+void MpvVideoItem::recordUpscalingApplied(
+    const YanamiUpscaling::ValidatedConfig &config,
+    double dispatchCpuMs,
+    double completionMs)
+{
+    qCInfo(playbackLog).noquote()
+        << "playback_upscaling_applied"
+        << "profile=" << m_effectiveUpscalingProfile
+        << "provider=" << m_effectiveUpscalingProvider
+        << "version=" << m_effectiveUpscalingVersion
+        << "shaderCount=" << config.orderedShaderPaths.size()
+        << "applyMs=" << dispatchCpuMs
+        << "completionMs=" << completionMs;
+    if (!m_performanceTraceEnabled)
+        return;
+    YanamiPerformance::PerformanceTrace::mark(
+        QStringLiteral("playback_upscaling_applied"),
+        {
+            {QStringLiteral("profileId"), m_effectiveUpscalingProfile},
+            {QStringLiteral("providerId"), m_effectiveUpscalingProvider},
+            {QStringLiteral("modelVersion"), m_effectiveUpscalingVersion},
+            {QStringLiteral("shaderCount"), config.orderedShaderPaths.size()},
+            {QStringLiteral("applyMs"), dispatchCpuMs},
+            {QStringLiteral("completionMs"), completionMs},
+        });
+}
+
 void MpvVideoItem::open(const QUrl &url, const QVariantMap &headers)
 {
+    openWithUpscaling(url, headers, {});
+}
+
+bool MpvVideoItem::beginUpscalingRuntimeConfig(
+    const QVariantMap &runtimeConfig,
+    const QString &transitionFromProfile,
+    double transitionRenderP95Ms,
+    bool transitionToOriginal,
+    const QString &completionFallbackCode,
+    const QString &completionFallbackMessage)
+{
+    QElapsedTimer dispatchTimer;
+    dispatchTimer.start();
+
+    const QString assetRoot = QDir(
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
+        .filePath(QStringLiteral("models/upscaling"));
+    const auto validation = YanamiUpscaling::validateRuntimeConfig(
+        runtimeConfig, assetRoot);
+    if (validation.isValid() && !validation.config.enabled
+        && !m_upscalingPropertiesDirty) {
+        clearUpscalingState();
+        const double dispatchCpuMs =
+            dispatchTimer.nsecsElapsed() / 1'000'000.0;
+        emit upscalingConfigurationFinished(
+            false, true, dispatchCpuMs, dispatchCpuMs);
+        continueAfterUpscalingConfiguration();
+        return true;
+    }
+    auto pending = std::make_unique<PendingUpscalingConfiguration>();
+    pending->requestedProfileId = runtimeConfig.value(
+        QStringLiteral("profileId")).toString();
+    pending->requestEnabled = runtimeConfig.value(
+        QStringLiteral("enabled")).toBool();
+    pending->transitionFromProfile = transitionFromProfile;
+    pending->transitionRenderP95Ms = transitionRenderP95Ms;
+    pending->transitionToOriginal = transitionToOriginal;
+    pending->completionFallbackCode = completionFallbackCode;
+    pending->completionFallbackMessage = completionFallbackMessage;
+    pending->completionTimer.start();
+    appendUpscalingBaselineWrites(*pending);
+
+    bool accepted = true;
+    if (!validation.isValid()) {
+        accepted = false;
+        pending->rollingBack = true;
+        pending->failureErrorCode = validation.errorCode;
+        qCWarning(playbackLog).noquote()
+            << "playback_upscaling_config_rejected"
+            << "errorCode=" << validation.errorCode;
+    } else {
+        pending->config = validation.config;
+        pending->requestEnabled = validation.config.enabled;
+        if (!validation.config.profileId.isEmpty())
+            pending->requestedProfileId = validation.config.profileId;
+    }
+
+    // This renderer exposes the classic libmpv OpenGL API. Keep a final
+    // identity check here even though the runtime validator already enforces
+    // the Anime4K + GLSL product contract.
+    if (accepted && pending->config.enabled
+        && (pending->config.providerId
+                != QLatin1String(YanamiUpscaling::Id::ProviderAnime4k)
+            || pending->config.backendKind
+                != YanamiUpscaling::BackendKind::GlslShaders)) {
+        accepted = false;
+        pending->rollingBack = true;
+        pending->failureErrorCode =
+            QStringLiteral("unsupported-render-backend");
+        qCWarning(playbackLog).noquote()
+            << "playback_upscaling_backend_unsupported"
+            << "provider=" << pending->config.providerId
+            << "backendKind="
+            << static_cast<int>(pending->config.backendKind);
+    }
+
+    if (accepted && pending->config.enabled) {
+        appendUpscalingTargetWrites(*pending, pending->config);
+    }
+
+    // The logical state changes immediately, while every potentially
+    // expensive libmpv property mutation is serialized asynchronously. This
+    // keeps QML responsive and prevents mixed old/new option sets.
+    clearUpscalingState();
+    pending->dispatchCpuMs =
+        dispatchTimer.nsecsElapsed() / 1'000'000.0;
+    m_pendingUpscalingConfiguration = std::move(pending);
+    emit upscalingConfigurationPendingChanged();
+    dispatchNextUpscalingProperty();
+    return accepted;
+}
+
+bool MpvVideoItem::configureUpscaling(const QVariantMap &runtimeConfig)
+{
+    if (m_pendingUpscalingConfiguration) {
+        if (m_deferredOpenRequest) {
+            m_deferredOpenRequest->runtimeConfig = runtimeConfig;
+            return true;
+        }
+        m_queuedUpscalingRuntimeConfig = runtimeConfig;
+        m_hasQueuedUpscalingRuntimeConfig = true;
+        return true;
+    }
+    return beginUpscalingRuntimeConfig(runtimeConfig);
+}
+
+void MpvVideoItem::dispatchNextUpscalingProperty()
+{
+    if (!m_pendingUpscalingConfiguration)
+        return;
+
+    while (m_pendingUpscalingConfiguration) {
+        auto &pending = *m_pendingUpscalingConfiguration;
+        if (pending.nextWriteIndex >= pending.writes.size()) {
+            completeUpscalingRuntimeConfig();
+            return;
+        }
+
+        ++m_nextUpscalingRequestSerial;
+        m_nextUpscalingRequestSerial &= ~upscalingAsyncReplyTag;
+        if (m_nextUpscalingRequestSerial == 0)
+            ++m_nextUpscalingRequestSerial;
+        pending.replyUserdata = upscalingAsyncReplyTag
+            | m_nextUpscalingRequestSerial;
+
+        const auto &write = pending.writes.at(pending.nextWriteIndex);
+        if (write.targetWrite)
+            m_upscalingPropertiesDirty = true;
+        QElapsedTimer callTimer;
+        callTimer.start();
+        const bool dispatched = write.kind
+                == PendingUpscalingConfiguration::PropertyWrite::Kind::ShaderPaths
+            ? setUpscalingShaderPathsAsync(
+                  write.shaderPaths, pending.replyUserdata)
+            : setUpscalingStringPropertyAsync(
+                  write.name, write.stringValue, pending.replyUserdata);
+        pending.dispatchCpuMs += callTimer.nsecsElapsed() / 1'000'000.0;
+        if (dispatched)
+            return;
+
+        // mpv promises no reply when the async call itself is rejected.
+        if (!pending.rollingBack) {
+            beginUpscalingRollback(write.errorCode);
+            return;
+        }
+        pending.rollbackFailed = true;
+        qCWarning(playbackLog).noquote()
+            << "playback_upscaling_baseline_restore_failed"
+            << "option=" << write.name;
+        ++pending.nextWriteIndex;
+    }
+}
+
+void MpvVideoItem::beginUpscalingRollback(const QString &errorCode)
+{
+    if (!m_pendingUpscalingConfiguration)
+        return;
+    auto &pending = *m_pendingUpscalingConfiguration;
+    if (pending.failureErrorCode.isEmpty())
+        pending.failureErrorCode = errorCode;
+    pending.rollingBack = true;
+    pending.writes.clear();
+    pending.nextWriteIndex = 0;
+    pending.replyUserdata = 0;
+    appendUpscalingBaselineWrites(pending);
+    dispatchNextUpscalingProperty();
+}
+
+void MpvVideoItem::finishUpscalingRuntimeConfig(int errorCode)
+{
+    if (!m_pendingUpscalingConfiguration)
+        return;
+
+    // New media has priority over every obsolete configuration, and a rapid
+    // toggle keeps only the latest desired state. A fresh transaction always
+    // begins with the baseline, so abandoning the remainder is safe once the
+    // single in-flight reply has arrived.
+    if (m_deferredOpenRequest) {
+        m_queuedUpscalingRuntimeConfig.clear();
+        m_hasQueuedUpscalingRuntimeConfig = false;
+        m_pendingUpscalingConfiguration.reset();
+        emit upscalingConfigurationPendingChanged();
+        continueAfterUpscalingConfiguration();
+        return;
+    }
+    if (m_hasQueuedUpscalingRuntimeConfig) {
+        const QVariantMap queued = m_queuedUpscalingRuntimeConfig;
+        m_queuedUpscalingRuntimeConfig.clear();
+        m_hasQueuedUpscalingRuntimeConfig = false;
+        m_pendingUpscalingConfiguration.reset();
+        emit upscalingConfigurationPendingChanged();
+        beginUpscalingRuntimeConfig(queued);
+        return;
+    }
+
+    auto &pending = *m_pendingUpscalingConfiguration;
+    const auto &write = pending.writes.at(pending.nextWriteIndex);
+    if (pending.cancelled && !pending.rollingBack) {
+        beginUpscalingRollback({});
+        return;
+    }
+    if (errorCode < 0) {
+        if (!pending.rollingBack) {
+            beginUpscalingRollback(write.errorCode);
+            return;
+        }
+        pending.rollbackFailed = true;
+        qCWarning(playbackLog).noquote()
+            << "playback_upscaling_baseline_restore_failed"
+            << "option=" << write.name
+            << "mpvError=" << errorCode;
+    }
+    ++pending.nextWriteIndex;
+    dispatchNextUpscalingProperty();
+}
+
+void MpvVideoItem::completeUpscalingRuntimeConfig()
+{
+    if (!m_pendingUpscalingConfiguration)
+        return;
+
+    auto completed = std::move(m_pendingUpscalingConfiguration);
+    emit upscalingConfigurationPendingChanged();
+    const double completionMs = completed->completionTimer.nsecsElapsed()
+        / 1'000'000.0;
+
+    if (completed->rollingBack) {
+        clearUpscalingState();
+        if (!completed->rollbackFailed)
+            m_upscalingPropertiesDirty = false;
+        if (!completed->cancelled
+            && !completed->failureErrorCode.isEmpty()) {
+            const QString message = completed->rollbackFailed
+                ? tr("Real-time upscaling cleanup failed. Restart playback to restore original quality.")
+                : (!completed->transitionFromProfile.isEmpty()
+                       && !completed->transitionToOriginal
+                    ? tr("Real-time upscaling was disabled because the lower performance tier could not be applied.")
+                    : tr("Real-time upscaling could not be applied. Playback is continuing in original quality."));
+            const QString fallbackErrorCode = completed->rollbackFailed
+                ? QStringLiteral("mpv-baseline-restore-failed")
+                : completed->failureErrorCode;
+            emit upscalingFallback(
+                completed->requestedProfileId,
+                fallbackErrorCode,
+                message);
+            emit upscalingConfigurationFinished(
+                completed->requestEnabled,
+                false,
+                completed->dispatchCpuMs,
+                completionMs);
+        }
+    } else if (completed->config.enabled) {
+        m_upscalingPropertiesDirty = true;
+        commitUpscalingState(completed->config);
+        recordUpscalingApplied(
+            completed->config,
+            completed->dispatchCpuMs,
+            completionMs);
+        if (!completed->transitionFromProfile.isEmpty()) {
+            qCWarning(playbackLog).noquote()
+                << "playback_upscaling_auto_downgraded"
+                << "from=" << completed->transitionFromProfile
+                << "to=" << m_effectiveUpscalingProfile
+                << "renderP95Ms=" << completed->transitionRenderP95Ms;
+            emit upscalingTierChanged(
+                completed->transitionFromProfile,
+                m_effectiveUpscalingProfile,
+                QStringLiteral("frame-budget"));
+            if (m_performanceTraceEnabled) {
+                YanamiPerformance::PerformanceTrace::mark(
+                    QStringLiteral("playback_upscaling_auto_downgraded"),
+                    {
+                        {QStringLiteral("fromProfileId"),
+                         completed->transitionFromProfile},
+                        {QStringLiteral("toProfileId"),
+                         m_effectiveUpscalingProfile},
+                        {QStringLiteral("renderP95Ms"),
+                         completed->transitionRenderP95Ms},
+                    });
+            }
+        }
+        emit upscalingConfigurationFinished(
+            true,
+            true,
+            completed->dispatchCpuMs,
+            completionMs);
+    } else {
+        m_upscalingPropertiesDirty = false;
+        clearUpscalingState();
+        if (completed->transitionToOriginal
+            && !completed->transitionFromProfile.isEmpty()) {
+            qCWarning(playbackLog).noquote()
+                << "playback_upscaling_auto_disabled"
+                << "from=" << completed->transitionFromProfile
+                << "reason=frame-budget";
+            emit upscalingTierChanged(
+                completed->transitionFromProfile,
+                QStringLiteral("original"),
+                QStringLiteral("frame-budget"));
+            emit upscalingFallback(
+                completed->transitionFromProfile,
+                QStringLiteral("frame-budget"),
+                tr("Real-time upscaling was disabled for this playback to keep video smooth."));
+        } else if (!completed->completionFallbackCode.isEmpty()) {
+            emit upscalingFallback(
+                completed->requestedProfileId,
+                completed->completionFallbackCode,
+                completed->completionFallbackMessage);
+        }
+        emit upscalingConfigurationFinished(
+            false,
+            true,
+            completed->dispatchCpuMs,
+            completionMs);
+    }
+
+    continueAfterUpscalingConfiguration();
+}
+
+void MpvVideoItem::continueAfterUpscalingConfiguration()
+{
+    if (m_pendingUpscalingConfiguration)
+        return;
+    if (m_deferredOpenRequest) {
+        m_pendingLoadTarget.clear();
+        m_pendingLoadGeneration = 0;
+        m_pendingLoadWaitsForUpscaling = false;
+        auto deferred = std::move(m_deferredOpenRequest);
+        openWithUpscaling(
+            deferred->url,
+            deferred->headers,
+            deferred->runtimeConfig);
+        return;
+    }
+    if (m_pendingLoadWaitsForUpscaling) {
+        m_pendingLoadWaitsForUpscaling = false;
+        update();
+        dispatchPendingLoad();
+    }
+}
+
+void MpvVideoItem::openWithUpscaling(
+    const QUrl &url,
+    const QVariantMap &headers,
+    const QVariantMap &runtimeConfig)
+{
+    if (m_pendingUpscalingConfiguration) {
+        m_deferredOpenRequest = std::make_unique<DeferredOpenRequest>(
+            DeferredOpenRequest {url, headers, runtimeConfig});
+        return;
+    }
     resetPlaybackStall();
     ++m_loadGeneration;
     m_loadTimer.restart();
     m_bufferingTimer.invalidate();
     m_bufferingTransitions = 0;
     m_totalBufferingMs = 0;
-    if (m_performanceTraceEnabled) {
+    if (m_performanceTraceEnabled || m_upscalingPerformanceProtection) {
         m_decoderDroppedFrames = 0;
         m_outputDroppedFrames = 0;
         m_mistimedFrames = 0;
@@ -588,11 +1362,52 @@ void MpvVideoItem::open(const QUrl &url, const QVariantMap &headers)
     m_startupWatchStartedMs = playbackStallNow();
     m_lastPlaybackStallPollMs = m_startupWatchStartedMs;
     m_playbackStallTimer.start();
-    command({"loadfile", url.toString(QUrl::FullyEncoded).toUtf8(), "replace"});
+    m_pendingLoadTarget = url.toString(QUrl::FullyEncoded).toUtf8();
+    m_pendingLoadGeneration = m_loadGeneration;
+    m_pendingLoadWaitsForUpscaling = true;
+    configureUpscaling(runtimeConfig);
+    if (!m_pendingUpscalingConfiguration)
+        m_pendingLoadWaitsForUpscaling = false;
+    // QQuickFramebufferObject creates libmpv's render context lazily on the
+    // scene-graph thread. Queue the load until that context exists; otherwise
+    // an immediate first playback can fail with "No render context set".
+    update();
+    dispatchPendingLoad();
+}
+
+void MpvVideoItem::dispatchPendingLoad()
+{
+    if (m_pendingLoadTarget.isEmpty()
+        || m_pendingLoadGeneration != m_loadGeneration
+        || m_pendingLoadWaitsForUpscaling
+        || !m_renderState->rendererReady.load(std::memory_order_acquire)) {
+        return;
+    }
+    const QByteArray target = std::exchange(
+        m_pendingLoadTarget, QByteArray{});
+    m_pendingLoadGeneration = 0;
+    qCInfo(playbackLog).noquote()
+        << "playback_mpv_load_dispatched"
+        << "generation=" << m_loadGeneration;
+    command({"loadfile", target, "replace"});
 }
 
 void MpvVideoItem::stop()
 {
+    m_deferredOpenRequest.reset();
+    m_queuedUpscalingRuntimeConfig.clear();
+    m_hasQueuedUpscalingRuntimeConfig = false;
+    m_pendingLoadTarget.clear();
+    m_pendingLoadGeneration = 0;
+    m_pendingLoadWaitsForUpscaling = false;
+    if (m_pendingUpscalingConfiguration)
+        m_pendingUpscalingConfiguration->cancelled = true;
+    else
+        beginUpscalingRuntimeConfig({
+            {QStringLiteral("schema"), 1},
+            {QStringLiteral("enabled"), false},
+        });
+    clearUpscalingState();
     if (m_buffering && m_bufferingTimer.isValid()) {
         m_totalBufferingMs += m_bufferingTimer.elapsed();
         m_bufferingTimer.invalidate();
@@ -761,7 +1576,12 @@ void MpvVideoItem::drainEvents()
     while (const mpv_event *event = mpv_wait_event(m_mpv, 0)) {
         if (event->event_id == MPV_EVENT_NONE)
             break;
-        if (event->event_id == MPV_EVENT_FILE_LOADED) {
+        if (event->event_id == MPV_EVENT_SET_PROPERTY_REPLY
+            && m_pendingUpscalingConfiguration
+            && event->reply_userdata
+                == m_pendingUpscalingConfiguration->replyUserdata) {
+            finishUpscalingRuntimeConfig(event->error);
+        } else if (event->event_id == MPV_EVENT_FILE_LOADED) {
             m_fileLoaded = true;
             m_completionGate.reset();
             const qint64 nowMs = playbackStallNow();
@@ -824,6 +1644,9 @@ void MpvVideoItem::drainEvents()
                 }
             }
         } else if (event->event_id == MPV_EVENT_END_FILE) {
+            auto *endFile = static_cast<mpv_event_end_file *>(event->data);
+            const bool explicitlyStopped = endFile
+                && endFile->reason == MPV_END_FILE_REASON_STOP;
             if (m_buffering && m_bufferingTimer.isValid()) {
                 m_totalBufferingMs += m_bufferingTimer.elapsed();
                 m_bufferingTimer.invalidate();
@@ -831,8 +1654,8 @@ void MpvVideoItem::drainEvents()
             m_fileLoaded = false;
             m_buffering = false;
             resetPlaybackStall();
-            setPlaybackState(PlaybackState::Ended);
-            auto *endFile = static_cast<mpv_event_end_file *>(event->data);
+            setPlaybackState(explicitlyStopped
+                    ? PlaybackState::Idle : PlaybackState::Ended);
             qCInfo(playbackLog).noquote()
                 << "playback_mpv_file_ended"
                 << "generation=" << m_loadGeneration
@@ -1052,11 +1875,51 @@ void MpvVideoItem::drainEvents()
         } else if (event->event_id == MPV_EVENT_LOG_MESSAGE) {
             auto *message = static_cast<mpv_event_log_message *>(event->data);
             if (message) {
+                const QString sanitized = sanitizedMpvLog(message->text);
                 qCWarning(playbackLog).noquote()
                     << "mpv_warning"
                     << "generation=" << m_loadGeneration
                     << "component=" << message->prefix
-                    << "message=" << sanitizedMpvLog(message->text);
+                    << "message=" << sanitized;
+                const QString diagnostic =
+                    QString::fromUtf8(message->prefix) + QLatin1Char(' ')
+                    + sanitized;
+                const bool shaderDiagnostic =
+                    diagnostic.contains(
+                        QStringLiteral("shader"), Qt::CaseInsensitive)
+                    || diagnostic.contains(
+                        QStringLiteral("glsl"), Qt::CaseInsensitive);
+                const bool compileFailure =
+                    diagnostic.contains(
+                        QStringLiteral("failed"), Qt::CaseInsensitive)
+                    || diagnostic.contains(
+                        QStringLiteral("error"), Qt::CaseInsensitive)
+                    || diagnostic.contains(
+                        QStringLiteral("could not"), Qt::CaseInsensitive);
+                if (m_upscalingActive && shaderDiagnostic && compileFailure) {
+                    const QString failedProfile =
+                        m_effectiveUpscalingProfile;
+                    beginUpscalingRuntimeConfig(
+                        {
+                            {QStringLiteral("schema"), 1},
+                            {QStringLiteral("enabled"), false},
+                            {QStringLiteral("profileId"), failedProfile},
+                        },
+                        {},
+                        0.0,
+                        false,
+                        QStringLiteral("shader-compile"),
+                        tr("The selected upscaling shader could not be compiled. Playback is continuing in original quality."));
+                    if (m_performanceTraceEnabled) {
+                        YanamiPerformance::PerformanceTrace::mark(
+                            QStringLiteral("playback_upscaling_fallback"),
+                            {
+                                {QStringLiteral("profileId"), failedProfile},
+                                {QStringLiteral("errorCode"),
+                                 QStringLiteral("shader-compile")},
+                            });
+                    }
+                }
             }
         }
     }
@@ -1092,6 +1955,21 @@ QVariantMap MpvVideoItem::performanceSnapshot() const
         {QStringLiteral("avSyncAvailable"), m_avSyncAvailable},
         {QStringLiteral("estimatedVideoFpsAvailable"),
          m_estimatedVideoFpsAvailable},
+        {QStringLiteral("upscalingActive"), m_upscalingActive},
+        {QStringLiteral("upscalingProviderId"),
+         m_effectiveUpscalingProvider},
+        {QStringLiteral("upscalingProfileId"),
+         m_effectiveUpscalingProfile},
+        {QStringLiteral("upscalingModelVersion"),
+         m_effectiveUpscalingVersion},
+        {QStringLiteral("upscalingRenderP95Ms"),
+         m_upscalingLastRenderP95Ms},
+        {QStringLiteral("upscalingRenderAverageMs"),
+         m_upscalingLastRenderAverageMs},
+        {QStringLiteral("upscalingRenderMaximumMs"),
+         m_upscalingLastRenderMaximumMs},
+        {QStringLiteral("upscalingOverloadWindows"),
+         m_upscalingProtection.consecutiveOverloadWindows()},
     };
 }
 
@@ -1204,6 +2082,170 @@ void MpvVideoItem::updatePlaybackPauseMonitoring(bool paused)
         }
     }
     refreshPlaybackState();
+}
+
+void MpvVideoItem::pollUpscalingHealth()
+{
+    if (!m_upscalingActive || !m_upscalingPerformanceProtection)
+        return;
+    QElapsedTimer healthPollTimer;
+    healthPollTimer.start();
+
+    std::array<quint64, upscalingRenderHistogramBucketCount> histogram{};
+    quint64 histogramSamples = 0;
+    for (std::size_t index = 0; index < histogram.size(); ++index) {
+        histogram[index] = m_renderState->upscalingRenderHistogram[index]
+            .exchange(0, std::memory_order_relaxed);
+        histogramSamples += histogram[index];
+    }
+    const quint64 renderCount = m_renderState->upscalingRenderCount.exchange(
+        0, std::memory_order_relaxed);
+    const quint64 totalNanoseconds =
+        m_renderState->upscalingRenderTotalNanoseconds.exchange(
+            0, std::memory_order_relaxed);
+    const quint64 maximumNanoseconds =
+        m_renderState->upscalingRenderMaximumNanoseconds.exchange(
+            0, std::memory_order_relaxed);
+    std::array<quint64, upscalingWrapperHistogramBucketCount> wrapperHistogram{};
+    quint64 wrapperHistogramSamples = 0;
+    for (std::size_t index = 0; index < wrapperHistogram.size(); ++index) {
+        wrapperHistogram[index] = m_renderState->upscalingWrapperHistogram[index]
+            .exchange(0, std::memory_order_relaxed);
+        wrapperHistogramSamples += wrapperHistogram[index];
+    }
+    const quint64 wrapperCount = m_renderState->upscalingWrapperCount.exchange(
+        0, std::memory_order_relaxed);
+    const quint64 wrapperTotalNanoseconds =
+        m_renderState->upscalingWrapperTotalNanoseconds.exchange(
+            0, std::memory_order_relaxed);
+    const quint64 wrapperMaximumNanoseconds =
+        m_renderState->upscalingWrapperMaximumNanoseconds.exchange(
+            0, std::memory_order_relaxed);
+    if (renderCount == 0 || histogramSamples == 0)
+        return;
+
+    const quint64 target = std::max<quint64>(
+        1, static_cast<quint64>(std::ceil(histogramSamples * 0.95)));
+    quint64 cumulative = 0;
+    quint64 p95Nanoseconds = maximumNanoseconds;
+    for (std::size_t index = 0; index < histogram.size(); ++index) {
+        cumulative += histogram[index];
+        if (cumulative < target)
+            continue;
+        p95Nanoseconds = index < upscalingRenderHistogramLimitsNs.size()
+            ? upscalingRenderHistogramLimitsNs[index]
+            : maximumNanoseconds;
+        break;
+    }
+    m_upscalingLastRenderP95Ms = p95Nanoseconds / 1'000'000.0;
+    m_upscalingLastRenderAverageMs =
+        totalNanoseconds / 1'000'000.0 / renderCount;
+    m_upscalingLastRenderMaximumMs = maximumNanoseconds / 1'000'000.0;
+
+    quint64 wrapperP95Nanoseconds = wrapperMaximumNanoseconds;
+    if (wrapperCount > 0 && wrapperHistogramSamples > 0) {
+        const quint64 wrapperTarget = std::max<quint64>(
+            1, static_cast<quint64>(std::ceil(wrapperHistogramSamples * 0.95)));
+        quint64 wrapperCumulative = 0;
+        for (std::size_t index = 0; index < wrapperHistogram.size(); ++index) {
+            wrapperCumulative += wrapperHistogram[index];
+            if (wrapperCumulative < wrapperTarget)
+                continue;
+            wrapperP95Nanoseconds =
+                index < upscalingWrapperHistogramLimitsNs.size()
+                ? upscalingWrapperHistogramLimitsNs[index]
+                : wrapperMaximumNanoseconds;
+            break;
+        }
+    }
+    const double wrapperP95Us = wrapperP95Nanoseconds / 1'000.0;
+    const double wrapperAverageUs = wrapperCount > 0
+        ? wrapperTotalNanoseconds / 1'000.0 / wrapperCount : 0.0;
+    const double wrapperMaximumUs = wrapperMaximumNanoseconds / 1'000.0;
+
+    const qint64 outputDropped = std::max<qint64>(
+        0, m_outputDroppedFrames - m_upscalingPreviousOutputDroppedFrames);
+    const qint64 mistimed = std::max<qint64>(
+        0, m_mistimedFrames - m_upscalingPreviousMistimedFrames);
+    const qint64 delayed = std::max<qint64>(
+        0, m_delayedFrames - m_upscalingPreviousDelayedFrames);
+    m_upscalingPreviousOutputDroppedFrames = m_outputDroppedFrames;
+    m_upscalingPreviousMistimedFrames = m_mistimedFrames;
+    m_upscalingPreviousDelayedFrames = m_delayedFrames;
+
+    YanamiUpscaling::HealthWindow window;
+    window.renderSamples = renderCount;
+    window.renderP95Ms = m_upscalingLastRenderP95Ms;
+    window.estimatedFps = m_estimatedVideoFpsAvailable
+        ? m_estimatedVideoFps : 0.0;
+    window.outputDroppedFrames = outputDropped;
+    window.mistimedFrames = mistimed;
+    window.delayedFrames = delayed;
+    window.avSyncMs = m_avSyncAvailable ? m_avSyncSeconds * 1000.0 : 0.0;
+    window.playing = m_playbackState == PlaybackState::Playing;
+    window.buffering = m_buffering || m_watchdogBuffering;
+    window.paused = m_paused || m_pauseRequested;
+
+    const auto action = m_upscalingProtection.evaluate(window);
+    const double healthPollCpuUs = healthPollTimer.nsecsElapsed() / 1'000.0;
+    if (m_performanceTraceEnabled) {
+        YanamiPerformance::PerformanceTrace::mark(
+            QStringLiteral("playback_upscaling_health_window"),
+            {
+                {QStringLiteral("profileId"), m_effectiveUpscalingProfile},
+                {QStringLiteral("renderSamples"),
+                 QVariant::fromValue<qulonglong>(renderCount)},
+                {QStringLiteral("renderP95Ms"), m_upscalingLastRenderP95Ms},
+                {QStringLiteral("renderAverageMs"),
+                 m_upscalingLastRenderAverageMs},
+                {QStringLiteral("renderMaximumMs"),
+                 m_upscalingLastRenderMaximumMs},
+                {QStringLiteral("wrapperP95Us"), wrapperP95Us},
+                {QStringLiteral("wrapperAverageUs"), wrapperAverageUs},
+                {QStringLiteral("wrapperMaximumUs"), wrapperMaximumUs},
+                {QStringLiteral("healthPollCpuUs"), healthPollCpuUs},
+                {QStringLiteral("estimatedVideoFps"), window.estimatedFps},
+                {QStringLiteral("outputDroppedFrames"), outputDropped},
+                {QStringLiteral("mistimedFrames"), mistimed},
+                {QStringLiteral("delayedFrames"), delayed},
+                {QStringLiteral("avSyncMs"), window.avSyncMs},
+                {QStringLiteral("playing"), window.playing},
+                {QStringLiteral("buffering"), window.buffering},
+                {QStringLiteral("paused"), window.paused},
+                {QStringLiteral("frameBudgetMs"),
+                 m_upscalingProtection.lastFrameBudgetMs()},
+                {QStringLiteral("guardBudgetMs"),
+                 m_upscalingProtection.lastGuardBudgetMs()},
+                {QStringLiteral("overloaded"),
+                 m_upscalingProtection.lastWindowOverloaded()},
+            });
+    }
+    if (action == YanamiUpscaling::PerformanceProtection::Action::None)
+        return;
+
+    const QString previousProfile = m_effectiveUpscalingProfile;
+    const double overloadedRenderP95Ms = m_upscalingLastRenderP95Ms;
+    if (action == YanamiUpscaling::PerformanceProtection::Action::Downgrade
+        && !m_upscalingFallbacks.isEmpty()) {
+        QVariantList remainingFallbacks = m_upscalingFallbacks;
+        QVariantMap next = remainingFallbacks.takeFirst().toMap();
+        next.insert(QStringLiteral("fallbacks"), remainingFallbacks);
+        beginUpscalingRuntimeConfig(
+            next,
+            previousProfile,
+            overloadedRenderP95Ms,
+            false);
+        return;
+    }
+
+    beginUpscalingRuntimeConfig(
+        {
+            {QStringLiteral("schema"), 1},
+            {QStringLiteral("enabled"), false},
+        },
+        previousProfile,
+        overloadedRenderP95Ms,
+        true);
 }
 
 void MpvVideoItem::pollPlaybackStall()

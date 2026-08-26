@@ -358,6 +358,33 @@ private slots:
         }
         reporter.stopSession();
     }
+
+    void nonAnime4kUpscalingFailsClosedOnThePlayer()
+    {
+        MpvVideoItem player;
+        QSignalSpy completed(
+            &player, &MpvVideoItem::upscalingConfigurationFinished);
+
+        const bool accepted = player.configureUpscaling({
+            {QStringLiteral("schema"), 1},
+            {QStringLiteral("enabled"), true},
+            {QStringLiteral("providerId"), QStringLiteral("unsupported")},
+            {QStringLiteral("profileId"), QStringLiteral("unsupported/balanced")},
+            {QStringLiteral("modelVersion"), QStringLiteral("1.0")},
+            {QStringLiteral("backend"), QVariantMap {
+                {QStringLiteral("kind"), QStringLiteral("glsl-shaders")},
+            }},
+        });
+
+        QVERIFY(!accepted);
+        QVERIFY(!player.upscalingActive());
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !player.upscalingConfigurationPending(), 2'000);
+        QVERIFY(!player.upscalingActive());
+        QCOMPARE(completed.count(), 1);
+        QCOMPARE(completed.constFirst().at(0).toBool(), true);
+        QCOMPARE(completed.constFirst().at(1).toBool(), false);
+    }
 };
 
 QTEST_MAIN(PlaybackReporterTests)

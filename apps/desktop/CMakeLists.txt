@@ -247,6 +247,18 @@ qt_add_executable(yanami-desktop
     native/RuntimeLogger.hpp
     native/UpdateChecker.cpp
     native/UpdateChecker.hpp
+    native/UpscalingAssetManager.cpp
+    native/UpscalingAssetManager.hpp
+    native/UpscalingCapabilityProbe.cpp
+    native/UpscalingCapabilityProbe.hpp
+    native/UpscalingCatalog.cpp
+    native/UpscalingCatalog.hpp
+    native/UpscalingPerformancePolicy.cpp
+    native/UpscalingPerformancePolicy.hpp
+    native/UpscalingRuntimeConfig.cpp
+    native/UpscalingRuntimeConfig.hpp
+    native/UpscalingViewModel.cpp
+    native/UpscalingViewModel.hpp
     native/WindowController.cpp
     native/WindowController.hpp
 )
@@ -341,6 +353,7 @@ qt_add_qml_module(yanami-ui
         qml/components/PosterCard.qml
         qml/components/PlaybackAdvancePolicy.qml
         qml/components/PlaybackEndOverlay.qml
+        qml/components/PlaybackSettingsMenu.qml
         qml/components/StatusToast.qml
         qml/components/PlaybackQueueMenu.qml
         qml/components/PlaybackHost.qml
@@ -738,6 +751,10 @@ if(BUILD_TESTING)
         native/DevelopmentHooks.hpp
         native/PerformanceTrace.cpp
         native/PerformanceTrace.hpp
+        native/UpscalingPerformancePolicy.cpp
+        native/UpscalingPerformancePolicy.hpp
+        native/UpscalingRuntimeConfig.cpp
+        native/UpscalingRuntimeConfig.hpp
     )
     target_include_directories(yanami-playback-reporter-tests PRIVATE native)
     target_link_libraries(yanami-playback-reporter-tests PRIVATE
@@ -949,16 +966,174 @@ if(BUILD_TESTING)
         native/MediaStore.hpp
         native/UpdateChecker.cpp
         native/UpdateChecker.hpp
+        native/UpscalingAssetManager.cpp
+        native/UpscalingAssetManager.hpp
+        native/UpscalingCapabilityProbe.cpp
+        native/UpscalingCapabilityProbe.hpp
+        native/UpscalingCatalog.cpp
+        native/UpscalingCatalog.hpp
+        native/UpscalingViewModel.cpp
+        native/UpscalingViewModel.hpp
     )
     target_include_directories(yanami-application-view-model-tests PRIVATE native)
     target_link_libraries(yanami-application-view-model-tests PRIVATE
         Qt6::Core
+        Qt6::Concurrent
+        Qt6::Gui
         Qt6::Network
+        Qt6::Quick
         Qt6::Test
     )
     add_test(
         NAME yanami-application-view-model-tests
         COMMAND $<TARGET_FILE:yanami-application-view-model-tests>
+    )
+    add_executable(yanami-upscaling-performance-policy-tests
+        tests/UpscalingPerformancePolicyTests.cpp
+        native/UpscalingPerformancePolicy.cpp
+        native/UpscalingPerformancePolicy.hpp
+    )
+    target_include_directories(
+        yanami-upscaling-performance-policy-tests PRIVATE native)
+    target_link_libraries(
+        yanami-upscaling-performance-policy-tests PRIVATE Qt6::Core Qt6::Test)
+    add_test(
+        NAME yanami-upscaling-performance-policy-tests
+        COMMAND $<TARGET_FILE:yanami-upscaling-performance-policy-tests>
+    )
+    add_executable(yanami-upscaling-asset-manager-tests
+        tests/UpscalingAssetManagerTests.cpp
+        native/UpscalingAssetManager.cpp
+        native/UpscalingAssetManager.hpp
+        native/UpscalingCatalog.hpp
+    )
+    target_include_directories(
+        yanami-upscaling-asset-manager-tests PRIVATE native)
+    target_link_libraries(yanami-upscaling-asset-manager-tests PRIVATE
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+    )
+    add_test(
+        NAME yanami-upscaling-asset-manager-tests
+        COMMAND $<TARGET_FILE:yanami-upscaling-asset-manager-tests>
+    )
+    add_executable(yanami-upscaling-catalog-tests
+        tests/UpscalingCatalogTests.cpp
+        native/UpscalingCatalog.cpp
+        native/UpscalingCatalog.hpp
+    )
+    target_include_directories(yanami-upscaling-catalog-tests PRIVATE native)
+    target_link_libraries(
+        yanami-upscaling-catalog-tests PRIVATE Qt6::Core Qt6::Test)
+    add_test(
+        NAME yanami-upscaling-catalog-tests
+        COMMAND $<TARGET_FILE:yanami-upscaling-catalog-tests>
+    )
+    add_executable(yanami-upscaling-runtime-config-tests
+        tests/UpscalingRuntimeConfigTests.cpp
+        native/UpscalingRuntimeConfig.cpp
+        native/UpscalingRuntimeConfig.hpp
+    )
+    target_include_directories(
+        yanami-upscaling-runtime-config-tests PRIVATE native)
+    target_link_libraries(
+        yanami-upscaling-runtime-config-tests PRIVATE Qt6::Core Qt6::Test)
+    add_test(
+        NAME yanami-upscaling-runtime-config-tests
+        COMMAND $<TARGET_FILE:yanami-upscaling-runtime-config-tests>
+    )
+    add_executable(yanami-upscaling-capability-probe-tests
+        tests/UpscalingCapabilityProbeTests.cpp
+        native/UpscalingCapabilityProbe.cpp
+        native/UpscalingCapabilityProbe.hpp
+    )
+    target_include_directories(
+        yanami-upscaling-capability-probe-tests PRIVATE native)
+    target_link_libraries(yanami-upscaling-capability-probe-tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Quick
+        Qt6::Test
+    )
+    add_test(
+        NAME yanami-upscaling-capability-probe-tests
+        COMMAND $<TARGET_FILE:yanami-upscaling-capability-probe-tests>
+    )
+    add_executable(yanami-upscaling-perf-probe
+        tests/performance/UpscalingPerfProbe.cpp
+        native/UpscalingCapabilityProbe.cpp
+        native/UpscalingCapabilityProbe.hpp
+        native/UpscalingCatalog.cpp
+        native/UpscalingCatalog.hpp
+        native/UpscalingPerformancePolicy.cpp
+        native/UpscalingPerformancePolicy.hpp
+    )
+    target_include_directories(yanami-upscaling-perf-probe PRIVATE native)
+    target_link_libraries(yanami-upscaling-perf-probe PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Quick
+    )
+    add_test(
+        NAME yanami-upscaling-perf-collect
+        COMMAND $<TARGET_FILE:yanami-upscaling-perf-probe>
+            --fixture
+                "${YANAMI_WORKSPACE}/perf/fixtures/upscaling-capability-v1.json"
+            --fixture-manifest
+                "${YANAMI_WORKSPACE}/perf/fixtures/upscaling-capability-v1.manifest.json"
+            --output
+                "${CMAKE_CURRENT_BINARY_DIR}/perf/upscaling-hosted-run-manifest.json"
+            --mode collect
+    )
+    set_tests_properties(yanami-upscaling-perf-collect PROPERTIES
+        LABELS "performance;collect"
+        TIMEOUT 60
+    )
+    add_executable(yanami-upscaling-download-smoke
+        tests/integration/UpscalingDownloadSmoke.cpp
+        native/UpscalingAssetManager.cpp
+        native/UpscalingAssetManager.hpp
+        native/UpscalingCatalog.cpp
+        native/UpscalingCatalog.hpp
+    )
+    target_include_directories(yanami-upscaling-download-smoke PRIVATE native)
+    target_link_libraries(yanami-upscaling-download-smoke PRIVATE
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Network
+    )
+    add_executable(yanami-upscaling-mpv-smoke
+        tests/integration/UpscalingMpvSmoke.cpp
+        native/DevelopmentHooks.cpp
+        native/DevelopmentHooks.hpp
+        native/MpvVideoItem.cpp
+        native/MpvVideoItem.hpp
+        native/PerformanceTrace.cpp
+        native/PerformanceTrace.hpp
+        native/PlaybackCompletionGate.hpp
+        native/PlaybackStallWatchdog.hpp
+        native/UpscalingAssetManager.cpp
+        native/UpscalingAssetManager.hpp
+        native/UpscalingCapabilityProbe.cpp
+        native/UpscalingCapabilityProbe.hpp
+        native/UpscalingCatalog.cpp
+        native/UpscalingCatalog.hpp
+        native/UpscalingPerformancePolicy.cpp
+        native/UpscalingPerformancePolicy.hpp
+        native/UpscalingRuntimeConfig.cpp
+        native/UpscalingRuntimeConfig.hpp
+    )
+    target_include_directories(yanami-upscaling-mpv-smoke PRIVATE native)
+    target_link_libraries(yanami-upscaling-mpv-smoke PRIVATE
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Network
+        Qt6::OpenGL
+        Qt6::Quick
+        MPV::MPV
     )
     add_executable(yanami-update-checker-tests
         tests/UpdateCheckerTests.cpp
@@ -1103,6 +1278,7 @@ if(BUILD_TESTING)
             yanami-keyed-mutation-scheduler-tests
             yanami-image-editor-view-model-tests
             yanami-application-view-model-tests
+            yanami-upscaling-perf-collect
             yanami-update-checker-tests
             yanami-performance-trace-tests
             yanami-desktop-perf-collect

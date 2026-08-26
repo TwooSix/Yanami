@@ -154,8 +154,45 @@ try {
         Assert-True (-not [string]::IsNullOrWhiteSpace([string]$definition.evidence)) "Canonical Search invariant '$($definition.id)' must declare its exact evidence class."
         Assert-True (-not [string]::IsNullOrWhiteSpace([string]$definition.producerProbeKind)) "Canonical Search invariant '$($definition.id)' must require a runner-attested producer probe."
     }
-    $expectedSuites = @("search", "backend", "interaction", "playback", "danmaku", "startup")
-    Assert-Equal (@(Get-YanamiPerfSuites) -join ",") ($expectedSuites -join ",") "The canonical default suite list must contain all six suites in stable order."
+    $expectedSuites = @("search", "backend", "interaction", "playback", "danmaku", "upscaling", "startup")
+    Assert-Equal (@(Get-YanamiPerfSuites) -join ",") ($expectedSuites -join ",") "The canonical default suite list must contain all seven suites in stable order."
+    Assert-Equal @($productionSlo.metrics).Count 104 "SLO-v1 must contain the existing 94 metrics plus ten isolated upscaling metrics."
+    Assert-Equal @($productionSlo.invariants).Count 41 "SLO-v1 must contain the existing 32 invariants plus nine isolated upscaling invariants."
+
+    $upscalingMetricDefinitions = @($productionSlo.metrics | Where-Object { [string]$_.suite -eq "upscaling" })
+    $upscalingInvariantDefinitions = @($productionSlo.invariants | Where-Object { [string]$_.suite -eq "upscaling" })
+    Assert-Equal $upscalingMetricDefinitions.Count 10 "Upscaling must remain an independently routable metric suite with explicit Yanami-owned overhead metrics."
+    Assert-Equal $upscalingInvariantDefinitions.Count 9 "Upscaling must retain hosted production-policy and strict evidence invariants."
+    $hostedUpscalingMetrics = @($upscalingMetricDefinitions | Where-Object { "PullRequest" -in @($_.requiredProfiles) })
+    Assert-Equal $hostedUpscalingMetrics.Count 2 "Hosted CI may measure only capability/catalog resolve catastrophe latency."
+    Assert-Equal @($hostedUpscalingMetrics | Where-Object {
+        [string]$_.evidence -ne "fixture-component-observation" -or
+        [string]$_.producerProbeKind -ne "native-upscaling-production-probe"
+    }).Count 0 "Hosted upscaling metrics must require the runner-attested native production probe and never claim GPU evidence."
+    $strictUpscalingMetrics = @($upscalingMetricDefinitions | Where-Object { "PullRequest" -notin @($_.requiredProfiles) })
+    Assert-Equal @($strictUpscalingMetrics | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.evidence) }).Count 0 "Every strict upscaling metric must name an external evidence contract."
+    $upscalingCapabilityContract = Read-YanamiPerfJson -Path (
+        Join-Path $workspace "perf\fixtures\upscaling-capability-v1.json")
+    Assert-Equal (@($upscalingCapabilityContract.providers | ForEach-Object { [string]$_.id }) -join ",") "anime4k" "Anime4K must be the only production provider in the capability fixture."
+    Assert-Equal @($upscalingCapabilityContract.providers | Where-Object {
+        [string]$_.id -ne "anime4k" -or [bool]$_.alwaysUnsupported
+    }).Count 0 "The sole Anime4K provider must not carry a legacy unsupported-provider tombstone."
+    Assert-Equal @($upscalingCapabilityContract.cases | Where-Object {
+        @($_.expectedSupportedProviders | Where-Object { [string]$_ -ne "anime4k" }).Count -gt 0
+    }).Count 0 "Anime4K must be the only provider that the capability oracle can enable or certify."
+    Assert-Equal @($upscalingCapabilityContract.cases | Where-Object {
+        [string]$_.graphicsApi -ne "OpenGL" -and @($_.expectedSupportedProviders).Count -gt 0
+    }).Count 0 "Direct3D, Vulkan, Metal, and software cases must not be promoted by the hosted capability fixture."
+    $upscalingReference = (Read-YanamiPerfJson -Path (
+        Join-Path $workspace "perf\environments\windows-reference-v1.json")).upscalingStrictRendering
+    Assert-Equal ([string]$upscalingReference.qtRhiRenderer) "opengl" "Strict upscaling must stay isolated on the production Qt OpenGL renderer."
+    Assert-Equal ([string]$upscalingReference.mpvRenderApi) "libmpv-opengl" "Strict upscaling must bind the production libmpv OpenGL render API."
+    $upscalingModelPackContract = Read-YanamiPerfJson -Path (
+        Join-Path $workspace "perf\fixtures\upscaling-model-pack-v1.manifest.json")
+    Assert-Equal (@($upscalingModelPackContract.requiredModelPacks | ForEach-Object { [string]$_.provider } | Sort-Object -Unique) -join ",") "anime4k" "Only Anime4K model packs may enter strict certification."
+    Assert-True ($null -eq $upscalingModelPackContract.PSObject.Properties["uncertifiedProviders"]) "The Anime4K-only model-pack contract must not retain removed provider exclusions."
+    Assert-Equal ([string]$upscalingModelPackContract.strictEvidenceBundle.measurementNormalizer.state) "not-provisioned" "Strict upscaling must remain unroutable until a real raw-evidence normalizer is pinned."
+    Assert-Equal @($upscalingModelPackContract.strictEvidenceBundle.measurementNormalizer.approvedExecutables).Count 0 "An unprovisioned normalizer contract must not carry a placeholder executable allow-list."
 
     $danmakuMetricDefinitions = @($productionSlo.metrics | Where-Object { [string]$_.suite -eq "danmaku" })
     $danmakuInvariantDefinitions = @($productionSlo.invariants | Where-Object { [string]$_.suite -eq "danmaku" })
@@ -204,7 +241,9 @@ try {
     Assert-Equal (@(Get-YanamiRequiredFixtureIds -Policy $productionPolicy -Suite danmaku -Profile PullRequest) -join ",") "DanmakuDensity-v1" "PullRequest danmaku uses only the deterministic density corpus."
     foreach ($strictProfile in @("Lab", "Nightly", "Weekly", "Release")) {
         Assert-Equal (@(Get-YanamiRequiredFixtureIds -Policy $productionPolicy -Suite danmaku -Profile $strictProfile) -join ",") "DanmakuDensity-v1,PlaybackMedia-v1" "Strict danmaku profile '$strictProfile' must pair the density corpus with pinned playback media."
+        Assert-Equal (@(Get-YanamiRequiredFixtureIds -Policy $productionPolicy -Suite upscaling -Profile $strictProfile) -join ",") "UpscalingCapability-v1,PlaybackMedia-v1,UpscalingModelPack-v1" "Strict upscaling profile '$strictProfile' must bind capability, playback, and model-pack fixtures."
     }
+    Assert-Equal (@(Get-YanamiRequiredFixtureIds -Policy $productionPolicy -Suite upscaling -Profile PullRequest) -join ",") "UpscalingCapability-v1" "Hosted upscaling must use only the deterministic non-GPU capability fixture."
     $fallbackFixturePolicy = [pscustomobject]@{
         requiredFixturesBySuite = [pscustomobject]@{
             danmaku = [pscustomobject]@{
@@ -561,6 +600,73 @@ try {
     catch { $attributeMismatchRejected = $true }
     Assert-True $attributeMismatchRejected "Samples with different measurement provenance must not be merged."
 
+    $scenarioSlo = [pscustomobject][ordered]@{
+        schemaVersion = "1.0"
+        id = "SLO-upscaling-scenario-test"
+        percentileMethod = "linear-r7"
+        thresholdSetByProfile = [pscustomobject]@{ Lab = "strict" }
+        defaultMinimumSamples = [pscustomobject]@{ strict = 100 }
+        relativeRules = [pscustomobject]@{}
+        metrics = @([pscustomobject][ordered]@{
+            id = "upscaling.test.per_tier_latency_ms"
+            suite = "upscaling"
+            category = "backend_component"
+            unit = "ms"
+            priority = "P0"
+            direction = "upper"
+            relativeStatistic = "p95"
+            evidence = "fixture-component-observation"
+            minimumSamplesByProfile = [pscustomobject]@{ Lab = 100 }
+            requiredProfiles = @("Lab")
+            absolute = [pscustomobject]@{
+                strict = [pscustomobject]@{
+                    p95 = [pscustomobject]@{ op = "<="; value = 10 }
+                }
+            }
+        })
+        invariants = @()
+    }
+    $scenarioManifests = New-Object System.Collections.Generic.List[object]
+    foreach ($preset in @("performance", "balanced", "quality")) {
+        $scenarioSamples = if ($preset -eq "quality") {
+            @(1..94 | ForEach-Object { 1 }) + @(1..6 | ForEach-Object { 100 })
+        } else { @(1..100 | ForEach-Object { 1 }) }
+        $scenarioManifests.Add([pscustomobject][ordered]@{
+            schemaVersion = "1.0"
+            runId = "scenario-$preset"
+            profile = "Lab"
+            mode = "enforce"
+            startedAtUtc = [DateTime]::UtcNow.ToString("o")
+            candidateSha = "head-test"
+            baseSha = ""
+            environment = [pscustomobject]@{
+                fingerprint = "same-upscaling-machine"
+                referenceMatch = $true
+                mismatchReasons = @()
+            }
+            fixtures = @()
+            suites = @("upscaling")
+            metrics = @([pscustomobject]@{
+                id = "upscaling.test.per_tier_latency_ms"
+                unit = "ms"
+                samples = $scenarioSamples
+                attributes = [pscustomobject]@{
+                    evidence = "fixture-component-observation"
+                    scenarioId = "scenario-$preset"
+                    preset = $preset
+                    rawDerived = $true
+                }
+            })
+            invariants = @()
+            artifacts = @()
+        })
+    }
+    $mergedScenarios = Merge-YanamiRunManifests -Manifests $scenarioManifests.ToArray()
+    Assert-Equal @($mergedScenarios.metrics[0].scenarioMeasurements).Count 3 "Strict upscaling merge must preserve all preset sample sets independently."
+    $scenarioGate = Invoke-YanamiPerfEvaluation -Manifest $mergedScenarios -Slo $scenarioSlo -Policy (New-TestPolicy) -Mode enforce -Suites upscaling
+    Assert-Equal $scenarioGate.status "fail" "A single failing quality tier must fail the all-of strict matrix even when the pooled p95 would pass."
+    Assert-True (@($scenarioGate.reasons | Where-Object { $_ -match "scenario 'scenario-quality'/quality" }).Count -eq 1) "The strict matrix failure must identify the failing preset scenario."
+
     $stabilitySlo = New-TestSlo
     $stabilitySlo | Add-Member -NotePropertyName reproducibility -NotePropertyValue ([pscustomobject]@{
         searchLatency = [pscustomobject]@{ maximumCv = 0.05; minimumSamples = 10 }
@@ -718,6 +824,177 @@ try {
     Assert-Equal $runnerResult.status "pass" "Runner contract validation must succeed without a product probe."
     Assert-True (Test-Path -LiteralPath (Join-Path $runnerOutput "performance-result.json")) "Runner must always write JSON output."
     Assert-True (Test-Path -LiteralPath (Join-Path $runnerOutput "perf-results.xml")) "Runner must always write JUnit output."
+
+    $hostedUpscalingOutput = Join-Path $testRoot "hosted-upscaling"
+    $hostedUpscalingResult = & (Join-Path $PSScriptRoot "run-gate.ps1") `
+        -Profile PullRequest `
+        -OutputDirectory $hostedUpscalingOutput `
+        -Suites upscaling `
+        -CandidateSha "head-test" `
+        -NoExit
+    Assert-Equal $hostedUpscalingResult.status "pass" "The runner-attested native upscaling production probe must satisfy only the PullRequest contract."
+    $hostedUpscalingResults = @($hostedUpscalingResult.metrics | Where-Object { [string]$_.id -like "upscaling.hosted_smoke.*" })
+    Assert-Equal $hostedUpscalingResults.Count 2 "Hosted upscaling must emit exactly the two catastrophe metrics."
+    Assert-Equal @($hostedUpscalingResults | Where-Object {
+        [bool]$_.attributes.gpuCertified -or [bool]$_.attributes.presentCertified
+    }).Count 0 "Hosted upscaling evidence must explicitly deny GPU and Present certification."
+    Assert-Equal @($hostedUpscalingResult.invariants | Where-Object { -not [bool]$_.passed }).Count 0 "Hosted capability, stale-generation, and model-fallback invariants must pass."
+
+    $strictUpscalingMissingFixturePath = Join-Path $testRoot "strict-upscaling-missing-fixtures.json"
+    [pscustomobject][ordered]@{
+        schemaVersion = "1.0"
+        runId = "strict-upscaling-missing-fixtures"
+        profile = "Lab"
+        mode = "collect"
+        candidateSha = "head-test"
+        startedAtUtc = [DateTime]::UtcNow.ToString("o")
+        environment = [pscustomobject]@{ fingerprint = "test-machine"; referenceMatch = $true }
+        fixtures = @()
+        suites = @("upscaling")
+        metrics = @()
+        invariants = @()
+    } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $strictUpscalingMissingFixturePath -Encoding UTF8
+    $strictUpscalingMissingFixtureResult = & (Join-Path $PSScriptRoot "run-gate.ps1") `
+        -Profile Lab `
+        -OutputDirectory (Join-Path $testRoot "strict-upscaling-missing-fixtures") `
+        -Suites upscaling `
+        -InputPath $strictUpscalingMissingFixturePath `
+        -SkipProbeDiscovery `
+        -CandidateSha "head-test" `
+        -NoExit
+    Assert-Equal $strictUpscalingMissingFixtureResult.status "infra-invalid" "Strict upscaling without pinned playback/model fixtures must never become pass or calibration debt."
+    Assert-True (@($strictUpscalingMissingFixtureResult.reasons | Where-Object { $_ -match "Strict upscaling requires provisioned PlaybackMedia-v1" }).Count -eq 1) "The strict fixture failure must identify the unprovisioned playback contract."
+
+    $strictUpscalingOffscreenPath = Join-Path $testRoot "strict-upscaling-offscreen.json"
+    [pscustomobject][ordered]@{
+        schemaVersion = "1.0"
+        runId = "strict-upscaling-offscreen"
+        profile = "Lab"
+        mode = "collect"
+        candidateSha = "head-test"
+        startedAtUtc = [DateTime]::UtcNow.ToString("o")
+        environment = [pscustomobject]@{
+            fingerprint = "test-machine"
+            referenceMatch = $true
+            details = [pscustomobject]@{
+                upscalingScenarioId = "fake-offscreen"
+                gpuCertified = $false
+                presentCertified = $false
+                provider = "fake"
+                preset = "balanced"
+                modelPackSha256 = ("0" * 64)
+            }
+        }
+        fixtures = @()
+        suites = @("upscaling")
+        metrics = @([pscustomobject]@{
+            id = "upscaling.enable_to_first_enhanced_pixel_present_ms"
+            unit = "ms"
+            samples = @(1..30 | ForEach-Object { 1 })
+            attributes = [pscustomobject]@{ evidence = "external-pixel-present"; scenarioId = "fake-offscreen" }
+        })
+        invariants = @()
+    } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $strictUpscalingOffscreenPath -Encoding UTF8
+    $strictUpscalingOffscreenResult = & (Join-Path $PSScriptRoot "run-gate.ps1") `
+        -Profile Lab `
+        -OutputDirectory (Join-Path $testRoot "strict-upscaling-offscreen") `
+        -Suites upscaling `
+        -InputPath $strictUpscalingOffscreenPath `
+        -SkipProbeDiscovery `
+        -CandidateSha "head-test" `
+        -NoExit
+    Assert-Equal $strictUpscalingOffscreenResult.status "infra-invalid" "A hosted/offscreen metric relabeled as external pixel evidence must be rejected before evaluation."
+    Assert-True (@($strictUpscalingOffscreenResult.reasons | Where-Object { $_ -match "gpuCertified=true and presentCertified=true" }).Count -eq 1) "The strict evidence rejection must explain the missing GPU/Present certification."
+
+    $strictUpscalingForgedPath = Join-Path $testRoot "strict-upscaling-forged-artifacts.json"
+    $validCollector = [pscustomobject]@{
+        name = "forged"
+        version = "1"
+        kind = "forged"
+        clockDomain = "QPC"
+        executableSha256 = ("a" * 64)
+    }
+    [pscustomobject][ordered]@{
+        schemaVersion = "1.0"
+        runId = "strict-upscaling-forged-artifacts"
+        profile = "Lab"
+        mode = "collect"
+        candidateSha = "head-test"
+        startedAtUtc = [DateTime]::UtcNow.ToString("o")
+        environment = [pscustomobject]@{
+            fingerprint = "test-machine"
+            referenceMatch = $true
+            details = [pscustomobject]@{
+                upscalingScenarioId = "forged-balanced"
+                upscalingMatrixId = "forged-matrix"
+                gpuCertified = $true
+                presentCertified = $true
+                provider = "anime4k"
+                preset = "balanced"
+                providerRuntimeVersion = "test-runtime-1"
+                modelPackSha256 = ("b" * 64)
+            }
+            rendering = [pscustomobject]@{
+                renderWidthPixels = 3840
+                renderHeightPixels = 2160
+                displayRefreshHz = 60
+                dpiScalePercent = 100
+                hdrEnabled = $false
+                vrrEnabled = $false
+                windowMode = "borderless-fullscreen"
+                qtRhiRenderer = "opengl"
+                mpvRenderApi = "libmpv-opengl"
+                openGlMajor = 4
+                openGlMinor = 6
+                maximumTextureSize = 16384
+                fontSetId = "WindowsDanmakuFonts-v1"
+                fontSetSha256 = ("e" * 64)
+                fontFamilies = @("Segoe UI")
+                fontCacheState = "warm"
+                fontCachePreparationId = "DanmakuGlyphWarmup-v1"
+            }
+        }
+        fixtures = @()
+        suites = @("upscaling")
+        metrics = @([pscustomobject]@{
+            id = "upscaling.enable_to_first_enhanced_pixel_present_ms"
+            unit = "ms"
+            samples = @(1..30 | ForEach-Object { 1 })
+            attributes = [pscustomobject]@{ evidence = "external-pixel-present"; scenarioId = "forged-balanced" }
+        })
+        invariants = @()
+        artifacts = @(
+            [pscustomobject]@{ role = "presentmon-trace"; fileName = "missing-present.csv"; sha256 = ("c" * 64); candidateSha = "head-test"; scenarioId = "forged-balanced"; runnerValidated = $true; collector = $validCollector },
+            [pscustomobject]@{ role = "pixel-capture-index"; fileName = "missing-captures.json"; sha256 = ("d" * 64); candidateSha = "head-test"; scenarioId = "forged-balanced"; runnerValidated = $true; collector = $validCollector }
+        )
+    } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $strictUpscalingForgedPath -Encoding UTF8
+    $strictUpscalingForgedResult = & (Join-Path $PSScriptRoot "run-gate.ps1") `
+        -Profile Lab `
+        -OutputDirectory (Join-Path $testRoot "strict-upscaling-forged-artifacts") `
+        -Suites upscaling `
+        -InputPath $strictUpscalingForgedPath `
+        -SkipProbeDiscovery `
+        -CandidateSha "head-test" `
+        -NoExit
+    Assert-Equal $strictUpscalingForgedResult.status "infra-invalid" "Self-asserted runnerValidated flags must not make missing strict artifacts trustworthy."
+    Assert-True (@($strictUpscalingForgedResult.reasons | Where-Object { $_ -match "hash-pinned measurement normalizer" }).Count -eq 1) "Arbitrary non-empty raw files and self-declared collectors must remain invalid until a real normalizer executable is provisioned and hashed."
+
+    $strictUnsupportedProviderPath = Join-Path $testRoot "strict-upscaling-unsupported-provider.json"
+    $strictUnsupportedProviderManifest = Read-YanamiPerfJson -Path $strictUpscalingForgedPath
+    $strictUnsupportedProviderManifest.runId = "strict-upscaling-unsupported-provider"
+    $strictUnsupportedProviderManifest.environment.details.provider = "unsupported-provider"
+    $strictUnsupportedProviderManifest | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $strictUnsupportedProviderPath -Encoding UTF8
+    $strictUnsupportedProviderResult = & (Join-Path $PSScriptRoot "run-gate.ps1") `
+        -Profile Lab `
+        -OutputDirectory (Join-Path $testRoot "strict-upscaling-unsupported-provider") `
+        -Suites upscaling `
+        -InputPath $strictUnsupportedProviderPath `
+        -SkipProbeDiscovery `
+        -CandidateSha "head-test" `
+        -NoExit
+    Assert-Equal $strictUnsupportedProviderResult.status "infra-invalid" "A non-Anime4K provider must never be accepted for strict certification."
+    Assert-True (@($strictUnsupportedProviderResult.reasons | Where-Object { $_ -match "permits only provider='anime4k'" }).Count -eq 1) "The strict rejection must identify Anime4K as the only certifiable provider."
+
     $invalidSuiteOutput = Join-Path $testRoot "runner-invalid-suite"
     $invalidSuiteResult = & (Join-Path $PSScriptRoot "run-gate.ps1") -Profile PullRequest -OutputDirectory $invalidSuiteOutput -Suites danmakuu -ValidateOnly -NoExit
     Assert-Equal $invalidSuiteResult.status "infra-invalid" "The runner must fail closed on an unknown requested suite."
@@ -940,7 +1217,7 @@ try {
     $defaultFullManifest | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $defaultFullPath -Encoding UTF8
     $defaultFullOutput = Join-Path $testRoot "default-full-suite"
     $defaultFullResult = & (Join-Path $PSScriptRoot "run-gate.ps1") -Profile Release -OutputDirectory $defaultFullOutput -InputPath $defaultFullPath -SkipProbeDiscovery -NoExit
-    Assert-Equal @($defaultFullResult.suites).Count 6 "Omitting -Suites must evaluate the complete six-suite contract, not only manifest.suites."
+    Assert-Equal @($defaultFullResult.suites).Count 7 "Omitting -Suites must evaluate the complete seven-suite contract, not only manifest.suites."
     Assert-True ("playback" -in @($defaultFullResult.suites)) "The default complete evaluation must include playback even when the imported manifest omits that suite."
     Assert-True ("danmaku" -in @($defaultFullResult.suites)) "The default complete evaluation must include danmaku even when the imported manifest omits that suite."
     Assert-True (@($defaultFullResult.reasons | Where-Object { $_ -match "PlaybackMedia-v1" }).Count -gt 0) "Default full-suite evaluation must report the missing playback fixture."

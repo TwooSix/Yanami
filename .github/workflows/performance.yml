@@ -61,7 +61,7 @@ jobs:
           $nonProductPattern = '^(docs/|licenses/|LICENSE(?:$|\.)|README(?:\.|$)|.*\.md$)'
           $relevantFiles = @($changed | Where-Object { $_ -notmatch $nonProductPattern })
 
-          $suiteOrder = @("Search", "Backend", "Interaction", "Playback", "Danmaku", "Startup")
+          $suiteOrder = @("Search", "Backend", "Interaction", "Playback", "Danmaku", "Upscaling", "Startup")
           $selected = [Collections.Generic.HashSet[string]]::new(
             [StringComparer]::OrdinalIgnoreCase)
 
@@ -92,9 +92,14 @@ jobs:
             if ($normalized -match '(?i)(playback|player|mpv|video|subtitle)') {
               [void]$selected.Add("Playback")
             }
+            if ($normalized -match '(?i)(upscal|super.?resolution|anime4k|model.?pack|SettingsPage\.qml)') {
+              [void]$selected.Add("Upscaling")
+              [void]$selected.Add("Playback")
+            }
             if ($normalized -match '(?i)(danmaku|PlayerPage\.qml|MpvVideoItem|scene.?graph|renderer)') {
               [void]$selected.Add("Danmaku")
               [void]$selected.Add("Playback")
+              [void]$selected.Add("Upscaling")
             }
             if ($normalized -match '(?i)(^apps/desktop/native/(main|WindowController)\.cpp$|^apps/desktop/qml/(Main\.qml|pages/(HomePage|LoginPage)\.qml|components/)|startup|bootstrap|session|preference|cache|storage)') {
               [void]$selected.Add("Startup")
@@ -244,7 +249,12 @@ jobs:
           $gateArgs = @{
             Profile = 'Lab'
             OutputDirectory = $env:PERF_OUTPUT
-            Suites = '${{ needs.classify.outputs.suites }}'
+            # Strict upscaling owns a separate evidence job. Until its playback
+            # fixture, model pack, normalizer, and three raw scenarios are all
+            # provisioned it must not invalidate unrelated fixed-machine gates.
+            Suites = (@('${{ needs.classify.outputs.suites }}'.Split(',')) |
+              ForEach-Object { $_.Trim() } |
+              Where-Object { $_ -and $_ -ne 'Upscaling' }) -join ','
             BaseSha = $comparisonBaseSha
             CandidateSha = $env:YANAMI_PERF_HEAD_SHA
           }
@@ -362,6 +372,108 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: performance-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.PERF_OUTPUT }}/**/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 90
+
+  upscaling-strict-preflight:
+    name: Performance / Upscaling strict preflight
+    if: >-
+      github.event_name == 'pull_request' ||
+      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      provisioned: ${{ steps.contract.outputs.provisioned }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - name: Check strict evidence contracts
+        id: contract
+        shell: pwsh
+        run: |
+          $playback = Get-Content perf/fixtures/playback-media-v1.manifest.json -Raw | ConvertFrom-Json
+          $models = Get-Content perf/fixtures/upscaling-model-pack-v1.manifest.json -Raw | ConvertFrom-Json
+          $normalizer = $models.strictEvidenceBundle.measurementNormalizer
+          $approvedNormalizers = @($normalizer.approvedExecutables |
+            Where-Object {
+              $null -ne $_ -and
+              -not [string]::IsNullOrWhiteSpace([string]$_.name) -and
+              -not [string]::IsNullOrWhiteSpace([string]$_.version) -and
+              -not [string]::IsNullOrWhiteSpace([string]$_.kind) -and
+              ([string]$_.sha256) -match '^[0-9a-fA-F]{64}$'
+            })
+          $ready = [string]$playback.state -eq 'provisioned' -and
+            [string]$models.state -eq 'provisioned' -and
+            [string]$normalizer.state -eq 'provisioned' -and
+            $approvedNormalizers.Count -gt 0
+          "provisioned=$($ready.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          if (-not $ready) {
+            'Strict upscaling is intentionally skipped: playback/model/normalizer contracts are not provisioned.' >> $env:GITHUB_STEP_SUMMARY
+          }
+
+  upscaling-strict:
+    name: Performance / Upscaling strict matrix
+    needs: [classify, upscaling-strict-preflight]
+    if: >-
+      always() &&
+      !cancelled() &&
+      needs.upscaling-strict-preflight.result == 'success' &&
+      needs.upscaling-strict-preflight.outputs.provisioned == 'true' &&
+      (github.event_name == 'schedule' ||
+       github.event_name == 'workflow_dispatch' ||
+       ((github.event_name == 'pull_request' || github.event_name == 'push') &&
+        contains(needs.classify.outputs.suites, 'Upscaling'))) &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, Windows, X64, yanami-performance]
+    timeout-minutes: 120
+    env:
+      PERF_OUTPUT: ${{ github.workspace }}\build\performance\upscaling-strict
+      YANAMI_PERF_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      YANAMI_PERF_SCHEDULE: ${{ github.event.schedule }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run the isolated three-tier strict matrix
+        shell: pwsh
+        run: |
+          $inputs = @(([string]$env:YANAMI_PERF_UPSCALING_INPUT_PATHS).Split(
+            ';', [System.StringSplitOptions]::RemoveEmptyEntries) |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Select-Object -Unique)
+          if ($inputs.Count -ne 3) {
+            throw 'Strict upscaling requires exactly three raw manifest paths in YANAMI_PERF_UPSCALING_INPUT_PATHS.'
+          }
+          $profile = if ($env:GITHUB_EVENT_NAME -eq 'schedule') {
+            if ($env:YANAMI_PERF_SCHEDULE -eq '17 18 * * 0') { 'Weekly' } else { 'Nightly' }
+          } elseif ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { 'Release' } else { 'Lab' }
+          $arguments = @{
+            Profile = $profile
+            OutputDirectory = $env:PERF_OUTPUT
+            Suites = 'Upscaling'
+            InputPath = $inputs
+            CandidateSha = $env:YANAMI_PERF_HEAD_SHA
+            SkipProbeDiscovery = $true
+          }
+          if ($profile -eq 'Release') { $arguments.Mode = 'enforce' }
+          & .\scripts\performance\run-gate.ps1 @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload strict upscaling evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: performance-upscaling-strict-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.PERF_OUTPUT }}/**/*
           if-no-files-found: error
           overwrite: true

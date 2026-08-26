@@ -55,6 +55,13 @@
       "Nightly": ["DanmakuDensity-v1", "PlaybackMedia-v1"],
       "Weekly": ["DanmakuDensity-v1", "PlaybackMedia-v1"],
       "Release": ["DanmakuDensity-v1", "PlaybackMedia-v1"]
+    },
+    "upscaling": {
+      "PullRequest": "UpscalingCapability-v1",
+      "Lab": ["UpscalingCapability-v1", "PlaybackMedia-v1", "UpscalingModelPack-v1"],
+      "Nightly": ["UpscalingCapability-v1", "PlaybackMedia-v1", "UpscalingModelPack-v1"],
+      "Weekly": ["UpscalingCapability-v1", "PlaybackMedia-v1", "UpscalingModelPack-v1"],
+      "Release": ["UpscalingCapability-v1", "PlaybackMedia-v1", "UpscalingModelPack-v1"]
     }
   },
   "exitCodes": {

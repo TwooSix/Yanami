@@ -65,7 +65,8 @@ Item {
         || topChrome.opacity > 0.05
     readonly property bool popupOpened: subtitleMenu.opened
         || audioMenu.opened || qualityMenu.opened || danmakuMenu.opened
-        || queueMenu.opened || volumeControl.opened
+        || queueMenu.opened || playbackSettingsMenu.opened
+        || volumeControl.opened
     readonly property bool chromeInteractionActive: controlsHover.hovered
         || topChromeHover.hovered || skipIntroButton.hovered || popupOpened
     readonly property bool playbackShortcutsEnabled: root.visible
@@ -76,7 +77,17 @@ Item {
         && !qualityMenu.opened
         && !danmakuMenu.opened
         && !queueMenu.opened
+        && !playbackSettingsMenu.opened
         && !volumeControl.keyboardInteractionActive
+    readonly property bool quickUpscalingAvailable:
+        app.upscaling.capabilityReady
+        && String(app.upscaling.resolvedProviderId || "").length > 0
+        && String((app.upscaling.selectedAssets || {}).phase || "")
+            === "ready"
+    readonly property bool quickUpscalingControlAvailable:
+        quickUpscalingAvailable || player.upscalingActive
+        || player.upscalingConfigurationPending
+        || Boolean((app.upscaling.settings || {}).enabled)
     readonly property bool canSkipIntro: introOfferArmed
         && !introOfferDismissed
         && introStartSeconds >= 0
@@ -143,6 +154,20 @@ Item {
                 return
             root.playbackTimeoutActive = false
             playerStatusToast.dismiss()
+        }
+        onUpscalingFallback: (profileId, errorCode, message) => {
+            if (root.mediaUrl.toString().length === 0)
+                return
+            playerStatusToast.show(message, "warning", 5200)
+        }
+        onUpscalingTierChanged: (fromProfile, toProfile, reason) => {
+            if (root.mediaUrl.toString().length === 0
+                    || toProfile === "original")
+                return
+            playerStatusToast.show(
+                qsTr("Upscaling was reduced to %1 to keep playback smooth.")
+                    .arg(toProfile),
+                "info", 4200)
         }
         onFileLoaded: {
             if (root.mediaUrl.toString().length === 0
@@ -528,7 +553,8 @@ Item {
                         : qsTr("Subtitles")
                     controlSize: 38
                     popupTarget: subtitleMenu
-                    peerPopups: [audioMenu, qualityMenu, queueMenu, danmakuMenu]
+                    peerPopups: [audioMenu, qualityMenu, queueMenu,
+                        danmakuMenu, playbackSettingsMenu]
                     onPopupActivated: {
                         root.revealChrome()
                         volumeControl.closePopup()
@@ -542,7 +568,8 @@ Item {
                         : qsTr("Audio")
                     controlSize: 38
                     popupTarget: audioMenu
-                    peerPopups: [subtitleMenu, qualityMenu, queueMenu, danmakuMenu]
+                    peerPopups: [subtitleMenu, qualityMenu, queueMenu,
+                        danmakuMenu, playbackSettingsMenu]
                     onPopupActivated: {
                         root.revealChrome()
                         volumeControl.closePopup()
@@ -554,7 +581,8 @@ Item {
                     text: qsTr("Original")
                     controlSize: 38
                     popupTarget: qualityMenu
-                    peerPopups: [subtitleMenu, audioMenu, queueMenu, danmakuMenu]
+                    peerPopups: [subtitleMenu, audioMenu, queueMenu,
+                        danmakuMenu, playbackSettingsMenu]
                     onPopupActivated: {
                         root.revealChrome()
                         volumeControl.closePopup()
@@ -569,7 +597,8 @@ Item {
                     controlSize: 38
                     enabled: root.playbackQueue && root.playbackQueue.length > 0
                     popupTarget: queueMenu
-                    peerPopups: [subtitleMenu, audioMenu, qualityMenu, danmakuMenu]
+                    peerPopups: [subtitleMenu, audioMenu, qualityMenu,
+                        danmakuMenu, playbackSettingsMenu]
                     Accessible.name: qsTr("Play queue")
                     toolTipVisible: hovered && !queueMenu.opened
                     toolTipText: root.currentQueueIndex >= 0
@@ -594,6 +623,24 @@ Item {
                         } else {
                             root.revealChrome()
                         }
+                    }
+                }
+                AppPopupButton {
+                    id: playbackSettingsButton
+                    kind: "ghost"
+                    iconOnly: true
+                    iconName: "gear"
+                    iconSize: 18
+                    controlSize: 38
+                    popupTarget: playbackSettingsMenu
+                    peerPopups: [subtitleMenu, audioMenu, qualityMenu,
+                        queueMenu, danmakuMenu]
+                    Accessible.name: qsTr("Playback settings")
+                    toolTipVisible: hovered && !playbackSettingsMenu.opened
+                    toolTipText: Accessible.name
+                    onPopupActivated: {
+                        root.revealChrome()
+                        volumeControl.closePopup()
                     }
                 }
                 AppButton {
@@ -689,6 +736,22 @@ Item {
             }
         }
 
+        PlaybackSettingsMenu {
+            id: playbackSettingsMenu
+            parent: playbackSettingsButton
+            x: playbackSettingsButton.width - width
+            y: -height - 14
+            // This switch represents the user's persisted intent. Runtime
+            // protection may temporarily fall back to original without
+            // silently changing that intent.
+            upscalingEnabled: Boolean((app.upscaling.settings || {}).enabled)
+            upscalingAvailable: root.quickUpscalingControlAvailable
+            onOpened: hideTimer.stop()
+            onClosed: root.revealChrome()
+            onUpscalingToggleRequested: enabled =>
+                root.setQuickUpscalingEnabled(enabled)
+        }
+
         Timer {
             id: developmentQueuePreviewTimer
             interval: 500
@@ -713,6 +776,7 @@ Item {
                 audioMenu.close()
                 qualityMenu.close()
                 queueMenu.close()
+                playbackSettingsMenu.close()
                 volumeControl.closePopup()
                 danmakuHoverClose.stop()
                 hideTimer.stop()
@@ -921,7 +985,8 @@ Item {
             introOfferTimeout.stop()
             playerStatusToast.dismiss()
             playbackTimeoutActive = false
-            player.open(mediaUrl, requestHeaders)
+            player.openWithUpscaling(
+                mediaUrl, requestHeaders, app.upscaling.effectiveRuntimeConfig)
         }
     }
 
@@ -1041,6 +1106,14 @@ Item {
 
     function adjustVolume(amount) {
         player.setVolume(Math.max(0, Math.min(100, player.volume + amount)))
+        revealChrome()
+    }
+
+    function setQuickUpscalingEnabled(enabled) {
+        if (enabled && !quickUpscalingAvailable)
+            return
+        app.upscaling.saveSettings({ "enabled": Boolean(enabled) })
+        player.configureUpscaling(app.upscaling.effectiveRuntimeConfig)
         revealChrome()
     }
 

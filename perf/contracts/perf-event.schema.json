@@ -18,7 +18,7 @@
     "runId": { "type": "string", "minLength": 1 },
     "suite": {
       "type": "string",
-      "enum": ["search", "backend", "interaction", "playback", "danmaku", "startup"]
+      "enum": ["search", "backend", "interaction", "playback", "danmaku", "upscaling", "startup"]
     },
     "scenarioId": { "type": "string", "minLength": 1 },
     "milestone": { "type": "string", "minLength": 1 },

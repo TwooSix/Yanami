@@ -8,6 +8,7 @@ AppModalPopup {
     property string heading: ""
     property string message: ""
     property string confirmText: qsTr("Confirm")
+    property string confirmKind: "danger"
     property bool closeOnConfirm: true
     property bool submitting: false
     property string inlineError: ""
@@ -92,7 +93,7 @@ AppModalPopup {
                 onClicked: root.requestDismiss("cancel")
             }
             AppButton {
-                kind: "danger"
+                kind: root.confirmKind
                 text: root.submitting ? qsTr("Working…") : root.confirmText
                 enabled: !root.submitting
                 onClicked: {

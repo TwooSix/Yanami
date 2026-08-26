@@ -30,7 +30,7 @@ function Get-ObjectPropertyValue {
 }
 
 function Get-YanamiPerfSuites {
-    return @("search", "backend", "interaction", "playback", "danmaku", "startup")
+    return @("search", "backend", "interaction", "playback", "danmaku", "upscaling", "startup")
 }
 
 function Get-YanamiRequiredFixtureIds {
@@ -68,6 +68,12 @@ function Get-YanamiEvidenceArtifactRoles {
         "external-pixel-oracle" { return @("presentmon-trace", "pixel-capture-index") }
         "mpv-paired-telemetry" { return @("mpv-telemetry", "paired-baseline-index") }
         "etw-paired-process" { return @("etw-process-counters", "paired-baseline-index") }
+        "external-present-mpv-correlated" { return @("presentmon-trace", "mpv-telemetry", "frame-correlation-index") }
+        "etw-gpu-process" { return @("etw-gpu-engine-counters") }
+        "dxgi-video-memory" { return @("dxgi-video-memory-counters") }
+        "yanami-upscaling-runtime-trace" { return @("yanami-upscaling-runtime-trace") }
+        "pinned-upscaling-model-pack" { return @("upscaling-model-pack-index") }
+        "upscaling-strict-scenario-index" { return @("upscaling-scenario-index") }
         default { return @() }
     }
 }
@@ -437,7 +443,44 @@ function Merge-YanamiRunManifests {
                 if ([string]$metrics[$id].unit -ne [string]$metric.unit) { throw "Metric '$id' has inconsistent units across manifests." }
                 $existingAttributes = ConvertTo-YanamiCanonicalJson $metrics[$id].attributes
                 $incomingAttributes = ConvertTo-YanamiCanonicalJson (Get-ObjectPropertyValue $metric "attributes" ([pscustomobject]@{}))
-                if ($existingAttributes -ne $incomingAttributes) {
+                $isStrictUpscalingScenario = $id -like "upscaling.*" -and
+                    -not $id.StartsWith("upscaling.hosted_smoke.", [System.StringComparison]::Ordinal)
+                if ($isStrictUpscalingScenario) {
+                    $existingEvidence = [string](Get-ObjectPropertyValue $metrics[$id].attributes "evidence" "")
+                    $incomingMetricAttributes = Get-ObjectPropertyValue $metric "attributes" ([pscustomobject]@{})
+                    $incomingEvidence = [string](Get-ObjectPropertyValue $incomingMetricAttributes "evidence" "")
+                    if (-not $existingEvidence -or $existingEvidence -ne $incomingEvidence) {
+                        throw "Metric '$id' has incompatible strict upscaling evidence across manifests."
+                    }
+                    $scenarioMeasurements = New-Object System.Collections.Generic.List[object]
+                    foreach ($measurement in @(Get-ObjectPropertyValue $metrics[$id] "scenarioMeasurements" @())) {
+                        $scenarioMeasurements.Add($measurement)
+                    }
+                    if ($scenarioMeasurements.Count -eq 0) {
+                        $scenarioMeasurements.Add([pscustomobject][ordered]@{
+                            scenarioId = [string](Get-ObjectPropertyValue $metrics[$id].attributes "scenarioId" "")
+                            preset = [string](Get-ObjectPropertyValue $metrics[$id].attributes "preset" "")
+                            samples = @($metrics[$id].samples)
+                        })
+                    }
+                    $incomingScenarioId = [string](Get-ObjectPropertyValue $incomingMetricAttributes "scenarioId" "")
+                    if ([string]::IsNullOrWhiteSpace($incomingScenarioId) -or
+                        @($scenarioMeasurements | Where-Object { [string]$_.scenarioId -eq $incomingScenarioId }).Count -gt 0) {
+                        throw "Metric '$id' has a missing or duplicate strict upscaling scenario ID '$incomingScenarioId'."
+                    }
+                    $scenarioMeasurements.Add([pscustomobject][ordered]@{
+                        scenarioId = $incomingScenarioId
+                        preset = [string](Get-ObjectPropertyValue $incomingMetricAttributes "preset" "")
+                        samples = @($metric.samples)
+                    })
+                    $metrics[$id] | Add-Member -NotePropertyName scenarioMeasurements -NotePropertyValue $scenarioMeasurements.ToArray() -Force
+                    $metrics[$id].attributes = [pscustomobject][ordered]@{
+                        evidence = $existingEvidence
+                        rawDerived = $true
+                        scenarioAggregated = $true
+                        scenarioIds = @($scenarioMeasurements | ForEach-Object { [string]$_.scenarioId })
+                    }
+                } elseif ($existingAttributes -ne $incomingAttributes) {
                     throw "Metric '$id' has incompatible measurement attributes across manifests."
                 }
                 $metrics[$id].samples = @($metrics[$id].samples) + @($metric.samples)
@@ -448,11 +491,22 @@ function Merge-YanamiRunManifests {
                         Select-Object -Unique
                 )
             } else {
+                $attributes = Get-ObjectPropertyValue $metric "attributes" ([pscustomobject]@{})
+                $scenarioMeasurements = if ($id -like "upscaling.*" -and
+                    -not $id.StartsWith("upscaling.hosted_smoke.", [System.StringComparison]::Ordinal) -and
+                    -not [string]::IsNullOrWhiteSpace([string](Get-ObjectPropertyValue $attributes "scenarioId" ""))) {
+                    @([pscustomobject][ordered]@{
+                        scenarioId = [string](Get-ObjectPropertyValue $attributes "scenarioId" "")
+                        preset = [string](Get-ObjectPropertyValue $attributes "preset" "")
+                        samples = @($metric.samples)
+                    })
+                } else { @() }
                 $metrics[$id] = [pscustomobject][ordered]@{
                     id = $id
                     unit = [string]$metric.unit
                     samples = @($metric.samples)
-                    attributes = Get-ObjectPropertyValue $metric "attributes" ([pscustomobject]@{})
+                    attributes = $attributes
+                    scenarioMeasurements = $scenarioMeasurements
                     producerRunIds = @((Get-ObjectPropertyValue $metric "producerRunIds" @()) | ForEach-Object { [string]$_ } | Select-Object -Unique)
                 }
             }
@@ -461,7 +515,25 @@ function Merge-YanamiRunManifests {
             $id = [string]$invariant.id
             if ($invariants.Contains($id)) {
                 $invariants[$id].passed = [bool]$invariants[$id].passed -and [bool]$invariant.passed
-                $invariants[$id].details = @($invariants[$id].details) + @(Get-ObjectPropertyValue $invariant "details")
+                if ($id -like "upscaling.*") {
+                    $existingDetails = Get-ObjectPropertyValue $invariants[$id] "details" ([pscustomobject]@{})
+                    $incomingDetails = Get-ObjectPropertyValue $invariant "details" ([pscustomobject]@{})
+                    $existingEvidence = [string](Get-ObjectPropertyValue $existingDetails "evidence" "")
+                    $incomingEvidence = [string](Get-ObjectPropertyValue $incomingDetails "evidence" "")
+                    if (-not $existingEvidence -or $existingEvidence -ne $incomingEvidence) {
+                        throw "Invariant '$id' has incompatible strict upscaling evidence across manifests."
+                    }
+                    $scenarioResults = @((Get-ObjectPropertyValue $existingDetails "scenarios" @()))
+                    if ($scenarioResults.Count -eq 0) { $scenarioResults = @($existingDetails) }
+                    $scenarioResults += @($incomingDetails)
+                    $invariants[$id].details = [pscustomobject][ordered]@{
+                        evidence = $existingEvidence
+                        rawDerived = $true
+                        scenarios = $scenarioResults
+                    }
+                } else {
+                    $invariants[$id].details = @($invariants[$id].details) + @(Get-ObjectPropertyValue $invariant "details")
+                }
                 $invariants[$id].producerRunIds = @(
                     @($invariants[$id].producerRunIds) + @(Get-ObjectPropertyValue $invariant "producerRunIds" @()) |
                         ForEach-Object { [string]$_ } |
@@ -700,6 +772,60 @@ function Invoke-YanamiPerfEvaluation {
         $minimumSamplesObject = Get-ObjectPropertyValue $metricDefinition "minimumSamples"
         if ($null -eq $minimumSamples) { $minimumSamples = Get-ObjectPropertyValue $minimumSamplesObject $thresholdSet }
         if ($null -eq $minimumSamples) { $minimumSamples = Get-ObjectPropertyValue $Slo.defaultMinimumSamples $thresholdSet 1 }
+        $scenarioStatistics = New-Object System.Collections.Generic.List[object]
+        $scenarioMeasurements = @((Get-ObjectPropertyValue $raw "scenarioMeasurements" @()))
+        if ($thresholdSet -eq "strict" -and
+            [string]$metricDefinition.suite -eq "upscaling" -and
+            -not ([string]$metricDefinition.id).StartsWith("upscaling.hosted_smoke.", [System.StringComparison]::Ordinal)) {
+            if ($scenarioMeasurements.Count -eq 0) {
+                $rawAttributes = Get-ObjectPropertyValue $raw "attributes" ([pscustomobject]@{})
+                $rawScenarioId = [string](Get-ObjectPropertyValue $rawAttributes "scenarioId" "")
+                if (-not [string]::IsNullOrWhiteSpace($rawScenarioId)) {
+                    $scenarioMeasurements = @([pscustomobject][ordered]@{
+                        scenarioId = $rawScenarioId
+                        preset = [string](Get-ObjectPropertyValue $rawAttributes "preset" "")
+                        samples = $samples
+                    })
+                }
+            }
+            if ($scenarioMeasurements.Count -eq 0) {
+                $infraReasons.Add("Metric '$($metricDefinition.id)' has no runner-derived strict scenario measurements.")
+                continue
+            }
+            $seenScenarioIds = [System.Collections.Generic.HashSet[string]]::new(
+                [System.StringComparer]::Ordinal)
+            $scenarioInvalid = $false
+            foreach ($scenarioMeasurement in $scenarioMeasurements) {
+                $scenarioId = [string](Get-ObjectPropertyValue $scenarioMeasurement "scenarioId" "")
+                $preset = [string](Get-ObjectPropertyValue $scenarioMeasurement "preset" "")
+                $scenarioSamples = @((Get-ObjectPropertyValue $scenarioMeasurement "samples" @()))
+                if ([string]::IsNullOrWhiteSpace($scenarioId) -or
+                    -not $seenScenarioIds.Add($scenarioId) -or
+                    $preset -notin @("performance", "balanced", "quality")) {
+                    $infraReasons.Add("Metric '$($metricDefinition.id)' has an invalid or duplicate strict scenario '$scenarioId'/'$preset'.")
+                    $scenarioInvalid = $true
+                    continue
+                }
+                if ($scenarioSamples.Count -lt [int]$minimumSamples) {
+                    $infraReasons.Add("Metric '$($metricDefinition.id)' scenario '$scenarioId' has $($scenarioSamples.Count) samples; at least $minimumSamples are required per preset.")
+                    $scenarioInvalid = $true
+                    continue
+                }
+                try { $oneScenarioStatistics = Get-YanamiStatistics -Samples $scenarioSamples }
+                catch {
+                    $infraReasons.Add("Metric '$($metricDefinition.id)' scenario '$scenarioId' is invalid: $($_.Exception.Message)")
+                    $scenarioInvalid = $true
+                    continue
+                }
+                $scenarioStatistics.Add([pscustomobject][ordered]@{
+                    scenarioId = $scenarioId
+                    preset = $preset
+                    sampleCount = $scenarioSamples.Count
+                    statistics = $oneScenarioStatistics
+                })
+            }
+            if ($scenarioInvalid) { continue }
+        }
         if ($samples.Count -lt [int]$minimumSamples) {
             $infraReasons.Add("Metric '$($metricDefinition.id)' has $($samples.Count) samples; at least $minimumSamples are required.")
             continue
@@ -739,7 +865,7 @@ function Invoke-YanamiPerfEvaluation {
                 $infraReasons.Add("Metric '$($metricDefinition.id)' requires '$requiredEvidence' evidence; '$actualEvidence' was reported.")
                 continue
             }
-            if ([string]$metricDefinition.suite -eq "danmaku") {
+            if ([string]$metricDefinition.suite -in @("danmaku", "upscaling")) {
                 foreach ($artifactRole in @(Get-YanamiEvidenceArtifactRoles -Evidence $requiredEvidence)) {
                     $validatedArtifacts = @((Get-ObjectPropertyValue $Manifest "artifacts" @()) | Where-Object {
                         [string](Get-ObjectPropertyValue $_ "role" "") -eq $artifactRole -and
@@ -786,6 +912,13 @@ function Invoke-YanamiPerfEvaluation {
             if (-not (Test-Threshold -Actual $actual -Rule $targetProperty.Value)) {
                 $absoluteFailed = $true
                 $metricReasons.Add("$($targetProperty.Name)=$([math]::Round($actual, 6)) violates $($targetProperty.Value.op)$($targetProperty.Value.value) $($metricDefinition.unit).")
+            }
+            foreach ($scenarioResult in $scenarioStatistics) {
+                $scenarioActual = [double](Get-ObjectPropertyValue $scenarioResult.statistics $targetProperty.Name)
+                if (-not (Test-Threshold -Actual $scenarioActual -Rule $targetProperty.Value)) {
+                    $absoluteFailed = $true
+                    $metricReasons.Add("scenario '$($scenarioResult.scenarioId)'/$($scenarioResult.preset) $($targetProperty.Name)=$([math]::Round($scenarioActual, 6)) violates $($targetProperty.Value.op)$($targetProperty.Value.value) $($metricDefinition.unit).")
+                }
             }
         }
 
@@ -838,6 +971,7 @@ function Invoke-YanamiPerfEvaluation {
             unit = [string]$metricDefinition.unit
             samples = @($samples | ForEach-Object { [double]$_ })
             statistics = $statistics
+            scenarioStatistics = $scenarioStatistics.ToArray()
             absoluteTarget = [pscustomobject]$evaluatedTarget
             deferredStatistics = $deferredStatistics.ToArray()
             comparison = $comparison
@@ -893,6 +1027,22 @@ function Invoke-YanamiPerfEvaluation {
             if ($actualEvidence -ne $requiredEvidence) {
                 $infraReasons.Add("Invariant '$id' requires '$requiredEvidence' evidence; '$actualEvidence' was reported.")
                 continue
+            }
+            if ([string]$definition.suite -in @("danmaku", "upscaling")) {
+                foreach ($artifactRole in @(Get-YanamiEvidenceArtifactRoles -Evidence $requiredEvidence)) {
+                    $validatedArtifacts = @((Get-ObjectPropertyValue $Manifest "artifacts" @()) | Where-Object {
+                        [string](Get-ObjectPropertyValue $_ "role" "") -eq $artifactRole -and
+                        [bool](Get-ObjectPropertyValue $_ "runnerValidated" $false) -and
+                        [string](Get-ObjectPropertyValue $_ "sha256" "") -match '^[0-9a-fA-F]{64}$'
+                    })
+                    if ($validatedArtifacts.Count -eq 0) {
+                        $infraReasons.Add("Invariant '$id' requires runner-validated '$artifactRole' raw evidence; an evidence label alone is insufficient.")
+                    }
+                }
+                if (@(Get-YanamiEvidenceArtifactRoles -Evidence $requiredEvidence).Count -gt 0 -and
+                    @($infraReasons | Where-Object { $_ -like "Invariant '$id' requires runner-validated*" }).Count -gt 0) {
+                    continue
+                }
             }
         }
         $producerProbeKind = [string](Get-ObjectPropertyValue $definition "producerProbeKind" "")

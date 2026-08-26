@@ -2,12 +2,15 @@
 #include "CatalogFreshnessPolicy.hpp"
 
 #include <QCoreApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
 
 #include <algorithm>
+#include <memory>
 
 namespace {
 
@@ -416,10 +419,14 @@ private slots:
         QVERIFY(viewModel.mediaActions());
         QVERIFY(viewModel.imageEditor());
         QVERIFY(viewModel.preferences());
+        QVERIFY(viewModel.upscaling());
         QVERIFY(viewModel.status());
         QVERIFY(viewModel.updates());
         QCOMPARE(viewModel.session()->parent(), &viewModel);
         QCOMPARE(viewModel.mediaActions()->parent(), &viewModel);
+        QCOMPARE(viewModel.upscaling()->parent(), &viewModel);
+        QVERIFY(viewModel.upscaling()->metaObject()->indexOfProperty(
+            "resolvedPresetId") >= 0);
     }
 
     void librarySortPreferencePersistsAndRejectsInvalidValues()
@@ -443,6 +450,271 @@ private slots:
         QSettings().setValue(QStringLiteral("library/sortMode"), 99);
         PreferencesViewModel invalidStoredValue;
         QCOMPARE(invalidStoredValue.librarySortMode(), 1);
+    }
+
+    void upscalingPreferencesPersistStableIdsAndSanitizeInput()
+    {
+        PreferencesViewModel preferences;
+        const QVariantMap defaults = preferences.upscalingSettings();
+        QCOMPARE(defaults.value(QStringLiteral("enabled")).toBool(), false);
+        QCOMPARE(defaults.value(QStringLiteral("providerId")).toString(),
+            QStringLiteral("anime4k"));
+        QCOMPARE(defaults.value(QStringLiteral("schema")).toInt(), 3);
+        QCOMPARE(defaults.value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("balanced"));
+        QVERIFY(!defaults.contains(QStringLiteral("presetExplicit")));
+
+        QSignalSpy changed(
+            &preferences, &PreferencesViewModel::upscalingSettingsChanged);
+        preferences.saveUpscalingSettings({
+            {QStringLiteral("enabled"), true},
+        });
+        QCOMPARE(preferences.upscalingSettings()
+                     .value(QStringLiteral("enabled")).toBool(), true);
+        QCOMPARE(preferences.upscalingSettings()
+                     .value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("balanced"));
+        QCOMPARE(changed.count(), 1);
+
+        preferences.saveUpscalingSettings({
+            {QStringLiteral("enabled"), true},
+            {QStringLiteral("providerId"), QStringLiteral("anime4k")},
+            {QStringLiteral("presetId"), QStringLiteral("custom")},
+            {QStringLiteral("anime4kMode"), QStringLiteral("c")},
+            {QStringLiteral("anime4kModelSize"), QStringLiteral("ul")},
+            {QStringLiteral("anime4kRestorePasses"), 2},
+            {QStringLiteral("anime4kAutoDownscale"), false},
+            {QStringLiteral("autoHeadroom"), 35},
+        });
+        QCOMPARE(changed.count(), 2);
+
+        PreferencesViewModel restored;
+        const QVariantMap saved = restored.upscalingSettings();
+        QCOMPARE(saved.value(QStringLiteral("enabled")).toBool(), true);
+        QCOMPARE(saved.value(QStringLiteral("providerId")).toString(),
+            QStringLiteral("anime4k"));
+        QVERIFY(!saved.contains(QStringLiteral("presetExplicit")));
+        QCOMPARE(saved.value(QStringLiteral("anime4kMode")).toString(),
+            QStringLiteral("c"));
+        QCOMPARE(saved.value(QStringLiteral("anime4kModelSize")).toString(),
+            QStringLiteral("ul"));
+        QCOMPARE(saved.value(QStringLiteral("anime4kRestorePasses")).toInt(), 2);
+        QCOMPARE(saved.value(QStringLiteral("anime4kAutoDownscale")).toBool(), false);
+        QVERIFY(!saved.contains(QStringLiteral("artcnnModel")));
+        QVERIFY(!saved.contains(QStringLiteral("rtxScaleFactor")));
+
+        restored.saveUpscalingSettings({
+            {QStringLiteral("providerId"), QStringLiteral("../unsafe")},
+            {QStringLiteral("presetId"), QStringLiteral("unknown")},
+            {QStringLiteral("anime4kModelSize"), QStringLiteral("xxl")},
+            {QStringLiteral("autoHeadroom"), 99},
+        });
+        const QVariantMap sanitized = restored.upscalingSettings();
+        QCOMPARE(sanitized.value(QStringLiteral("providerId")).toString(),
+            QStringLiteral("anime4k"));
+        QCOMPARE(sanitized.value(QStringLiteral("enabled")).toBool(), false);
+        QCOMPARE(sanitized.value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("balanced"));
+        QCOMPARE(sanitized.value(QStringLiteral("anime4kModelSize")).toString(),
+            QStringLiteral("vl"));
+        QCOMPARE(sanitized.value(QStringLiteral("autoHeadroom")).toInt(), 20);
+    }
+
+    void upscalingSchemaTwoImplicitPresetMigratesToBalanced()
+    {
+        const auto restore = [](bool presetExplicit, const QString &presetId) {
+            QSettings settings;
+            settings.clear();
+            const QVariantMap previous {
+                // The top-level QSettings schema is authoritative. A stale or
+                // inconsistent inner value must not bypass migration.
+                {QStringLiteral("schema"), 99},
+                {QStringLiteral("enabled"), true},
+                {QStringLiteral("providerId"), QStringLiteral("anime4k")},
+                {QStringLiteral("presetId"), presetId},
+                {QStringLiteral("presetExplicit"), presetExplicit},
+            };
+            settings.setValue(QStringLiteral("playback/upscaling/schema"), 2);
+            settings.setValue(
+                QStringLiteral("playback/upscaling/settingsJson"),
+                QJsonDocument::fromVariant(previous).toJson(
+                    QJsonDocument::Compact));
+            settings.sync();
+            return std::make_unique<PreferencesViewModel>();
+        };
+
+        auto automatic = restore(false, QStringLiteral("quality"));
+        QCOMPARE(automatic->upscalingSettings()
+                     .value(QStringLiteral("enabled")).toBool(), true);
+        QCOMPARE(automatic->upscalingSettings()
+                     .value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("balanced"));
+        QCOMPARE(automatic->upscalingSettings()
+                     .value(QStringLiteral("schema")).toInt(), 3);
+        QVERIFY(!automatic->upscalingSettings().contains(
+            QStringLiteral("presetExplicit")));
+
+        auto explicitPreset = restore(true, QStringLiteral("quality"));
+        QCOMPARE(explicitPreset->upscalingSettings()
+                     .value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("quality"));
+        QVERIFY(!explicitPreset->upscalingSettings().contains(
+            QStringLiteral("presetExplicit")));
+    }
+
+    void upscalingCurrentSchemaPreservesManualPresetAcrossToggle()
+    {
+        QSettings settings;
+        const QVariantMap current {
+            // An old inner marker is ignored once the top-level document has
+            // already reached the current schema.
+            {QStringLiteral("schema"), 2},
+            {QStringLiteral("enabled"), false},
+            {QStringLiteral("providerId"), QStringLiteral("anime4k")},
+            {QStringLiteral("presetId"), QStringLiteral("quality")},
+            {QStringLiteral("presetExplicit"), false},
+        };
+        settings.setValue(QStringLiteral("playback/upscaling/schema"), 3);
+        settings.setValue(
+            QStringLiteral("playback/upscaling/settingsJson"),
+            QJsonDocument::fromVariant(current).toJson(
+                QJsonDocument::Compact));
+        settings.sync();
+
+        PreferencesViewModel preferences;
+        QCOMPARE(preferences.upscalingSettings()
+                     .value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("quality"));
+        QVERIFY(!preferences.upscalingSettings().contains(
+            QStringLiteral("presetExplicit")));
+
+        preferences.saveUpscalingSettings({
+            {QStringLiteral("enabled"), true},
+        });
+        QCOMPARE(preferences.upscalingSettings()
+                     .value(QStringLiteral("enabled")).toBool(), true);
+        QCOMPARE(preferences.upscalingSettings()
+                     .value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("quality"));
+
+        preferences.saveUpscalingSettings({
+            {QStringLiteral("enabled"), false},
+        });
+        QCOMPARE(preferences.upscalingSettings()
+                     .value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("quality"));
+    }
+
+    void upscalingSchemaOneProvidersMigrateOnceToAnime4k()
+    {
+        const QStringList providers {
+            QStringLiteral("anime4k"),
+            QStringLiteral("auto"),
+            QStringLiteral("artcnn"),
+            QStringLiteral("rtx"),
+        };
+        for (const QString &providerId : providers) {
+            QSettings settings;
+            settings.clear();
+            const QVariantMap legacy {
+                {QStringLiteral("schema"), 1},
+                {QStringLiteral("enabled"), true},
+                {QStringLiteral("providerId"), providerId},
+                {QStringLiteral("presetId"), QStringLiteral("custom")},
+                {QStringLiteral("anime4kMode"), QStringLiteral("c")},
+                {QStringLiteral("anime4kModelSize"), QStringLiteral("ul")},
+                {QStringLiteral("anime4kRestorePasses"), 2},
+                {QStringLiteral("anime4kAutoDownscale"), false},
+                {QStringLiteral("artcnnModel"), QStringLiteral("c4f16")},
+                {QStringLiteral("rtxScaleFactor"), 4.0},
+            };
+            settings.setValue(QStringLiteral("playback/upscaling/schema"), 1);
+            settings.setValue(
+                QStringLiteral("playback/upscaling/settingsJson"),
+                QJsonDocument::fromVariant(legacy).toJson(
+                    QJsonDocument::Compact));
+            settings.sync();
+
+            PreferencesViewModel migrated;
+            const QVariantMap result = migrated.upscalingSettings();
+            QCOMPARE(result.value(QStringLiteral("schema")).toInt(), 3);
+            QCOMPARE(result.value(QStringLiteral("providerId")).toString(),
+                QStringLiteral("anime4k"));
+            const bool compatible = providerId == QLatin1String("anime4k")
+                || providerId == QLatin1String("auto");
+            QCOMPARE(result.value(QStringLiteral("enabled")).toBool(),
+                compatible);
+            const bool explicitPreset = providerId
+                == QLatin1String("anime4k");
+            QVERIFY(!result.contains(QStringLiteral("presetExplicit")));
+            QCOMPARE(result.value(QStringLiteral("presetId")).toString(),
+                explicitPreset ? QStringLiteral("custom")
+                               : QStringLiteral("balanced"));
+            QVERIFY(!result.contains(QStringLiteral("artcnnModel")));
+            QVERIFY(!result.contains(QStringLiteral("rtxScaleFactor")));
+
+            QSettings persisted;
+            QCOMPARE(persisted.value(
+                         QStringLiteral("playback/upscaling/schema")).toInt(),
+                3);
+            const QJsonDocument persistedDocument = QJsonDocument::fromJson(
+                persisted.value(
+                    QStringLiteral("playback/upscaling/settingsJson"))
+                    .toByteArray());
+            QCOMPARE(persistedDocument.object().toVariantMap(), result);
+        }
+    }
+
+    void upscalingPreferencesRejectCorruptOrUnknownSchema()
+    {
+        QSettings settings;
+        settings.setValue(QStringLiteral("playback/upscaling/schema"), 99);
+        settings.setValue(QStringLiteral("playback/upscaling/settingsJson"),
+            QByteArrayLiteral("{not-json"));
+
+        PreferencesViewModel preferences;
+        const QVariantMap restored = preferences.upscalingSettings();
+        QCOMPARE(restored.value(QStringLiteral("enabled")).toBool(), false);
+        QCOMPARE(restored.value(QStringLiteral("providerId")).toString(),
+            QStringLiteral("anime4k"));
+    }
+
+    void upscalingRebuildCoalescesSynchronousReentry()
+    {
+        PreferencesViewModel preferences;
+        UpscalingViewModel viewModel(
+            &preferences, nullptr, nullptr);
+
+        int emissionDepth = 0;
+        int maximumEmissionDepth = 0;
+        int emissionCount = 0;
+        connect(&viewModel, &UpscalingViewModel::stateChanged,
+            &viewModel, [&] {
+                ++emissionDepth;
+                maximumEmissionDepth = std::max(
+                    maximumEmissionDepth, emissionDepth);
+                ++emissionCount;
+                if (emissionCount == 1) {
+                    QVariantMap nested = preferences.upscalingSettings();
+                    nested.insert(
+                        QStringLiteral("presetId"),
+                        QStringLiteral("quality"));
+                    preferences.saveUpscalingSettings(nested);
+                }
+                --emissionDepth;
+            });
+
+        QVariantMap initial = preferences.upscalingSettings();
+        initial.insert(
+            QStringLiteral("enabled"), true);
+        preferences.saveUpscalingSettings(initial);
+
+        QCOMPARE(maximumEmissionDepth, 1);
+        QTRY_COMPARE(emissionCount, 2);
+        QCOMPARE(maximumEmissionDepth, 1);
+        QCOMPARE(preferences.upscalingSettings()
+                     .value(QStringLiteral("presetId")).toString(),
+            QStringLiteral("quality"));
     }
 
     void sessionAndCatalogUseTypedPorts()

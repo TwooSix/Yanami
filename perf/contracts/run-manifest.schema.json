@@ -142,7 +142,7 @@
       "uniqueItems": true,
       "items": {
         "type": "string",
-        "enum": ["search", "backend", "interaction", "playback", "danmaku", "startup"]
+        "enum": ["search", "backend", "interaction", "playback", "danmaku", "upscaling", "startup"]
       }
     },
     "metrics": {

@@ -2,6 +2,8 @@
 
 #include "MediaStore.hpp"
 
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSettings>
 #include <QTimer>
 
@@ -10,6 +12,100 @@
 namespace {
 
 constexpr int kDefaultLibrarySortMode = 1;
+constexpr int kUpscalingSettingsSchema = 3;
+constexpr int kPreviousUpscalingSettingsSchema = 2;
+constexpr int kLegacyUpscalingSettingsSchema = 1;
+
+QVariantMap defaultUpscalingSettings()
+{
+    return {
+        {QStringLiteral("schema"), kUpscalingSettingsSchema},
+        {QStringLiteral("enabled"), false},
+        {QStringLiteral("providerId"), QStringLiteral("anime4k")},
+        {QStringLiteral("presetId"), QStringLiteral("balanced")},
+        {QStringLiteral("autoHeadroom"), 20},
+        {QStringLiteral("anime4kMode"), QStringLiteral("a")},
+        {QStringLiteral("anime4kModelSize"), QStringLiteral("vl")},
+        {QStringLiteral("anime4kRestorePasses"), 1},
+        {QStringLiteral("anime4kAutoDownscale"), true},
+        {QStringLiteral("performanceProtection"), true},
+    };
+}
+
+QString validatedId(
+    const QVariantMap &source,
+    const QString &key,
+    const QStringList &allowed,
+    const QString &fallback)
+{
+    const QString value = source.value(key).toString().trimmed().toLower();
+    return allowed.contains(value) ? value : fallback;
+}
+
+int boundedInt(
+    const QVariantMap &source,
+    const QString &key,
+    int minimum,
+    int maximum,
+    int fallback)
+{
+    bool valid = false;
+    const int value = source.value(key).toInt(&valid);
+    return valid && value >= minimum && value <= maximum ? value : fallback;
+}
+
+QVariantMap sanitizeUpscalingSettings(
+    const QVariantMap &source, int sourceSchema)
+{
+    const QVariantMap defaults = defaultUpscalingSettings();
+    QVariantMap result = defaults;
+    const QString sourceProvider = source.value(
+        QStringLiteral("providerId")).toString().trimmed().toLower();
+    const bool providerCanMigrate = sourceProvider == QLatin1String("anime4k")
+        || sourceProvider == QLatin1String("auto");
+    result.insert(QStringLiteral("enabled"),
+        source.value(QStringLiteral("enabled"),
+            defaults.value(QStringLiteral("enabled"))).toBool()
+            && providerCanMigrate);
+    // Provider selection used to include Auto, ArtCNN, and NVIDIA RTX.
+    // Keep accepting the old document shape during migration, but never let a
+    // stale provider escape into the current Anime4K-only product contract.
+    result.insert(QStringLiteral("providerId"), QStringLiteral("anime4k"));
+    QString presetId = validatedId(
+        source, QStringLiteral("presetId"),
+        {QStringLiteral("performance"), QStringLiteral("balanced"),
+         QStringLiteral("quality"), QStringLiteral("custom")},
+        QStringLiteral("balanced"));
+    // Schema 1 used provider=auto and schema 2 used presetExplicit=false as
+    // implicit-selection sentinels. Migrate those states to the product
+    // default while preserving every explicit Anime4K choice.
+    const bool legacyExplicitPreset = sourceSchema == kLegacyUpscalingSettingsSchema
+        ? sourceProvider == QLatin1String("anime4k")
+        : source.value(QStringLiteral("presetExplicit"), false).toBool();
+    if (!providerCanMigrate
+        || (sourceSchema <= kPreviousUpscalingSettingsSchema
+            && !legacyExplicitPreset)) {
+        presetId = QStringLiteral("balanced");
+    }
+    result.insert(QStringLiteral("presetId"), presetId);
+    result.insert(QStringLiteral("autoHeadroom"), boundedInt(
+        source, QStringLiteral("autoHeadroom"), 10, 40, 20));
+    result.insert(QStringLiteral("anime4kMode"), validatedId(
+        source, QStringLiteral("anime4kMode"),
+        {QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c")},
+        QStringLiteral("a")));
+    result.insert(QStringLiteral("anime4kModelSize"), validatedId(
+        source, QStringLiteral("anime4kModelSize"),
+        {QStringLiteral("s"), QStringLiteral("m"), QStringLiteral("l"),
+         QStringLiteral("vl"), QStringLiteral("ul")}, QStringLiteral("vl")));
+    result.insert(QStringLiteral("anime4kRestorePasses"), boundedInt(
+        source, QStringLiteral("anime4kRestorePasses"), 1, 2, 1));
+    result.insert(QStringLiteral("anime4kAutoDownscale"),
+        source.value(QStringLiteral("anime4kAutoDownscale"), true).toBool());
+    result.insert(QStringLiteral("performanceProtection"),
+        source.value(QStringLiteral("performanceProtection"), true).toBool());
+    return result;
+}
 
 bool isLibrarySortModeValid(int sortMode)
 {
@@ -972,6 +1068,37 @@ PreferencesViewModel::PreferencesViewModel(QObject *parent) : QObject(parent)
         .toInt(&converted);
     m_librarySortMode = converted && isLibrarySortModeValid(storedSortMode)
         ? storedSortMode : kDefaultLibrarySortMode;
+
+    QSettings settings;
+    const int schema = settings.value(
+        QStringLiteral("playback/upscaling/schema"), 0).toInt();
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(
+        settings.value(QStringLiteral("playback/upscaling/settingsJson"))
+            .toByteArray(),
+        &parseError);
+    const bool supportedSchema = schema == kUpscalingSettingsSchema
+        || schema == kPreviousUpscalingSettingsSchema
+        || schema == kLegacyUpscalingSettingsSchema;
+    const QVariantMap storedUpscalingSettings = document.isObject()
+        ? document.object().toVariantMap() : QVariantMap {};
+    m_upscalingSettings = supportedSchema
+            && parseError.error == QJsonParseError::NoError
+            && document.isObject()
+        ? sanitizeUpscalingSettings(storedUpscalingSettings, schema)
+        : defaultUpscalingSettings();
+    if (supportedSchema && parseError.error == QJsonParseError::NoError
+        && document.isObject()
+        && (schema != kUpscalingSettingsSchema
+            || storedUpscalingSettings != m_upscalingSettings)) {
+        settings.setValue(
+            QStringLiteral("playback/upscaling/settingsJson"),
+            QJsonDocument::fromVariant(m_upscalingSettings).toJson(
+                QJsonDocument::Compact));
+        settings.setValue(
+            QStringLiteral("playback/upscaling/schema"),
+            kUpscalingSettingsSchema);
+    }
 }
 
 QVariantMap PreferencesViewModel::danmakuStyle() const
@@ -1007,6 +1134,28 @@ void PreferencesViewModel::saveDanmakuStyle(const QVariantMap &style)
         settings.setValue(key, style.value(key, defaults.value(key)));
     }
     emit danmakuStyleChanged();
+}
+
+void PreferencesViewModel::saveUpscalingSettings(const QVariantMap &settings)
+{
+    QVariantMap merged = m_upscalingSettings;
+    for (auto iterator = settings.cbegin(); iterator != settings.cend(); ++iterator)
+        merged.insert(iterator.key(), iterator.value());
+    const QVariantMap sanitized = sanitizeUpscalingSettings(
+        merged, kUpscalingSettingsSchema);
+    if (sanitized == m_upscalingSettings)
+        return;
+
+    m_upscalingSettings = sanitized;
+    QSettings persistent;
+    persistent.setValue(
+        QStringLiteral("playback/upscaling/settingsJson"),
+        QJsonDocument::fromVariant(m_upscalingSettings).toJson(
+            QJsonDocument::Compact));
+    persistent.setValue(
+        QStringLiteral("playback/upscaling/schema"),
+        kUpscalingSettingsSchema);
+    emit upscalingSettingsChanged();
 }
 
 void PreferencesViewModel::setLibrarySortMode(int sortMode)
@@ -1052,6 +1201,7 @@ void ApplicationViewModel::initialize(const BackendPortSet &ports)
     m_metadataEditor = new MetadataEditorViewModel(ports.media, this);
     m_mediaTarget = new MediaTargetFlowViewModel(ports.media, this);
     m_preferences = new PreferencesViewModel(this);
+    m_upscaling = new UpscalingViewModel(m_preferences, this);
     m_status = new ApplicationStatusViewModel(ports.status, this);
     m_updates = new UpdateChecker(this);
 
