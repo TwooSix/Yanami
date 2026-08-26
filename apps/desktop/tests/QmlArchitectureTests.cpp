@@ -539,6 +539,24 @@ private slots:
             "Returning from details must preserve the parent library position");
     }
 
+    void homeLandingRailsPassVerticalWheelToThePage()
+    {
+        const QString homePath = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))
+            .filePath(QStringLiteral("pages/HomePage.qml"));
+        const QString home = source(homePath);
+        QVERIFY2(!home.isEmpty(), qPrintable(homePath));
+        QCOMPARE(home.count(QStringLiteral("passVerticalWheelToParent: true")), 3);
+
+        const QString listPath = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))
+            .filePath(QStringLiteral("components/SmoothHorizontalList.qml"));
+        const QString list = source(listPath);
+        QVERIFY2(!list.isEmpty(), qPrintable(listPath));
+        QVERIFY(list.contains(QStringLiteral(
+            "property bool passVerticalWheelToParent: false")));
+        QVERIFY(list.contains(QStringLiteral(
+            "? Qt.ShiftModifier : Qt.KeyboardModifierMask")));
+    }
+
     void homePageAutoPositionsASeasonAtItsFirstUnplayedEpisode()
     {
         const QString path = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))

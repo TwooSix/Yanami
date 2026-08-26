@@ -584,6 +584,7 @@ Item {
                     id: libraryPreviewList
                     Layout.fillWidth: true
                     Layout.preferredHeight: 158
+                    passVerticalWheelToParent: true
                     visible: animatedLibraryViewsModel.count > 0
                     model: animatedLibraryViewsModel
                     delegate: LibraryCard {
@@ -657,6 +658,7 @@ Item {
                     SmoothHorizontalList {
                         id: resumePreviewList
                         anchors.fill: parent
+                        passVerticalWheelToParent: true
                         visible: opacity > 0
                         opacity: animatedResumeModel.count > 0 ? 1 : 0
                         model: animatedResumeModel
@@ -736,6 +738,7 @@ Item {
                         id: latestPreviewList
                         Layout.fillWidth: true
                         Layout.preferredHeight: 312
+                        passVerticalWheelToParent: true
                         spacing: 18
                         model: latestSection.latestModel
 

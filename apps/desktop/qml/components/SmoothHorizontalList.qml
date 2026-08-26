@@ -7,12 +7,21 @@ ListView {
 
     property real lastWheelTime: 0
     property real wheelBoost: 1
+    property bool passVerticalWheelToParent: false
     readonly property bool canScrollHorizontally: contentWidth > width + 1
 
     signal userScrollStarted()
 
     onDraggingChanged: {
         if (dragging)
+            root.userScrollStarted()
+    }
+    onMovementStarted: {
+        // In nested-axis mode, an unmodified horizontal wheel event is handled
+        // by ListView itself. Keep the user-scroll contract used by policies
+        // such as EpisodeScrollPolicy without treating vertical page scrolling
+        // as horizontal-list interaction.
+        if (root.passVerticalWheelToParent && !root.dragging)
             root.userScrollStarted()
     }
 
@@ -96,6 +105,9 @@ ListView {
     WheelHandler {
         target: null
         enabled: root.canScrollHorizontally
+        orientation: Qt.Vertical
+        acceptedModifiers: root.passVerticalWheelToParent
+            ? Qt.ShiftModifier : Qt.KeyboardModifierMask
         blocking: true
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onWheel: event => {
