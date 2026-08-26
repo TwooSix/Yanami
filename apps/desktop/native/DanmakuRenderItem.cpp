@@ -108,6 +108,10 @@ struct RenderStats
     std::atomic<int> committedTextures = 0;
     std::atomic<int> budgetScaledTextures = 0;
     std::atomic<int> uncommittedTextures = 0;
+    std::atomic<int> emptyTextures = 0;
+    std::atomic<int> budgetDeferredTextures = 0;
+    std::atomic<int> transientFailureTextures = 0;
+    std::atomic<int> permanentRejectedTextures = 0;
     QMutex committedVisibleMutex;
     QStringList committedVisibleIds;
 };
@@ -172,6 +176,10 @@ public:
         stats->committedTextures.store(0, std::memory_order_relaxed);
         stats->budgetScaledTextures.store(0, std::memory_order_relaxed);
         stats->uncommittedTextures.store(0, std::memory_order_relaxed);
+        stats->emptyTextures.store(0, std::memory_order_relaxed);
+        stats->budgetDeferredTextures.store(0, std::memory_order_relaxed);
+        stats->transientFailureTextures.store(0, std::memory_order_relaxed);
+        stats->permanentRejectedTextures.store(0, std::memory_order_relaxed);
         // The scene-graph root owns the only authoritative committed set.
         // Never leave the GUI-side diagnostic holding IDs after its teardown.
         publishCommittedVisibleIds(stats);
@@ -333,20 +341,48 @@ RasterStatus rebuildTextTexture(
         || rasterDevicePixelRatio < minimumRasterDevicePixelRatio) {
         return rejectRaster(RasterStatus::BudgetDeferred);
     }
-    double physicalWidth = std::ceil(logicalWidth * rasterDevicePixelRatio);
-    double physicalHeight = std::ceil(logicalHeight * rasterDevicePixelRatio);
-    for (int adjustment = 0;
-         adjustment < 2
-         && physicalWidth * physicalHeight > allowedPixels;
-         ++adjustment) {
-        rasterDevicePixelRatio *= std::sqrt(
-            static_cast<double>(allowedPixels)
-            / (physicalWidth * physicalHeight)) * 0.999;
-        physicalWidth = std::ceil(logicalWidth * rasterDevicePixelRatio);
-        physicalHeight = std::ceil(logicalHeight * rasterDevicePixelRatio);
+    const auto physicalSizeAt = [logicalWidth, logicalHeight](double ratio) {
+        return std::pair {
+            static_cast<qint64>(std::ceil(logicalWidth * ratio)),
+            static_cast<qint64>(std::ceil(logicalHeight * ratio)),
+        };
+    };
+    const auto fitsPixelBudget = [allowedPixels](
+                                     const std::pair<qint64, qint64> &size) {
+        return size.first > 0 && size.second > 0
+            && size.first <= maximumRasterDimension
+            && size.second <= maximumRasterDimension
+            && size.first <= allowedPixels / size.second;
+    };
+    auto physicalSize = physicalSizeAt(rasterDevicePixelRatio);
+    if (!fitsPixelBudget(physicalSize)) {
+        const auto minimumPhysicalSize = physicalSizeAt(
+            minimumRasterDevicePixelRatio);
+        if (!fitsPixelBudget(minimumPhysicalSize))
+            return rejectRaster(RasterStatus::BudgetDeferred);
+
+        // ceil(width * ratio) * ceil(height * ratio) is monotonic but its
+        // integer steps can remain above the budget after a fixed number of
+        // proportional corrections. Search the bounded interval instead so
+        // every representable minimum-scale texture obtains the largest
+        // feasible raster ratio independent of platform font metrics.
+        double feasibleRatio = minimumRasterDevicePixelRatio;
+        double infeasibleRatio = rasterDevicePixelRatio;
+        for (int iteration = 0; iteration < 48; ++iteration) {
+            const double candidateRatio = feasibleRatio
+                + (infeasibleRatio - feasibleRatio) / 2.0;
+            const auto candidateSize = physicalSizeAt(candidateRatio);
+            if (fitsPixelBudget(candidateSize))
+                feasibleRatio = candidateRatio;
+            else
+                infeasibleRatio = candidateRatio;
+        }
+        rasterDevicePixelRatio = feasibleRatio;
+        physicalSize = physicalSizeAt(rasterDevicePixelRatio);
     }
-    if (!std::isfinite(physicalWidth) || !std::isfinite(physicalHeight)
-        || physicalWidth <= 0 || physicalHeight <= 0
+    const qint64 physicalWidth = physicalSize.first;
+    const qint64 physicalHeight = physicalSize.second;
+    if (physicalWidth <= 0 || physicalHeight <= 0
         || physicalWidth > maximumRasterDimension
         || physicalHeight > maximumRasterDimension
         || rasterDevicePixelRatio < minimumRasterDevicePixelRatio) {
@@ -615,6 +651,29 @@ int DanmakuRenderItem::uncommittedTextureCount() const
         std::memory_order_relaxed);
 }
 
+int DanmakuRenderItem::emptyTextureCount() const
+{
+    return d->renderStats->emptyTextures.load(std::memory_order_relaxed);
+}
+
+int DanmakuRenderItem::budgetDeferredTextureCount() const
+{
+    return d->renderStats->budgetDeferredTextures.load(
+        std::memory_order_relaxed);
+}
+
+int DanmakuRenderItem::transientFailureTextureCount() const
+{
+    return d->renderStats->transientFailureTextures.load(
+        std::memory_order_relaxed);
+}
+
+int DanmakuRenderItem::permanentRejectedTextureCount() const
+{
+    return d->renderStats->permanentRejectedTextures.load(
+        std::memory_order_relaxed);
+}
+
 QStringList DanmakuRenderItem::eligibleCandidateIds() const
 {
     SharedSnapshot snapshot;
@@ -664,6 +723,10 @@ QSGNode *DanmakuRenderItem::updatePaintNode(
         root->stats->committedTextures.store(0, std::memory_order_relaxed);
         root->stats->budgetScaledTextures.store(0, std::memory_order_relaxed);
         root->stats->uncommittedTextures.store(0, std::memory_order_relaxed);
+        root->stats->emptyTextures.store(0, std::memory_order_relaxed);
+        root->stats->budgetDeferredTextures.store(0, std::memory_order_relaxed);
+        root->stats->transientFailureTextures.store(0, std::memory_order_relaxed);
+        root->stats->permanentRejectedTextures.store(0, std::memory_order_relaxed);
         publishCommittedVisibleIds(root->stats);
         return root;
     }
@@ -823,6 +886,7 @@ QSGNode *DanmakuRenderItem::updatePaintNode(
         return false;
     };
 
+    QSet<QString> firstPassDeferredKeys;
     for (const RenderEntry &entry : snapshot->entries) {
         auto it = root->nodes.find(entry.key);
         if (it == root->nodes.end())
@@ -855,9 +919,22 @@ QSGNode *DanmakuRenderItem::updatePaintNode(
             rasterPixelBudget = std::min(
                 rasterPixelBudget,
                 unallocatedPixels / untexturedRebuilds);
-            --untexturedRebuilds;
         }
         performBuild(state, entry, family, rasterPixelBudget);
+        if (state.rasterStatus == RasterStatus::BudgetDeferred)
+            firstPassDeferredKeys.insert(entry.key);
+        const bool retainsFairShare = state.rasterStatus
+                == RasterStatus::TransientFailure
+            && state.transientFailures < 3;
+        if (wasUntextured && !retainsFairShare) {
+            // A transient texture-creation failure is retried on a following
+            // frame. Keep its fair share of the aggregate budget reserved so
+            // later entries cannot consume the remainder and turn that retry
+            // into BudgetDeferred. True budget deferrals retain the existing
+            // second-pass policy below; resolved, permanent, and exhausted
+            // attempts no longer participate in this first-pass divisor.
+            untexturedRebuilds = std::max(0, untexturedRebuilds - 1);
+        }
         if (wasUntextured
             && (state.rasterPixels > 0
                 || !shouldBuild(state, entry, family))) {
@@ -874,7 +951,8 @@ QSGNode *DanmakuRenderItem::updatePaintNode(
         for (const RenderEntry &entry : snapshot->entries) {
             auto it = root->nodes.find(entry.key);
             if (it == root->nodes.end()
-                || it->rasterStatus != RasterStatus::BudgetDeferred) {
+                || it->rasterStatus != RasterStatus::BudgetDeferred
+                || !firstPassDeferredKeys.contains(entry.key)) {
                 continue;
             }
             const qint64 availablePixels = std::max<qint64>(
@@ -941,20 +1019,35 @@ QSGNode *DanmakuRenderItem::updatePaintNode(
             Qt::QueuedConnection);
     }
 
-    const int committedTextureCount = static_cast<int>(std::count_if(
-        root->nodes.cbegin(),
-        root->nodes.cend(),
-        [](const TextNodeState &state) {
-            return state.rasterStatus == RasterStatus::Committed
-                && state.texture && state.attached;
-        }));
-    const int budgetScaledTextureCount = static_cast<int>(std::count_if(
-        root->nodes.cbegin(),
-        root->nodes.cend(),
-        [](const TextNodeState &state) {
-            return state.rasterStatus == RasterStatus::Committed
-                && state.texture && state.attached && state.budgetScaled;
-        }));
+    int committedTextureCount = 0;
+    int budgetScaledTextureCount = 0;
+    int emptyTextureCount = 0;
+    int budgetDeferredTextureCount = 0;
+    int transientFailureTextureCount = 0;
+    int permanentRejectedTextureCount = 0;
+    for (const TextNodeState &state : std::as_const(root->nodes)) {
+        switch (state.rasterStatus) {
+        case RasterStatus::Empty:
+            ++emptyTextureCount;
+            break;
+        case RasterStatus::Committed:
+            if (state.texture && state.attached) {
+                ++committedTextureCount;
+                if (state.budgetScaled)
+                    ++budgetScaledTextureCount;
+            }
+            break;
+        case RasterStatus::BudgetDeferred:
+            ++budgetDeferredTextureCount;
+            break;
+        case RasterStatus::PermanentRejected:
+            ++permanentRejectedTextureCount;
+            break;
+        case RasterStatus::TransientFailure:
+            ++transientFailureTextureCount;
+            break;
+        }
+    }
     root->stats->estimatedRasterBytes.store(
         root->rasterPixels * 4,
         std::memory_order_relaxed);
@@ -966,6 +1059,18 @@ QSGNode *DanmakuRenderItem::updatePaintNode(
         std::memory_order_relaxed);
     root->stats->uncommittedTextures.store(
         root->nodes.size() - committedTextureCount,
+        std::memory_order_relaxed);
+    root->stats->emptyTextures.store(
+        emptyTextureCount,
+        std::memory_order_relaxed);
+    root->stats->budgetDeferredTextures.store(
+        budgetDeferredTextureCount,
+        std::memory_order_relaxed);
+    root->stats->transientFailureTextures.store(
+        transientFailureTextureCount,
+        std::memory_order_relaxed);
+    root->stats->permanentRejectedTextures.store(
+        permanentRejectedTextureCount,
         std::memory_order_relaxed);
     return root;
 }

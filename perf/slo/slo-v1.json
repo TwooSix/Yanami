@@ -292,7 +292,7 @@
       "absolute": { "hosted": { "p95": { "op": "<=", "value": 1000 }, "max": { "op": "<=", "value": 1500 } } }
     },
     {
-      "id": "danmaku.hosted_smoke.dense_seek_to_frame_candidate_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "minimumSamples": { "hosted": 5 },
+      "id": "danmaku.hosted_smoke.dense_seek_to_frame_candidate_ms", "suite": "danmaku", "category": "ui_present", "unit": "ms", "priority": "P0", "direction": "upper", "relativeStatistic": "p95", "minimumSamples": { "hosted": 21 },
       "requiredProfiles": ["PullRequest"],
       "absolute": { "hosted": { "p95": { "op": "<=", "value": 100 }, "max": { "op": "<=", "value": 250 } } }
     },

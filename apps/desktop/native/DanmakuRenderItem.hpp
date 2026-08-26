@@ -29,6 +29,10 @@ class DanmakuRenderItem : public QQuickItem
     Q_PROPERTY(int committedTextureCount READ committedTextureCount)
     Q_PROPERTY(int budgetScaledTextureCount READ budgetScaledTextureCount)
     Q_PROPERTY(int uncommittedTextureCount READ uncommittedTextureCount)
+    Q_PROPERTY(int emptyTextureCount READ emptyTextureCount)
+    Q_PROPERTY(int budgetDeferredTextureCount READ budgetDeferredTextureCount)
+    Q_PROPERTY(int transientFailureTextureCount READ transientFailureTextureCount)
+    Q_PROPERTY(int permanentRejectedTextureCount READ permanentRejectedTextureCount)
 
 public:
     explicit DanmakuRenderItem(QQuickItem *parent = nullptr);
@@ -67,6 +71,10 @@ public:
     int committedTextureCount() const;
     int budgetScaledTextureCount() const;
     int uncommittedTextureCount() const;
+    int emptyTextureCount() const;
+    int budgetDeferredTextureCount() const;
+    int transientFailureTextureCount() const;
+    int permanentRejectedTextureCount() const;
 
     // Hosted probes can compare the renderer's exact time-window candidates
     // with an independent fixture oracle without walking 100k source rows.

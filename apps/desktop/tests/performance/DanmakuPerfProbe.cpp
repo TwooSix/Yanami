@@ -46,7 +46,11 @@
 namespace {
 constexpr int hostedCommentCount = 20'000;
 constexpr int strictCommentCount = 100'000;
-constexpr int loadGenerationCount = 5;
+// R7 p95 needs 21 observations for one isolated cold sample to remain under
+// the separately enforced max statistic instead of dominating the percentile.
+// This yields one cold generation plus twenty repeated dense-seek generations.
+constexpr int loadGenerationCount = 21;
+constexpr int maximumTextureCommitFrames = 3;
 
 struct Fixture
 {
@@ -269,6 +273,37 @@ bool waitForFrame(QQuickWindow *window, int timeoutMs, double *elapsedMs)
     QObject::disconnect(frameConnection);
     *elapsedMs = clock.nsecsElapsed() / 1'000'000.0;
     return swapped;
+}
+
+bool waitForCommittedTextures(
+    QQuickWindow *window,
+    QObject *renderer,
+    int expectedCount,
+    int timeoutMs,
+    double *elapsedMs)
+{
+    QElapsedTimer clock;
+    clock.start();
+    bool frameReady = false;
+    for (int frame = 0;
+         frame < maximumTextureCommitFrames && clock.elapsed() < timeoutMs;
+         ++frame) {
+        double ignoredFrameMs = 0.0;
+        frameReady = waitForFrame(
+            window,
+            std::max(1, timeoutMs - static_cast<int>(clock.elapsed())),
+            &ignoredFrameMs);
+        if (!frameReady)
+            break;
+        if (renderer
+            && renderer->property("committedTextureCount").toInt() == expectedCount
+            && renderer->property("uncommittedTextureCount").toInt() == 0) {
+            *elapsedMs = clock.nsecsElapsed() / 1'000'000.0;
+            return true;
+        }
+    }
+    *elapsedMs = clock.nsecsElapsed() / 1'000'000.0;
+    return false;
 }
 
 void processFramesFor(QQuickWindow *window, int durationMs)
@@ -1381,10 +1416,12 @@ int main(int argc, char *argv[])
         overlay->setProperty("mediaPosition", 605.0);
         overlay->setProperty("mediaPosition", 605.5);
     }
+    QObject *const textureRenderer = overlay->property("rendererItem").value<QObject *>();
     double longTextureFrameMs = 0.0;
     const bool longTextureFrameReady = longTextureReady
-        && waitForFrame(window, 10'000, &longTextureFrameMs);
-    QObject *const textureRenderer = overlay->property("rendererItem").value<QObject *>();
+        && waitForCommittedTextures(
+            window, textureRenderer, longTextureComments.size(),
+            10'000, &longTextureFrameMs);
     bool longCommittedHookValid = false;
     const DelegateSnapshot longTextureSnapshot = longTextureFrameReady
         ? snapshotPresentedCandidates(
@@ -1403,6 +1440,18 @@ int main(int argc, char *argv[])
         ? textureRenderer->property("budgetScaledTextureCount").toInt() : 0;
     const int uncommittedTextureCount = textureRenderer
         ? textureRenderer->property("uncommittedTextureCount").toInt() : 0;
+    const int emptyTextureCount = textureRenderer
+        ? textureRenderer->property("emptyTextureCount").toInt() : -1;
+    const int budgetDeferredTextureCount = textureRenderer
+        ? textureRenderer->property("budgetDeferredTextureCount").toInt() : -1;
+    const int transientFailureTextureCount = textureRenderer
+        ? textureRenderer->property("transientFailureTextureCount").toInt() : -1;
+    const int permanentRejectedTextureCount = textureRenderer
+        ? textureRenderer->property("permanentRejectedTextureCount").toInt() : -1;
+    const bool activeRasterStatusAccountingValid = committedTextureCount
+            + emptyTextureCount + budgetDeferredTextureCount
+            + transientFailureTextureCount + permanentRejectedTextureCount
+        == longTextureComments.size();
     const bool activeTextureBudgetBounded = longTextureFrameReady
         && longCommittedHookValid && longEligibleHookValid
         && longEligibleIds.size() == longTextureComments.size()
@@ -1410,6 +1459,7 @@ int main(int argc, char *argv[])
         && longTextureSnapshot.visibleIds == longEligibleIds
         && committedTextureCount == longTextureComments.size()
         && uncommittedTextureCount == 0
+        && activeRasterStatusAccountingValid
         && budgetScaledTextureCount > 0
         && estimatedCachedRasterBytes > 0
         && texturePayloadBudgetBytes > 0
@@ -1430,7 +1480,9 @@ int main(int argc, char *argv[])
     }
     double churnInitialFrameMs = 0.0;
     const bool churnInitialFrameReady = churnReady
-        && waitForFrame(window, 10'000, &churnInitialFrameMs);
+        && waitForCommittedTextures(
+            window, textureRenderer, churnInitialExpectedIds.size(),
+            10'000, &churnInitialFrameMs);
     bool churnInitialCommittedHookValid = false;
     const DelegateSnapshot churnInitialSnapshot = churnInitialFrameReady
         ? snapshotPresentedCandidates(
@@ -1448,7 +1500,9 @@ int main(int argc, char *argv[])
     overlay->setProperty("mediaPosition", 605.5);
     double churnShiftedFrameMs = 0.0;
     const bool churnShiftedFrameReady = churnInitialExact
-        && waitForFrame(window, 10'000, &churnShiftedFrameMs);
+        && waitForCommittedTextures(
+            window, textureRenderer, churnShiftedExpectedIds.size(),
+            10'000, &churnShiftedFrameMs);
     bool churnShiftedCommittedHookValid = false;
     const DelegateSnapshot churnShiftedSnapshot = churnShiftedFrameReady
         ? snapshotPresentedCandidates(
@@ -1463,6 +1517,14 @@ int main(int argc, char *argv[])
         ? textureRenderer->property("uncommittedTextureCount").toInt() : -1;
     const int churnBudgetScaledTextureCount = textureRenderer
         ? textureRenderer->property("budgetScaledTextureCount").toInt() : -1;
+    const int churnEmptyTextureCount = textureRenderer
+        ? textureRenderer->property("emptyTextureCount").toInt() : -1;
+    const int churnBudgetDeferredTextureCount = textureRenderer
+        ? textureRenderer->property("budgetDeferredTextureCount").toInt() : -1;
+    const int churnTransientFailureTextureCount = textureRenderer
+        ? textureRenderer->property("transientFailureTextureCount").toInt() : -1;
+    const int churnPermanentRejectedTextureCount = textureRenderer
+        ? textureRenderer->property("permanentRejectedTextureCount").toInt() : -1;
     const bool longTextureChurnValid = churnShiftedFrameReady
         && churnShiftedCommittedHookValid && churnShiftedEligibleHookValid
         && churnShiftedSnapshot.unique
@@ -1628,6 +1690,12 @@ int main(int argc, char *argv[])
          {QStringLiteral("committedTextureCount"), committedTextureCount},
          {QStringLiteral("budgetScaledTextureCount"), budgetScaledTextureCount},
          {QStringLiteral("uncommittedTextureCount"), uncommittedTextureCount},
+         {QStringLiteral("emptyTextureCount"), emptyTextureCount},
+         {QStringLiteral("budgetDeferredTextureCount"), budgetDeferredTextureCount},
+         {QStringLiteral("transientFailureTextureCount"), transientFailureTextureCount},
+         {QStringLiteral("permanentRejectedTextureCount"), permanentRejectedTextureCount},
+         {QStringLiteral("rasterStatusAccountingValid"),
+          activeRasterStatusAccountingValid},
          {QStringLiteral("clearedEstimatedCachedRasterBytes"),
           static_cast<double>(clearedEstimatedCachedRasterBytes)},
          {QStringLiteral("clearedCommittedTextureCount"), clearedCommittedTextureCount},
@@ -1660,6 +1728,13 @@ int main(int argc, char *argv[])
          {QStringLiteral("committedTextureCount"), churnCommittedTextureCount},
          {QStringLiteral("uncommittedTextureCount"), churnUncommittedTextureCount},
          {QStringLiteral("budgetScaledTextureCount"), churnBudgetScaledTextureCount},
+         {QStringLiteral("emptyTextureCount"), churnEmptyTextureCount},
+         {QStringLiteral("budgetDeferredTextureCount"),
+          churnBudgetDeferredTextureCount},
+         {QStringLiteral("transientFailureTextureCount"),
+          churnTransientFailureTextureCount},
+         {QStringLiteral("permanentRejectedTextureCount"),
+          churnPermanentRejectedTextureCount},
          {QStringLiteral("initialExact"), churnInitialExact},
          {QStringLiteral("shiftedMissingSample"), limitedIds(setDifference(
               churnShiftedExpectedIds, churnShiftedSnapshot.visibleIds))},
@@ -1713,6 +1788,12 @@ int main(int argc, char *argv[])
          {QStringLiteral("committedTextureCount"), committedTextureCount},
          {QStringLiteral("budgetScaledTextureCount"), budgetScaledTextureCount},
          {QStringLiteral("uncommittedTextureCount"), uncommittedTextureCount},
+         {QStringLiteral("emptyTextureCount"), emptyTextureCount},
+         {QStringLiteral("budgetDeferredTextureCount"), budgetDeferredTextureCount},
+         {QStringLiteral("transientFailureTextureCount"), transientFailureTextureCount},
+         {QStringLiteral("permanentRejectedTextureCount"), permanentRejectedTextureCount},
+         {QStringLiteral("rasterStatusAccountingValid"),
+          activeRasterStatusAccountingValid},
          {QStringLiteral("clearedEstimatedCachedRasterBytes"),
           static_cast<double>(clearedEstimatedCachedRasterBytes)},
          {QStringLiteral("clearedCommittedTextureCount"), clearedCommittedTextureCount},
@@ -1721,6 +1802,13 @@ int main(int argc, char *argv[])
          {QStringLiteral("longTextureChurnValid"), longTextureChurnValid},
          {QStringLiteral("churnCommittedTextureCount"), churnCommittedTextureCount},
          {QStringLiteral("churnUncommittedTextureCount"), churnUncommittedTextureCount},
+         {QStringLiteral("churnEmptyTextureCount"), churnEmptyTextureCount},
+         {QStringLiteral("churnBudgetDeferredTextureCount"),
+          churnBudgetDeferredTextureCount},
+         {QStringLiteral("churnTransientFailureTextureCount"),
+          churnTransientFailureTextureCount},
+         {QStringLiteral("churnPermanentRejectedTextureCount"),
+          churnPermanentRejectedTextureCount},
          {QStringLiteral("textureBudgetBounded"), textureBudgetBounded}}));
     invariants.push_back(invariant(
         QStringLiteral("danmaku.hosted_eligible_exact_set_valid"), exactSetValid,
