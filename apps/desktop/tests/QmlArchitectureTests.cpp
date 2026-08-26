@@ -678,6 +678,135 @@ private slots:
             "visible: root.playButtonVisible")));
     }
 
+    void controllerNavigationUsesOneSemanticFocusGraph()
+    {
+        const QDir qmlRoot(QStringLiteral(YANAMI_QML_SOURCE_DIR));
+        const QString mainWindow = source(
+            qmlRoot.filePath(QStringLiteral("Main.qml")));
+        const QString navigator = source(qmlRoot.filePath(
+            QStringLiteral("components/SpatialFocusNavigator.qml")));
+        const QString inputTestScope = source(qmlRoot.filePath(
+            QStringLiteral("components/ControllerInputTestScope.qml")));
+        const QString settings = source(qmlRoot.filePath(
+            QStringLiteral("pages/SettingsPage.qml")));
+        const QString player = source(qmlRoot.filePath(
+            QStringLiteral("pages/PlayerPage.qml")));
+        const QString volumeControl = source(qmlRoot.filePath(
+            QStringLiteral("components/VolumeControl.qml")));
+        const QString slider = source(qmlRoot.filePath(
+            QStringLiteral("components/AppSlider.qml")));
+        const QString textField = source(qmlRoot.filePath(
+            QStringLiteral("components/AppTextField.qml")));
+        const QString search = source(qmlRoot.filePath(
+            QStringLiteral("pages/SearchPage.qml")));
+
+        QVERIFY2(!mainWindow.isEmpty(), "Main.qml must be readable");
+        QVERIFY2(!navigator.isEmpty(),
+            "The shared spatial focus navigator must be packaged");
+        QVERIFY2(!inputTestScope.isEmpty(),
+            "The controller input-test ownership scope must be packaged");
+        QVERIFY(mainWindow.contains(QStringLiteral(
+            "SpatialFocusNavigator {")));
+        QVERIFY(mainWindow.contains(QStringLiteral(
+            "function onActionPressed(action, repeated)")));
+        QVERIFY(mainWindow.contains(QStringLiteral(
+            "InputModality.PagePrevious"))
+            && mainWindow.contains(QStringLiteral(
+                "InputModality.ScrollRight"))
+            && mainWindow.contains(QStringLiteral(
+                "function openControllerMenu()")));
+        QVERIFY(mainWindow.contains(QStringLiteral(
+            "qsTr(\"Minimize window\")"))
+            && mainWindow.contains(QStringLiteral(
+                "qsTr(\"Close Yanami\")")));
+        QVERIFY(mainWindow.contains(QStringLiteral(
+            "window.playerPage.consumeBack()"))
+            && player.contains(QStringLiteral(
+                "function consumeBack()")));
+        QVERIFY(player.contains(QStringLiteral(
+            "action === InputModality.Search"))
+            && player.contains(QStringLiteral(
+                "root.togglePlayerFullScreen()"))
+            && player.contains(QStringLiteral(
+                "!repeated && !root.blockingPopupOpened"))
+            && player.contains(QStringLiteral(
+                "KeyNavigation.up: root.canSkipIntro"))
+            && player.contains(QStringLiteral(
+                "visible: root.canSkipIntro || opacity > 0"))
+            && !player.contains(QStringLiteral(
+                "id: introOfferTimeout"))
+            && player.contains(QStringLiteral(
+                "volumeControl.showTransientVolume()"))
+            && player.contains(QStringLiteral(
+                "popupHost: player"))
+            && !player.contains(QStringLiteral(
+                "popupHost: root"))
+            && player.contains(QStringLiteral(
+                "visible: opacity > 0 || root.controlBarFocusMode"))
+            && player.contains(QStringLiteral(
+                "enabled: opacity > 0.05 || root.controlBarFocusMode")));
+        QVERIFY(volumeControl.contains(QStringLiteral(
+            "function showTransientVolume()"))
+            && volumeControl.contains(QStringLiteral(
+                "property Item popupHost: null"))
+            && volumeControl.contains(QStringLiteral(
+                "takesFocus: false"))
+            && volumeControl.contains(QStringLiteral(
+                "blocksShortcuts: false")));
+
+        QVERIFY(navigator.contains(QStringLiteral(
+            "function moveInVirtualView(current, direction)"))
+            && navigator.contains(QStringLiteral(
+                "function candidateScore(sourceRect, candidateRect, direction)"))
+            && navigator.contains(QStringLiteral(
+                "function revealItem(item)"))
+            && navigator.contains(QStringLiteral(
+                "property var pageBookmarks")));
+
+        QVERIFY(settings.contains(QStringLiteral(
+            "objectName: \"controllerDiagnosticsSection\""))
+            && settings.contains(QStringLiteral(
+                "InputModality.connectedDevices"))
+            && settings.contains(QStringLiteral(
+                "InputModality.lastActionName")));
+        QVERIFY(settings.contains(QStringLiteral(
+            "available: root.pageActive && root.activeSection === 4"))
+            && settings.contains(QStringLiteral(
+                "function onControllerInputTestAction(action, repeated)"))
+            && settings.contains(QStringLiteral(
+                "controllerInputTestScope.start()"))
+            && settings.contains(QStringLiteral(
+                "controllerInputTestScope.handleAction(action, repeated)"))
+            && settings.contains(QStringLiteral(
+                "press B / Back to exit"))
+            && !settings.contains(QStringLiteral(
+                "function onActionPressed(action, repeated)")));
+        QVERIFY(mainWindow.contains(QStringLiteral(
+            "pageActive: window.currentPage === 3"))
+            && mainWindow.contains(QStringLiteral(
+                "InputModality.controllerInputTestActive")));
+        QVERIFY(inputTestScope.contains(QStringLiteral(
+            "InputModality.acquireControllerInputTest(root)"))
+            && inputTestScope.contains(QStringLiteral(
+                "InputModality.releaseControllerInputTest(root)"))
+            && inputTestScope.contains(QStringLiteral(
+                "action === InputModality.Back"))
+            && inputTestScope.contains(QStringLiteral(
+                "Component.onDestruction")));
+        QVERIFY(slider.contains(QStringLiteral(
+            "focusPolicy: Qt.StrongFocus"))
+            && slider.contains(QStringLiteral(
+                "control.visualFocus")));
+        QVERIFY(textField.contains(QStringLiteral(
+            "Keys.priority: Keys.BeforeItem"))
+            && textField.contains(QStringLiteral(
+                "controllerRightHandler"))
+            && search.contains(QStringLiteral(
+                "controllerExitTarget"))
+            && search.contains(QStringLiteral(
+                "controllerDownHandler")));
+    }
+
     void asyncImageKeysStayInsideTheCacheRoot()
     {
         QTemporaryDir temporaryDirectory;

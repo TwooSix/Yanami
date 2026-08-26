@@ -10,6 +10,22 @@ TestCase {
     visible: true
     when: windowShown
 
+    Keys.priority: Keys.AfterItem
+    Keys.onPressed: event => {
+        let direction = ""
+        if (event.key === Qt.Key_Left)
+            direction = "left"
+        else if (event.key === Qt.Key_Right)
+            direction = "right"
+        if (direction.length > 0)
+            event.accepted = navigator.move(direction)
+    }
+
+    SpatialFocusNavigator {
+        id: navigator
+        navigationRoot: testCase
+    }
+
     ListModel { id: episodeModel }
 
     QtObject {
@@ -30,6 +46,7 @@ TestCase {
             required property int index
             width: 100
             height: 80
+            activeFocusOnTab: true
             objectName: "episode-" + String(index)
         }
     }
@@ -201,8 +218,11 @@ TestCase {
     function test_keyboardNavigationContinuesFromTheAutoPositionedEpisode() {
         populateEpisodes(12, 8)
         episodeList.currentIndex = 0
-        episodeList.forceActiveFocus(Qt.TabFocusReason)
-        tryCompare(episodeList, "activeFocus", true)
+        episodeList.forceLayout()
+        const first = episodeList.itemAtIndex(0)
+        verify(first !== null)
+        first.forceActiveFocus(Qt.TabFocusReason)
+        tryCompare(first, "activeFocus", true)
 
         policy.request("season-a")
 
@@ -212,6 +232,9 @@ TestCase {
             return episodeList.indexAt(
                 episodeList.contentX + 1, episodeList.contentY + 1) === 8
         })
+        const positioned = episodeList.itemAtIndex(8)
+        verify(positioned !== null)
+        verify(navigator.focusItem(positioned))
         const settledPosition = episodeList.contentX
         keyClick(Qt.Key_Right)
         tryCompare(episodeList, "currentIndex", 9)
@@ -267,8 +290,10 @@ TestCase {
         populateEpisodes(12, 8)
         episodeList.forceLayout()
         episodeList.currentIndex = 0
-        episodeList.forceActiveFocus(Qt.TabFocusReason)
-        tryCompare(episodeList, "activeFocus", true)
+        const first = episodeList.itemAtIndex(0)
+        verify(first !== null)
+        first.forceActiveFocus(Qt.TabFocusReason)
+        tryCompare(first, "activeFocus", true)
         policy.refreshing = true
         policy.request("season-a")
         verify(policy.pending)

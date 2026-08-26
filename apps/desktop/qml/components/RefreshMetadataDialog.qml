@@ -13,6 +13,7 @@ AppModalPopup {
     signal refreshRequested(string itemId, string mode, bool replaceImages)
 
     dismissBlocked: root.submitting
+    initialFocusTarget: cancelButton
 
     function openFor(item) {
         root.mediaItem = item || ({})
@@ -56,6 +57,8 @@ AppModalPopup {
         border.color: "#4AFFFFFF"
     }
 
+    PopupControllerNavigator { popup: root }
+
     contentItem: ColumnLayout {
         id: contentColumn
         spacing: 16
@@ -90,6 +93,7 @@ AppModalPopup {
         }
 
         Repeater {
+            id: modeRepeater
             model: [
                 {
                     id: "all",
@@ -106,12 +110,31 @@ AppModalPopup {
             delegate: Rectangle {
                 id: modeRow
                 required property var modelData
+                required property int index
                 Layout.fillWidth: true
                 Layout.preferredHeight: 66
+                activeFocusOnTab: true
                 radius: 16
                 color: modeMouse.containsMouse ? "#18FFFFFF" : "#0EFFFFFF"
-                border.width: root.refreshMode === modelData.id ? 1.5 : 1
-                border.color: root.refreshMode === modelData.id ? Theme.accent : Theme.outline
+                border.width: modeRow.activeFocus ? 2
+                    : (root.refreshMode === modelData.id ? 1.5 : 1)
+                border.color: modeRow.activeFocus || root.refreshMode === modelData.id
+                    ? Theme.accent : Theme.outline
+                Accessible.role: Accessible.RadioButton
+                Accessible.name: modelData.title
+                Accessible.checked: root.refreshMode === modelData.id
+
+                KeyNavigation.up: index > 0
+                    ? modeRepeater.itemAt(index - 1) : cancelButton
+                KeyNavigation.down: index + 1 < modeRepeater.count
+                    ? modeRepeater.itemAt(index + 1) : replaceRow
+                Keys.onPressed: event => {
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                            || event.key === Qt.Key_Space) {
+                        root.refreshMode = modeRow.modelData.id
+                        event.accepted = true
+                    }
+                }
 
                 Rectangle {
                     anchors.left: parent.left
@@ -172,12 +195,27 @@ AppModalPopup {
         }
 
         Rectangle {
+            id: replaceRow
             Layout.fillWidth: true
             Layout.preferredHeight: 50
+            activeFocusOnTab: true
             radius: 15
             color: replaceMouse.containsMouse ? "#18FFFFFF" : "#0EFFFFFF"
-            border.width: 1
-            border.color: Theme.outline
+            border.width: activeFocus ? 2 : 1
+            border.color: activeFocus ? Theme.accent : Theme.outline
+            Accessible.role: Accessible.CheckBox
+            Accessible.name: qsTr("Replace existing images")
+            Accessible.checked: root.replaceImages
+            KeyNavigation.up: modeRepeater.count > 0
+                ? modeRepeater.itemAt(modeRepeater.count - 1) : cancelButton
+            KeyNavigation.down: cancelButton
+            Keys.onPressed: event => {
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                        || event.key === Qt.Key_Space) {
+                    root.replaceImages = !root.replaceImages
+                    event.accepted = true
+                }
+            }
 
             Rectangle {
                 anchors.left: parent.left
@@ -247,12 +285,17 @@ AppModalPopup {
             Layout.fillWidth: true
             Item { Layout.fillWidth: true }
             AppButton {
+                id: cancelButton
                 kind: "ghost"
                 text: qsTr("Cancel")
                 enabled: !root.submitting
                 onClicked: root.requestDismiss("cancel")
+                KeyNavigation.up: replaceRow
+                KeyNavigation.left: refreshButton
+                KeyNavigation.right: refreshButton
             }
             AppButton {
+                id: refreshButton
                 kind: "primary"
                 text: root.submitting ? qsTr("Starting…") : qsTr("Refresh")
                 enabled: !root.submitting
@@ -264,6 +307,9 @@ AppModalPopup {
                     root.inlineError = ""
                     root.refreshRequested(itemId, mode, replace)
                 }
+                KeyNavigation.up: replaceRow
+                KeyNavigation.left: cancelButton
+                KeyNavigation.right: cancelButton
             }
         }
     }

@@ -12,6 +12,14 @@ Button {
     implicitWidth: 46
     implicitHeight: 46
     hoverEnabled: true
+    focusPolicy: Qt.StrongFocus
+
+    Keys.onPressed: event => {
+        if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter)
+            return
+        control.click()
+        event.accepted = true
+    }
 
     contentItem: Item {
         AppIcon {

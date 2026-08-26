@@ -139,6 +139,7 @@ jobs:
             mingw-w64-ucrt-x86_64-qt6-base
             mingw-w64-ucrt-x86_64-qt6-declarative
             mingw-w64-ucrt-x86_64-qt6-tools
+            mingw-w64-ucrt-x86_64-sdl3
             mingw-w64-ucrt-x86_64-mpv
 
       - name: Install the matching Rust GNU toolchain
@@ -259,6 +260,10 @@ jobs:
           if (-not (Test-Path -LiteralPath $vulkanLoader -PathType Leaf)) {
             throw "The bundled Vulkan loader is missing."
           }
+          $sdlRuntime = Join-Path $executable.DirectoryName "SDL3.dll"
+          if (-not (Test-Path -LiteralPath $sdlRuntime -PathType Leaf)) {
+            throw "The bundled SDL3 controller runtime is missing."
+          }
           $packageRoot = Split-Path -Parent (Split-Path -Parent $executable.FullName)
           foreach ($required in @(
               "LICENSE",
@@ -333,6 +338,9 @@ jobs:
           }
           if ("mingw-w64-ucrt-x86_64-vulkan-loader" -notin $runtimeOwners) {
             throw "The bundled Vulkan loader owner was not recorded."
+          }
+          if ("mingw-w64-ucrt-x86_64-sdl3" -notin $runtimeOwners) {
+            throw "The bundled SDL3 owner was not recorded."
           }
           $projectLicenseOwners = @(
             "mingw-w64-ucrt-x86_64-ffmpeg",

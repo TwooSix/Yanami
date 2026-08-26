@@ -16,6 +16,16 @@ Button {
     Accessible.name: root.accessibleName.length > 0
         ? root.accessibleName : root.iconName
 
+    // Controller Activate is normalized to Return. Qt Quick's native Button
+    // keyboard contract is style-dependent, so keep activation explicit for
+    // the application rail just as AppButton does.
+    Keys.onPressed: event => {
+        if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter)
+            return
+        root.click()
+        event.accepted = true
+    }
+
     contentItem: Item {
         AppIcon {
             anchors.centerIn: parent

@@ -51,6 +51,8 @@ AppModalPopup {
         border.color: "#4AFFFFFF"
     }
 
+    PopupControllerNavigator { popup: root }
+
     contentItem: ColumnLayout {
         id: contentColumn
         spacing: 16
@@ -91,8 +93,13 @@ AppModalPopup {
                 text: qsTr("Cancel")
                 enabled: !root.submitting
                 onClicked: root.requestDismiss("cancel")
+                KeyNavigation.left: confirmButton
+                KeyNavigation.right: confirmButton
+                KeyNavigation.tab: confirmButton
+                KeyNavigation.backtab: confirmButton
             }
             AppButton {
+                id: confirmButton
                 kind: root.confirmKind
                 text: root.submitting ? qsTr("Working…") : root.confirmText
                 enabled: !root.submitting
@@ -105,6 +112,10 @@ AppModalPopup {
                     }
                     root.confirmed()
                 }
+                KeyNavigation.left: cancelButton
+                KeyNavigation.right: cancelButton
+                KeyNavigation.tab: cancelButton
+                KeyNavigation.backtab: cancelButton
             }
         }
     }

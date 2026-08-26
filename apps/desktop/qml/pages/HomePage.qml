@@ -76,8 +76,13 @@ Item {
         if (root.depth === 1)
             root.requestLibraryScrollReset(root.libraryId)
     }
+    onDepthChanged: {
+        if (root.visible && InputModality.focusNavigationActive)
+            Qt.callLater(root.controllerFocusRequested)
+    }
 
     signal externalReturnRequested(int page)
+    signal controllerFocusRequested()
 
     component LoadingStrip: Item {
         id: strip
@@ -135,6 +140,28 @@ Item {
     signal settingsRequested()
     signal mediaContextRequested(var item, var sourceItem, real x, real y,
                                  bool keyboardInvocation)
+
+    function controllerDefaultFocusItem() {
+        if (!app.session.connected)
+            return disconnectedSettingsButton
+        if (root.depth === 1) {
+            const libraryCard = libraryGrid.itemAtIndex(0)
+            return libraryCard || libraryBackButton
+        }
+        if (root.depth === 0) {
+            const libraryCard = libraryPreviewList.itemAtIndex(0)
+            return libraryCard || (refreshButton.visible
+                ? refreshButton : pageBackButton)
+        }
+        if (root.depth === 2) {
+            const continueCard = seriesContinueList.itemAtIndex(0)
+            const seasonCard = seasonsList.itemAtIndex(0)
+            return continueCard || seasonCard || pageBackButton
+        }
+        if (root.depth === 3)
+            return episodesList.itemAtIndex(0) || pageBackButton
+        return pageBackButton
+    }
 
     function firstLatestMediaItem() {
         if (animatedLatestSectionsModel.count <= 0)
@@ -272,7 +299,7 @@ Item {
         root.detailReturnPage = -1
         root.directExternalSeason = false
         root.seriesDetails = ({})
-        pageFlickable.contentY = 0
+        pageFlickable.revealContentY(0)
     }
 
     function openLibraryView(item) {
@@ -300,7 +327,7 @@ Item {
             root.containerTitle = item.title
             root.containerType = item.itemType
             root.depth = 4
-            pageFlickable.contentY = 0
+            pageFlickable.revealContentY(0)
             app.home.loadCollection(item.id)
         } else if (item.itemType === "Series") {
             root.seriesId = item.id
@@ -309,7 +336,7 @@ Item {
             root.seasonId = ""
             root.seriesDetails = ({})
             root.depth = 2
-            pageFlickable.contentY = 0
+            pageFlickable.revealContentY(0)
             app.home.loadCollection(item.id)
         } else {
             root.playRequested(item.id, item.title, ({}))
@@ -339,7 +366,7 @@ Item {
         root.seasonId = item.id
         root.seasonTitle = item.title
         root.depth = 3
-        pageFlickable.contentY = 0
+        pageFlickable.revealContentY(0)
         root.requestEpisodeScroll(root.seasonId)
         app.home.loadCollection(item.id)
     }
@@ -355,7 +382,7 @@ Item {
         root.seasonId = item.id
         root.seasonTitle = item.title
         root.depth = 3
-        pageFlickable.contentY = 0
+        pageFlickable.revealContentY(0)
         root.requestEpisodeScroll(root.seasonId)
         app.home.loadCollection(item.id)
     }
@@ -367,7 +394,7 @@ Item {
                 root.containerId = ""
                 root.containerTitle = ""
                 root.containerType = ""
-                pageFlickable.contentY = 0
+                pageFlickable.revealContentY(0)
                 app.home.loadCollection(root.libraryId)
             } else if (root.detailReturnPage >= 0) {
                 const returnPage = root.detailReturnPage
@@ -386,7 +413,7 @@ Item {
                 root.depth = 2
                 root.seasonTitle = ""
                 root.seasonId = ""
-                pageFlickable.contentY = 0
+                pageFlickable.revealContentY(0)
                 app.home.loadCollection(root.seriesId)
             } else if (root.detailReturnPage >= 0) {
                 const returnPage = root.detailReturnPage
@@ -399,7 +426,7 @@ Item {
             root.depth = 1
             root.seriesId = ""
             root.seriesTitle = ""
-            pageFlickable.contentY = 0
+            pageFlickable.revealContentY(0)
             app.home.loadCollection(root.libraryId)
         } else if (root.depth === 2 && root.detailReturnPage >= 0) {
             const returnPage = root.detailReturnPage
@@ -513,6 +540,7 @@ Item {
                 spacing: 12
 
                 AppButton {
+                    id: pageBackButton
                     visible: root.depth > 0
                     kind: "ghost"
                     iconOnly: true
@@ -557,6 +585,7 @@ Item {
                 }
 
                 AppButton {
+                    id: refreshButton
                     visible: root.depth === 0
                     kind: "ghost"
                     iconName: "refresh"
@@ -1317,6 +1346,7 @@ Item {
             spacing: 12
 
             AppButton {
+                id: libraryBackButton
                 kind: "ghost"
                 iconOnly: true
                 iconName: "back"
@@ -1519,6 +1549,7 @@ Item {
                 }
 
                 AppButton {
+                    id: disconnectedSettingsButton
                     Layout.alignment: Qt.AlignHCenter
                     kind: "primary"
                     iconName: "settings"

@@ -18,6 +18,38 @@ Flickable {
         wheelAnimation.restart()
     }
 
+    function prepareForFocusReveal() {
+        wheelAnimation.stop()
+        root.cancelFlick()
+        root.lastWheelTime = 0
+        root.wheelBoost = 1
+    }
+
+    // Focus moves may repeat every 90 ms. A 190 ms wheel animation restarted
+    // on every step lets focus outrun the viewport, so focus reveal has a
+    // separate synchronous contract. Pointer-wheel scrolling remains smooth.
+    function revealContentY(value) {
+        const maximum = Math.max(0, root.contentHeight - root.height)
+        root.prepareForFocusReveal()
+        root.contentY = Math.max(0, Math.min(maximum, value))
+    }
+
+    // Controller scroll repeats can arrive before the previous animation
+    // finishes. Accumulate from the in-flight destination so no 88 px step is
+    // lost merely because contentY has not caught up yet.
+    function scrollContentYBy(delta) {
+        const maximum = Math.max(0, root.contentHeight - root.height)
+        root.cancelFlick()
+        const currentTarget = wheelAnimation.running
+            ? wheelAnimation.to : root.contentY
+        const target = Math.max(0, Math.min(maximum,
+            currentTarget + delta))
+        if (Math.abs(target - currentTarget) < 0.5)
+            return
+        wheelAnimation.to = target
+        wheelAnimation.restart()
+    }
+
     clip: true
     boundsBehavior: Flickable.StopAtBounds
     flickDeceleration: 1050
@@ -52,11 +84,7 @@ Flickable {
                 : event.angleDelta.y * 1.7
             if (event.inverted)
                 rawDelta = -rawDelta
-            const currentTarget = wheelAnimation.running ? wheelAnimation.to : root.contentY
-            const maximum = Math.max(0, root.contentHeight - root.height)
-            wheelAnimation.to = Math.max(0, Math.min(maximum,
-                currentTarget - rawDelta * root.wheelBoost))
-            wheelAnimation.restart()
+            root.scrollContentYBy(-rawDelta * root.wheelBoost)
             event.accepted = true
         }
     }

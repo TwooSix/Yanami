@@ -62,6 +62,36 @@ ListView {
         wheelAnimation.restart()
     }
 
+    function prepareForFocusReveal() {
+        wheelAnimation.stop()
+        root.cancelFlick()
+        root.lastWheelTime = 0
+        root.wheelBoost = 1
+    }
+
+    function revealContentY(value) {
+        const minimum = root.originY
+        const maximum = Math.max(minimum,
+            minimum + root.contentHeight - root.height)
+        root.prepareForFocusReveal()
+        root.contentY = Math.max(minimum, Math.min(maximum, value))
+    }
+
+    function scrollContentYBy(delta) {
+        const minimum = root.originY
+        const maximum = Math.max(minimum,
+            minimum + root.contentHeight - root.height)
+        root.cancelFlick()
+        const currentTarget = wheelAnimation.running
+            ? wheelAnimation.to : root.contentY
+        const target = Math.max(minimum, Math.min(maximum,
+            currentTarget + delta))
+        if (Math.abs(target - currentTarget) < 0.5)
+            return
+        wheelAnimation.to = target
+        wheelAnimation.restart()
+    }
+
     function restoreScrollPosition(value) {
         wheelAnimation.stop()
         root.cancelFlick()
@@ -108,14 +138,7 @@ ListView {
                 : event.angleDelta.y * 1.7
             if (event.inverted)
                 rawDelta = -rawDelta
-            const currentTarget = wheelAnimation.running
-                ? wheelAnimation.to : root.contentY
-            const minimum = root.originY
-            const maximum = Math.max(minimum,
-                minimum + root.contentHeight - root.height)
-            wheelAnimation.to = Math.max(minimum, Math.min(maximum,
-                currentTarget - rawDelta * root.wheelBoost))
-            wheelAnimation.restart()
+            root.scrollContentYBy(-rawDelta * root.wheelBoost)
             event.accepted = true
         }
     }

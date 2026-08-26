@@ -108,12 +108,12 @@
         <translation>操作失败。</translation>
     </message>
     <message>
-        <location filename="../qml/components/AppConfirmDialog.qml" line="91"/>
+        <location filename="../qml/components/AppConfirmDialog.qml" line="93"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../qml/components/AppConfirmDialog.qml" line="97"/>
+        <location filename="../qml/components/AppConfirmDialog.qml" line="104"/>
         <source>Working…</source>
         <translation>正在处理…</translation>
     </message>
@@ -129,6 +129,14 @@
         <location filename="../qml/components/AppErrorDialog.qml" line="88"/>
         <source>Close</source>
         <translation>关闭</translation>
+    </message>
+</context>
+<context>
+    <name>AppTextField</name>
+    <message>
+        <location filename="../qml/components/AppTextField.qml" line="102"/>
+        <source>Clear</source>
+        <translation>清除</translation>
     </message>
 </context>
 <context>
@@ -242,35 +250,36 @@
 <context>
     <name>CatalogCoordinator</name>
     <message>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="391"/>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="400"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="398"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="407"/>
         <source>The operation failed.</source>
         <translation>操作失败。</translation>
     </message>
     <message>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="417"/>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="440"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="424"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="447"/>
         <source>The media library response was invalid.</source>
         <translation>媒体库响应无效。</translation>
     </message>
     <message>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="422"/>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="473"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="429"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="479"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="508"/>
         <source>The collection response was invalid.</source>
         <translation>内容集合响应无效。</translation>
     </message>
     <message>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="453"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="460"/>
         <source>Loaded %1 libraries and %2 titles.</source>
         <translation>已加载 %1 个媒体库和 %2 个标题。</translation>
     </message>
     <message>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="502"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="550"/>
         <source>Loaded %1 items.</source>
         <translation>已加载 %1 项。</translation>
     </message>
     <message>
-        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="682"/>
+        <location filename="../native/CatalogCoordinatorNavigation.cpp" line="730"/>
         <source>The backend %1 response uses an incompatible schema version (expected %2, received %3).</source>
         <translation>后端 %1 响应使用了不兼容的数据版本（预期 %2，收到 %3）。</translation>
     </message>
@@ -367,135 +376,139 @@
 <context>
     <name>DanmakuMenu</name>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="169"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="215"/>
         <source>Danmaku</source>
         <translation>弹幕</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="187"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="233"/>
         <source>%1 · %2 comments</source>
         <translation>%1 · %2 条弹幕</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="189"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="235"/>
         <source>Confirm the correct episode before loading</source>
         <translation>加载前请确认正确的剧集</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="191"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="237"/>
         <source>No confident automatic match. Try a manual search.</source>
         <translation>没有可信的自动匹配结果，请尝试手动搜索。</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="192"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="238"/>
         <source>Matching continues in the background while video plays.</source>
         <translation>视频播放期间会在后台继续匹配。</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="200"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="246"/>
         <source>Appearance</source>
         <translation>显示样式</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="209"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="256"/>
         <source>Size</source>
         <translation>字号</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="210"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="257"/>
         <source>Opacity</source>
         <translation>透明度</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="211"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="258"/>
         <source>Scroll duration</source>
         <translation>滚动时长</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="212"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="259"/>
         <source>Display area</source>
         <translation>显示区域</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="213"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="260"/>
         <source>Density</source>
         <translation>密度</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="214"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="261"/>
         <source>Top margin</source>
         <translation>顶部间距</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="271"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="325"/>
         <source>Types</source>
         <translation>弹幕类型</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="278"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="332"/>
         <source>Scrolling danmaku</source>
         <translation>滚动弹幕</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="279"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="333"/>
         <source>Top danmaku</source>
         <translation>顶部弹幕</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="280"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="334"/>
         <source>Bottom danmaku</source>
         <translation>底部弹幕</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="309"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="363"/>
         <source>Offset</source>
         <translation>时间偏移</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="378"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="445"/>
         <source>sec</source>
         <translation>秒</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="386"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="454"/>
         <source>Blocked words, separated by commas</source>
         <translation>屏蔽词，使用逗号分隔</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="407"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="499"/>
         <source>Manual match</source>
         <translation>手动匹配</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="421"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="513"/>
         <source>Anime title</source>
         <translation>番剧名称</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="516"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="654"/>
         <source>Click to load this episode</source>
         <translation>点击加载这一集</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="517"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="655"/>
         <source>%1 episodes%2</source>
         <translation>%1 集%2</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="433"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="550"/>
         <source>Search</source>
         <translation>搜索</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="456"/>
-        <location filename="../qml/components/DanmakuMenu.qml" line="506"/>
-        <location filename="../qml/components/DanmakuMenu.qml" line="573"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="574"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="621"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="644"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="702"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="723"/>
         <source>Unknown anime</source>
         <translation>未知番剧</translation>
     </message>
     <message>
-        <location filename="../qml/components/DanmakuMenu.qml" line="505"/>
-        <location filename="../qml/components/DanmakuMenu.qml" line="574"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="620"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="643"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="704"/>
+        <location filename="../qml/components/DanmakuMenu.qml" line="724"/>
         <source>Unknown episode</source>
         <translation>未知剧集</translation>
     </message>
@@ -518,17 +531,17 @@
 <context>
     <name>DetailHero</name>
     <message>
-        <location filename="../qml/components/DetailHero.qml" line="124"/>
+        <location filename="../qml/components/DetailHero.qml" line="126"/>
         <source>Resume</source>
         <translation>继续播放</translation>
     </message>
     <message>
-        <location filename="../qml/components/DetailHero.qml" line="124"/>
+        <location filename="../qml/components/DetailHero.qml" line="126"/>
         <source>Play</source>
         <translation>播放</translation>
     </message>
     <message>
-        <location filename="../qml/components/DetailHero.qml" line="134"/>
+        <location filename="../qml/components/DetailHero.qml" line="136"/>
         <source>UP NEXT</source>
         <translation>接下来</translation>
     </message>
@@ -549,75 +562,75 @@
 <context>
     <name>FavoritesPage</name>
     <message>
-        <location filename="../qml/pages/FavoritesPage.qml" line="69"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="78"/>
         <source>Favorites</source>
         <translation>收藏</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FavoritesPage.qml" line="76"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="85"/>
         <source>Your saved media, organized by type</source>
         <translation>按类型整理你收藏的媒体</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FavoritesPage.qml" line="95"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="104"/>
         <source>Updating</source>
         <translation>正在更新</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FavoritesPage.qml" line="113"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="122"/>
         <source>Series</source>
         <translation>番剧</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FavoritesPage.qml" line="168"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="177"/>
         <source>Movies</source>
         <translation>电影</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FavoritesPage.qml" line="223"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="232"/>
         <source>Episodes</source>
         <translation>单集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FavoritesPage.qml" line="121"/>
-        <location filename="../qml/pages/FavoritesPage.qml" line="176"/>
-        <location filename="../qml/pages/FavoritesPage.qml" line="231"/>
-        <location filename="../qml/pages/FavoritesPage.qml" line="277"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="130"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="185"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="240"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="286"/>
         <source>%1 items</source>
         <translation>%1 项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FavoritesPage.qml" line="269"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="278"/>
         <source>Other</source>
         <translation>其他</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FavoritesPage.qml" line="352"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="361"/>
         <source>Favorites could not be updated</source>
         <translation>暂时无法更新收藏</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FavoritesPage.qml" line="353"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="362"/>
         <source>Your favorites will appear here</source>
         <translation>你的收藏会显示在这里</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FavoritesPage.qml" line="362"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="371"/>
         <source>Cached favorites stay available while you try again.</source>
         <translation>重新尝试时，已缓存的收藏仍可继续使用。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FavoritesPage.qml" line="363"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="372"/>
         <source>Use the heart action on any media card to save it for later.</source>
         <translation>在任意媒体卡片上点击心形按钮，即可稍后查看。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FavoritesPage.qml" line="374"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="384"/>
         <source>Try again</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location filename="../qml/pages/FavoritesPage.qml" line="395"/>
+        <location filename="../qml/pages/FavoritesPage.qml" line="405"/>
         <source>Loading favorites</source>
         <translation>正在载入收藏</translation>
     </message>
@@ -639,244 +652,245 @@
 <context>
     <name>HomePage</name>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="52"/>
-        <location filename="../qml/pages/HomePage.qml" line="208"/>
+        <location filename="../qml/pages/HomePage.qml" line="46"/>
+        <location filename="../qml/pages/HomePage.qml" line="255"/>
         <source>Name</source>
         <translation>名称</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="53"/>
+        <location filename="../qml/pages/HomePage.qml" line="47"/>
         <source>Recently updated</source>
         <translation>最近更新</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="54"/>
+        <location filename="../qml/pages/HomePage.qml" line="48"/>
         <source>Release date</source>
         <translation>发布时间</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="55"/>
+        <location filename="../qml/pages/HomePage.qml" line="49"/>
         <source>Recently added</source>
         <translation>最近入库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="56"/>
+        <location filename="../qml/pages/HomePage.qml" line="50"/>
         <source>Unplayed first</source>
         <translation>未播放优先</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="383"/>
+        <location filename="../qml/pages/HomePage.qml" line="443"/>
         <source>Playlists</source>
         <translation>播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="390"/>
+        <location filename="../qml/pages/HomePage.qml" line="450"/>
         <source>%1 playlists</source>
         <translation>%1 个播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="397"/>
+        <location filename="../qml/pages/HomePage.qml" line="457"/>
         <source>No playlists yet</source>
         <translation>还没有播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="494"/>
+        <location filename="../qml/pages/HomePage.qml" line="555"/>
         <source>Home</source>
         <translation>首页</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="496"/>
+        <location filename="../qml/pages/HomePage.qml" line="557"/>
         <source>Series details</source>
         <translation>剧集详情</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="506"/>
-        <location filename="../qml/pages/HomePage.qml" line="1227"/>
-        <location filename="../qml/pages/HomePage.qml" line="1228"/>
+        <location filename="../qml/pages/HomePage.qml" line="567"/>
+        <location filename="../qml/pages/HomePage.qml" line="1368"/>
+        <location filename="../qml/pages/HomePage.qml" line="1369"/>
         <source>Library</source>
         <translation>媒体库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="509"/>
+        <location filename="../qml/pages/HomePage.qml" line="570"/>
         <source>Playlist</source>
         <translation>播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="522"/>
-        <location filename="../qml/pages/HomePage.qml" line="1247"/>
+        <location filename="../qml/pages/HomePage.qml" line="583"/>
+        <location filename="../qml/pages/HomePage.qml" line="1388"/>
         <source>Sort · %1</source>
         <translation>排序 · %1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="531"/>
+        <location filename="../qml/pages/HomePage.qml" line="593"/>
         <source>Refresh</source>
         <translation>刷新</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="543"/>
+        <location filename="../qml/pages/HomePage.qml" line="605"/>
         <source>All libraries</source>
         <translation>所有媒体库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="592"/>
+        <location filename="../qml/pages/HomePage.qml" line="655"/>
         <source>No libraries to display</source>
         <translation>没有可显示的媒体库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="665"/>
+        <location filename="../qml/pages/HomePage.qml" line="729"/>
         <source>Could not refresh Continue Watching</source>
         <translation>无法刷新“继续观看”</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="747"/>
+        <location filename="../qml/pages/HomePage.qml" line="758"/>
         <source>Latest %1</source>
         <translation>最新%1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="799"/>
+        <location filename="../qml/pages/HomePage.qml" line="810"/>
         <source>Latest media</source>
         <translation>最新媒体</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="824"/>
+        <location filename="../qml/pages/HomePage.qml" line="831"/>
         <source>Could not refresh latest media</source>
         <translation>无法刷新最新媒体</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="825"/>
+        <location filename="../qml/pages/HomePage.qml" line="832"/>
         <source>No recently added media</source>
         <translation>没有最近添加的媒体</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="398"/>
+        <location filename="../qml/pages/HomePage.qml" line="458"/>
         <source>No titles in this library</source>
         <translation>媒体库中没有可显示的内容</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="592"/>
+        <location filename="../qml/pages/HomePage.qml" line="655"/>
         <source>Unable to load libraries</source>
         <translation>无法加载媒体库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="601"/>
-        <location filename="../qml/pages/HomePage.qml" line="881"/>
-        <location filename="../qml/pages/HomePage.qml" line="1341"/>
+        <location filename="../qml/pages/HomePage.qml" line="664"/>
+        <location filename="../qml/pages/HomePage.qml" line="977"/>
+        <location filename="../qml/pages/HomePage.qml" line="1482"/>
         <source>Try again</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="612"/>
+        <location filename="../qml/pages/HomePage.qml" line="675"/>
+        <location filename="../qml/pages/HomePage.qml" line="989"/>
         <source>Continue watching</source>
         <translation>继续观看</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="666"/>
+        <location filename="../qml/pages/HomePage.qml" line="730"/>
         <source>Nothing to continue yet</source>
         <translation>暂无可继续观看的内容</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="750"/>
+        <location filename="../qml/pages/HomePage.qml" line="844"/>
         <source>Series</source>
         <translation>剧集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="815"/>
+        <location filename="../qml/pages/HomePage.qml" line="911"/>
         <source>PLAYLIST</source>
         <translation>播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="833"/>
+        <location filename="../qml/pages/HomePage.qml" line="929"/>
         <source>%1 items in playback order</source>
         <translation>%1 项 · 按播放顺序</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="391"/>
+        <location filename="../qml/pages/HomePage.qml" line="451"/>
         <source>%1 titles</source>
         <translation>%1 部作品</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="842"/>
+        <location filename="../qml/pages/HomePage.qml" line="938"/>
         <source>Play</source>
         <translation>播放</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="872"/>
+        <location filename="../qml/pages/HomePage.qml" line="968"/>
         <source>Unable to load this page</source>
         <translation>无法加载此页面</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="892"/>
+        <location filename="../qml/pages/HomePage.qml" line="1032"/>
         <source>Seasons and specials</source>
         <translation>季与特别篇</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="944"/>
+        <location filename="../qml/pages/HomePage.qml" line="1084"/>
         <source>No seasons to display</source>
         <translation>没有可显示的季</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="901"/>
-        <location filename="../qml/pages/HomePage.qml" line="1044"/>
+        <location filename="../qml/pages/HomePage.qml" line="1041"/>
+        <location filename="../qml/pages/HomePage.qml" line="1184"/>
         <source>%1 items</source>
         <translation>%1 项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="966"/>
+        <location filename="../qml/pages/HomePage.qml" line="1106"/>
         <source>Episodes</source>
         <translation>本季单集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1014"/>
+        <location filename="../qml/pages/HomePage.qml" line="1154"/>
         <source>No playable episodes in this season</source>
         <translation>这一季没有可播放单集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="975"/>
+        <location filename="../qml/pages/HomePage.qml" line="1115"/>
         <source>%1 episodes · Horizontal browsing</source>
         <translation>%1 集 · 横向浏览</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1036"/>
+        <location filename="../qml/pages/HomePage.qml" line="1176"/>
         <source>Playlist items</source>
         <translation>播放列表条目</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1139"/>
+        <location filename="../qml/pages/HomePage.qml" line="1279"/>
         <source>Remove from playlist</source>
         <translation>从播放列表移除</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1187"/>
+        <location filename="../qml/pages/HomePage.qml" line="1327"/>
         <source>This playlist is empty</source>
         <translation>这个播放列表还是空的</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1239"/>
+        <location filename="../qml/pages/HomePage.qml" line="1380"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1332"/>
+        <location filename="../qml/pages/HomePage.qml" line="1473"/>
         <source>Unable to load this library</source>
         <translation>无法加载此媒体库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1392"/>
+        <location filename="../qml/pages/HomePage.qml" line="1533"/>
         <source>Connect your Emby server</source>
         <translation>连接你的 Emby 服务器</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1402"/>
+        <location filename="../qml/pages/HomePage.qml" line="1543"/>
         <source>Set up Emby in Settings to start browsing your media library.</source>
         <translation>前往设置完成 Emby 配置，即可开始浏览你的媒体库。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1414"/>
+        <location filename="../qml/pages/HomePage.qml" line="1556"/>
         <source>Go to Settings</source>
         <translation>前往设置</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="1426"/>
+        <location filename="../qml/pages/HomePage.qml" line="1568"/>
         <source>Library sorting</source>
         <translation>媒体库排序</translation>
     </message>
@@ -920,166 +934,258 @@
 <context>
     <name>ImageEditorDialog</name>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="68"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="70"/>
         <source>Primary</source>
         <translation>主图</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="69"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="71"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1364"/>
         <source>Backdrop</source>
         <translation>背景图</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="70"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="72"/>
         <source>Thumb</source>
         <translation>缩略图</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="71"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="73"/>
         <source>Banner</source>
         <translation>横幅</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="72"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="74"/>
         <source>Logo</source>
         <translation>标志</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="73"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="75"/>
         <source>Art</source>
         <translation>艺术图</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="74"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="76"/>
         <source>Disc</source>
         <translation>光盘图</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="136"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="138"/>
         <source>All sources</source>
         <translation>全部来源</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="329"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="331"/>
         <source>Online image sources are unavailable.</source>
         <translation>在线图片来源暂时不可用。</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="606"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="649"/>
         <source>The latest image is shown, but server reconciliation failed.</source>
         <translation>已显示最新图片，但与服务器对账失败。</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="592"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="635"/>
         <source>The image operation failed.</source>
         <translation>图片操作失败。</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="743"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="787"/>
         <source>Edit images</source>
         <translation>编辑图片</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="770"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="814"/>
         <source>Close</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="812"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="856"/>
         <source>Retry</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="842"/>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1405"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="886"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1510"/>
         <source>Current images</source>
         <translation>当前图片</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1057"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="926"/>
+        <source>Current image</source>
+        <translation>当前图片</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="926"/>
+        <source>No image</source>
+        <translation>无图片</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1145"/>
         <source>%1 images</source>
         <translation>%1图片</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1422"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1527"/>
         <source>All languages</source>
         <translation>全部语言</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1422"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1527"/>
         <source>Preferred language</source>
         <translation>首选语言</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1436"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1541"/>
         <source>Include series images</source>
         <translation>包含剧集图片</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1012"/>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1144"/>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1209"/>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1351"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1100"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1232"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1297"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1456"/>
         <source>Search online</source>
         <translation>在线搜索</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1025"/>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1157"/>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1219"/>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1364"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1113"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1245"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1307"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1469"/>
         <source>Upload image</source>
         <translation>上传图片</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1547"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1664"/>
         <source>Online source</source>
         <translation>在线来源</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1583"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1700"/>
         <source>Use image</source>
         <translation>使用图片</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1039"/>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1170"/>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1377"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1127"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1258"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1482"/>
         <source>Delete image</source>
         <translation>删除图片</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="452"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="495"/>
         <source>Delete image?</source>
         <translation>删除图片？</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="453"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="496"/>
         <source>This removes the selected image from the Emby server.</source>
         <translation>这会从 Emby 服务器删除选中的图片。</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="454"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="497"/>
         <source>Delete</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1600"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1611"/>
+        <source>Use image from %1</source>
+        <translation>使用来自 %1 的图片</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1612"/>
+        <source>online source</source>
+        <translation>在线来源</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1717"/>
         <source>No online images matched this type and source.</source>
         <translation>此类型和来源没有匹配的在线图片。</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1618"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1869"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="2160"/>
         <source>Choose an image</source>
         <translation>选择图片</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1621"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1879"/>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1892"/>
+        <source>Up</source>
+        <translation>上一级</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1898"/>
+        <source>Pictures</source>
+        <translation>图片</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1905"/>
+        <source>Downloads</source>
+        <translation>下载</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1912"/>
+        <source>Home</source>
+        <translation>主目录</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1920"/>
+        <source>Computer</source>
+        <translation>计算机</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1931"/>
+        <source>Computer · choose a drive</source>
+        <translation>计算机 · 选择驱动器</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="1952"/>
+        <source>Image files</source>
+        <translation>图片文件</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="2010"/>
+        <source>Folder</source>
+        <translation>文件夹</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="2010"/>
+        <source>Image file</source>
+        <translation>图片文件</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="2048"/>
+        <source>No image files in this folder</source>
+        <translation>此文件夹中没有图片文件</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="2076"/>
+        <source>Computer drives</source>
+        <translation>计算机驱动器</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="2126"/>
+        <source>Drive %1</source>
+        <translation>驱动器 %1</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="2150"/>
+        <source>Only JPG, PNG, WebP, and GIF images are shown.</source>
+        <translation>仅显示 JPG、PNG、WebP 和 GIF 图片。</translation>
+    </message>
+    <message>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="2163"/>
         <source>Image files (*.jpg *.jpeg *.png *.webp *.gif)</source>
         <translation>图片文件 (*.jpg *.jpeg *.png *.webp *.gif)</translation>
     </message>
     <message>
-        <location filename="../qml/components/ImageEditorDialog.qml" line="1622"/>
+        <location filename="../qml/components/ImageEditorDialog.qml" line="2164"/>
         <source>All files (*)</source>
         <translation>所有文件 (*)</translation>
     </message>
@@ -1185,62 +1291,107 @@
 <context>
     <name>Main</name>
     <message>
-        <location filename="../qml/Main.qml" line="419"/>
+        <location filename="../qml/Main.qml" line="550"/>
+        <location filename="../qml/Main.qml" line="973"/>
         <source>Favorites</source>
         <translation>收藏</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="680"/>
+        <location filename="../qml/Main.qml" line="847"/>
         <source>Delete media item?</source>
         <translation>删除媒体项目？</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="142"/>
+        <location filename="../qml/Main.qml" line="153"/>
         <source>An external subtitle is unavailable.</source>
         <translation>一个外挂字幕不可用。</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="144"/>
+        <location filename="../qml/Main.qml" line="155"/>
         <source>Some external subtitles are unavailable.</source>
         <translation>部分外挂字幕不可用。</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="145"/>
+        <location filename="../qml/Main.qml" line="156"/>
         <source>Playback started with a non-fatal warning.</source>
         <translation>播放已开始，但出现一项非致命警告。</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="681"/>
+        <location filename="../qml/Main.qml" line="848"/>
         <source>This permanently deletes &quot;%1&quot; from the Emby server. This action cannot be undone.</source>
         <translation>这将从 Emby 服务器永久删除“%1”，此操作无法撤销。</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="682"/>
+        <location filename="../qml/Main.qml" line="849"/>
         <source>Delete</source>
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="397"/>
+        <location filename="../qml/Main.qml" line="937"/>
+        <source>Controller</source>
+        <translation>控制器</translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="952"/>
+        <source>Menu</source>
+        <translation>菜单</translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="955"/>
+        <source>Back</source>
+        <translation>返回</translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="968"/>
+        <source>Navigate</source>
+        <translation>导航</translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="976"/>
+        <source>Minimize window</source>
+        <translation>最小化窗口</translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="979"/>
+        <source>Restore window</source>
+        <translation>还原窗口</translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="979"/>
+        <source>Maximize window</source>
+        <translation>最大化窗口</translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="980"/>
+        <source>Close Yanami</source>
+        <translation>关闭 Yanami</translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="523"/>
+        <location filename="../qml/Main.qml" line="971"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="406"/>
+        <location filename="../qml/Main.qml" line="534"/>
+        <location filename="../qml/Main.qml" line="972"/>
         <source>Search</source>
         <translation>搜索</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="429"/>
+        <location filename="../qml/Main.qml" line="563"/>
+        <location filename="../qml/Main.qml" line="974"/>
         <source>About</source>
         <translation>关于</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="438"/>
+        <location filename="../qml/Main.qml" line="575"/>
+        <location filename="../qml/Main.qml" line="975"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="717"/>
+        <location filename="../qml/Main.qml" line="884"/>
         <source>Added to playlist</source>
         <translation>已添加到播放列表</translation>
     </message>
@@ -1457,53 +1608,54 @@
 <context>
     <name>MediaTargetDialog</name>
     <message>
-        <location filename="../qml/components/MediaTargetDialog.qml" line="34"/>
+        <location filename="../qml/components/MediaTargetDialog.qml" line="36"/>
         <source>Choose an existing destination or enter a new name.</source>
         <translation>请选择现有目标，或输入新名称。</translation>
     </message>
     <message>
-        <location filename="../qml/components/MediaTargetDialog.qml" line="43"/>
-        <location filename="../qml/components/MediaTargetDialog.qml" line="60"/>
+        <location filename="../qml/components/MediaTargetDialog.qml" line="45"/>
+        <location filename="../qml/components/MediaTargetDialog.qml" line="72"/>
         <source>Unable to add this item.</source>
         <translation>无法添加此项目。</translation>
     </message>
     <message>
-        <location filename="../qml/components/MediaTargetDialog.qml" line="106"/>
+        <location filename="../qml/components/MediaTargetDialog.qml" line="123"/>
         <source>Add to playlist</source>
         <translation>添加到播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/components/MediaTargetDialog.qml" line="123"/>
+        <location filename="../qml/components/MediaTargetDialog.qml" line="140"/>
+        <location filename="../qml/components/MediaTargetDialog.qml" line="158"/>
         <source>Existing destinations</source>
         <translation>现有目标</translation>
     </message>
     <message>
-        <location filename="../qml/components/MediaTargetDialog.qml" line="204"/>
+        <location filename="../qml/components/MediaTargetDialog.qml" line="261"/>
         <source>No existing destinations</source>
         <translation>暂无现有目标</translation>
     </message>
     <message>
-        <location filename="../qml/components/MediaTargetDialog.qml" line="214"/>
+        <location filename="../qml/components/MediaTargetDialog.qml" line="271"/>
         <source>New playlist</source>
         <translation>新建播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/components/MediaTargetDialog.qml" line="215"/>
+        <location filename="../qml/components/MediaTargetDialog.qml" line="272"/>
         <source>Enter a name to create a new destination</source>
         <translation>输入名称以创建新目标</translation>
     </message>
     <message>
-        <location filename="../qml/components/MediaTargetDialog.qml" line="234"/>
+        <location filename="../qml/components/MediaTargetDialog.qml" line="294"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../qml/components/MediaTargetDialog.qml" line="240"/>
+        <location filename="../qml/components/MediaTargetDialog.qml" line="304"/>
         <source>Add</source>
         <translation>添加</translation>
     </message>
     <message>
-        <location filename="../qml/components/MediaTargetDialog.qml" line="240"/>
+        <location filename="../qml/components/MediaTargetDialog.qml" line="304"/>
         <source>Adding…</source>
         <translation>正在添加…</translation>
     </message>
@@ -1519,201 +1671,201 @@
 <context>
     <name>MetadataEditorDialog</name>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="34"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="39"/>
         <source>Discard changes?</source>
         <translation>放弃修改？</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="35"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="40"/>
         <source>Your unsaved metadata changes will be lost.</source>
         <translation>未保存的元数据修改将会丢失。</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="36"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="41"/>
         <source>Discard</source>
         <translation>放弃</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="207"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="212"/>
         <source>Title cannot be empty.</source>
         <translation>标题不能为空。</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="218"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="223"/>
         <source>Production year must be a whole number.</source>
         <translation>制作年份必须是整数。</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="224"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="229"/>
         <source>Community rating must be a number.</source>
         <translation>社区评分必须是数字。</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="230"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="235"/>
         <source>Critic rating must be a number.</source>
         <translation>影评人评分必须是数字。</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="236"/>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="242"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="241"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="247"/>
         <source>Number must be a non-negative whole number.</source>
         <translation>编号必须是非负整数。</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="348"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="353"/>
         <source>Edit metadata</source>
         <translation>编辑元数据</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="363"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="370"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="369"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="378"/>
         <source>Save</source>
         <translation>保存</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="369"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="378"/>
         <source>Saving…</source>
         <translation>正在保存…</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="392"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="401"/>
         <source>Title</source>
         <translation>标题</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="400"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="409"/>
         <source>Original title</source>
         <translation>原始标题</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="406"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="415"/>
         <source>Sort title</source>
         <translation>排序标题</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="418"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="427"/>
         <source>Production year</source>
         <translation>制作年份</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="425"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="434"/>
         <source>Premiere date</source>
         <translation>首播日期</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="431"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="440"/>
         <source>Death date</source>
         <translation>逝世日期</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="431"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="440"/>
         <source>End date</source>
         <translation>完结日期</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="443"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="452"/>
         <source>Official rating</source>
         <translation>分级</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="449"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="458"/>
         <source>Community rating</source>
         <translation>社区评分</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="456"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="465"/>
         <source>Critic rating</source>
         <translation>影评人评分</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="468"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="477"/>
         <source>Series status</source>
         <translation>剧集状态</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="469"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="478"/>
         <source>Continuing or Ended</source>
         <translation>Continuing 或 Ended</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="475"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="484"/>
         <source>Air time</source>
         <translation>播出时间</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="476"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="485"/>
         <source>For example, 20:30</source>
         <translation>例如 20:30</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="487"/>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="495"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="496"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="504"/>
         <source>Season number</source>
         <translation>季编号</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="487"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="496"/>
         <source>Disc number</source>
         <translation>碟片编号</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="494"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="503"/>
         <source>Episode number</source>
         <translation>集编号</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="495"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="504"/>
         <source>Track number</source>
         <translation>音轨编号</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="503"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="512"/>
         <source>Genres</source>
         <translation>类型</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="504"/>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="511"/>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="518"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="513"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="520"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="527"/>
         <source>Separate multiple values with commas</source>
         <translation>多个值请使用逗号分隔</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="510"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="519"/>
         <source>Air days</source>
         <translation>播出星期</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="517"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="526"/>
         <source>Tags</source>
         <translation>标签</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="526"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="535"/>
         <source>Overview</source>
         <translation>简介</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="572"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="609"/>
         <source>External identifiers</source>
         <translation>外部标识符</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="580"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="617"/>
         <source>Set exact provider IDs before refreshing metadata to improve matching accuracy.</source>
         <translation>刷新元数据前设置准确的提供方 ID，可提高匹配准确率。</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="604"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="641"/>
         <source>%1 ID</source>
         <translation>%1 ID</translation>
     </message>
     <message>
-        <location filename="../qml/components/MetadataEditorDialog.qml" line="673"/>
+        <location filename="../qml/components/MetadataEditorDialog.qml" line="712"/>
         <source>Try again</source>
         <translation>重试</translation>
     </message>
@@ -1889,67 +2041,68 @@
 <context>
     <name>PlaybackQueueMenu</name>
     <message>
-        <location filename="../qml/components/PlaybackQueueMenu.qml" line="51"/>
+        <location filename="../qml/components/PlaybackQueueMenu.qml" line="53"/>
         <source>Untitled</source>
         <translation>无标题</translation>
     </message>
     <message>
-        <location filename="../qml/components/PlaybackQueueMenu.qml" line="69"/>
+        <location filename="../qml/components/PlaybackQueueMenu.qml" line="71"/>
         <source>Playlist · %1</source>
         <translation>播放列表 · %1</translation>
     </message>
     <message>
-        <location filename="../qml/components/PlaybackQueueMenu.qml" line="69"/>
+        <location filename="../qml/components/PlaybackQueueMenu.qml" line="71"/>
         <source>Playlist</source>
         <translation>播放列表</translation>
     </message>
     <message>
-        <location filename="../qml/components/PlaybackQueueMenu.qml" line="71"/>
+        <location filename="../qml/components/PlaybackQueueMenu.qml" line="73"/>
         <source>Series · %1</source>
         <translation>剧集 · %1</translation>
     </message>
     <message>
-        <location filename="../qml/components/PlaybackQueueMenu.qml" line="71"/>
+        <location filename="../qml/components/PlaybackQueueMenu.qml" line="73"/>
         <source>Series</source>
         <translation>剧集</translation>
     </message>
     <message>
-        <location filename="../qml/components/PlaybackQueueMenu.qml" line="73"/>
+        <location filename="../qml/components/PlaybackQueueMenu.qml" line="75"/>
         <source>Season · %1</source>
         <translation>季 · %1</translation>
     </message>
     <message>
-        <location filename="../qml/components/PlaybackQueueMenu.qml" line="73"/>
+        <location filename="../qml/components/PlaybackQueueMenu.qml" line="75"/>
         <source>Season</source>
         <translation>季</translation>
     </message>
     <message>
-        <location filename="../qml/components/PlaybackQueueMenu.qml" line="74"/>
+        <location filename="../qml/components/PlaybackQueueMenu.qml" line="76"/>
         <source>Current playback</source>
         <translation>当前播放</translation>
     </message>
     <message>
-        <location filename="../qml/components/PlaybackQueueMenu.qml" line="133"/>
+        <location filename="../qml/components/PlaybackQueueMenu.qml" line="169"/>
+        <location filename="../qml/components/PlaybackQueueMenu.qml" line="239"/>
         <source>Play queue</source>
         <translation>播放队列</translation>
     </message>
     <message>
-        <location filename="../qml/components/PlaybackQueueMenu.qml" line="158"/>
+        <location filename="../qml/components/PlaybackQueueMenu.qml" line="194"/>
         <source>%1 of %2</source>
         <translation>第 %1 项，共 %2 项</translation>
     </message>
     <message>
-        <location filename="../qml/components/PlaybackQueueMenu.qml" line="159"/>
+        <location filename="../qml/components/PlaybackQueueMenu.qml" line="195"/>
         <source>%1 items</source>
         <translation>%1 项</translation>
     </message>
     <message>
-        <location filename="../qml/components/PlaybackQueueMenu.qml" line="175"/>
+        <location filename="../qml/components/PlaybackQueueMenu.qml" line="211"/>
         <source>Nothing else is queued</source>
         <translation>队列中没有其他内容</translation>
     </message>
     <message>
-        <location filename="../qml/components/PlaybackQueueMenu.qml" line="246"/>
+        <location filename="../qml/components/PlaybackQueueMenu.qml" line="320"/>
         <source>Playing</source>
         <translation>正在播放</translation>
     </message>
@@ -1976,160 +2129,160 @@
 <context>
     <name>PlayerPage</name>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="403"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="496"/>
         <source>Skip Intro</source>
         <translation>跳过片头</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="446"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="540"/>
         <source>Playback position</source>
         <translation>播放进度</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="638"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="772"/>
         <source>Playback settings</source>
         <translation>播放设置</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1166"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1351"/>
         <source>Preparing playback</source>
         <translation>正在准备播放</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1177"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1362"/>
         <source>Playback could not be prepared.</source>
         <translation>无法准备播放。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1200"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1385"/>
         <source>Could not check for another item</source>
         <translation>无法确认是否还有下一项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1202"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1387"/>
         <source>The next item could not be played</source>
         <translation>无法播放下一项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1205"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1390"/>
         <source>You’ve reached the final episode</source>
         <translation>本剧已播放至最后一集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1207"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1392"/>
         <source>The play queue has ended</source>
         <translation>播放队列已结束</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1208"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1393"/>
         <source>Playback complete</source>
         <translation>播放完毕</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1265"/>
-        <location filename="../qml/pages/PlayerPage.qml" line="1366"/>
-        <location filename="../qml/pages/PlayerPage.qml" line="1472"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1452"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1554"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1660"/>
         <source>The next item could not be played.</source>
         <translation>无法播放下一项。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1317"/>
-        <location filename="../qml/pages/PlayerPage.qml" line="1329"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1505"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1517"/>
         <source>Try again to check whether another item is available.</source>
         <translation>请重试以检查是否还有下一项。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1400"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1588"/>
         <source>Previous episode</source>
         <translation>上一集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1405"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1593"/>
         <source>Next episode</source>
         <translation>下一集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="513"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="629"/>
         <source>Danmaku</source>
         <translation>弹幕</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="168"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="258"/>
         <source>Upscaling was reduced to %1 to keep playback smooth.</source>
         <translation>为保持播放流畅，超分已降至 %1。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="552"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="671"/>
         <source>Subtitles · %1</source>
         <translation>字幕 · %1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="553"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="672"/>
         <source>Subtitles</source>
         <translation>字幕</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="567"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="689"/>
         <source>Audio · %1</source>
         <translation>音轨 · %1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="568"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="690"/>
         <source>Audio</source>
         <translation>音轨</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="581"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="706"/>
         <source>Original</source>
         <translation>原画</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="654"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="791"/>
         <source>Exit fullscreen</source>
         <translation>退出全屏</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="655"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="792"/>
         <source>Enter fullscreen</source>
         <translation>进入全屏</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="670"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="810"/>
         <source>Subtitle tracks</source>
         <translation>字幕轨道</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="690"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="830"/>
         <source>Audio tracks</source>
         <translation>音轨</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="706"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="846"/>
         <source>Playback quality</source>
         <translation>播放质量</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="709"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="849"/>
         <source>Original · Automatically select the best direct source</source>
         <translation>原画 · 自动选择最佳直连源</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="602"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="730"/>
         <source>Play queue</source>
         <translation>播放队列</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="605"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="733"/>
         <source>Play queue · %1 of %2</source>
         <translation>播放队列 · 第 %1 项，共 %2 项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1400"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1588"/>
         <source>Previous item</source>
         <translation>上一项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/PlayerPage.qml" line="1405"/>
+        <location filename="../qml/pages/PlayerPage.qml" line="1593"/>
         <source>Next item</source>
         <translation>下一项</translation>
     </message>
@@ -2145,7 +2298,7 @@
 <context>
     <name>RecentEpisodeCard</name>
     <message>
-        <location filename="../qml/components/RecentEpisodeCard.qml" line="149"/>
+        <location filename="../qml/components/RecentEpisodeCard.qml" line="189"/>
         <source>Play</source>
         <translation>播放</translation>
     </message>
@@ -2153,62 +2306,63 @@
 <context>
     <name>RefreshMetadataDialog</name>
     <message>
-        <location filename="../qml/components/RefreshMetadataDialog.qml" line="68"/>
+        <location filename="../qml/components/RefreshMetadataDialog.qml" line="71"/>
         <source>Refresh metadata</source>
         <translation>刷新元数据</translation>
     </message>
     <message>
-        <location filename="../qml/components/RefreshMetadataDialog.qml" line="85"/>
+        <location filename="../qml/components/RefreshMetadataDialog.qml" line="88"/>
         <source>Refresh mode</source>
         <translation>刷新模式</translation>
     </message>
     <message>
-        <location filename="../qml/components/RefreshMetadataDialog.qml" line="101"/>
+        <location filename="../qml/components/RefreshMetadataDialog.qml" line="105"/>
         <source>Search for missing metadata</source>
         <translation>搜索缺失的元数据</translation>
     </message>
     <message>
-        <location filename="../qml/components/RefreshMetadataDialog.qml" line="102"/>
+        <location filename="../qml/components/RefreshMetadataDialog.qml" line="106"/>
         <source>Keep existing metadata and fill only missing information.</source>
         <translation>保留现有元数据，仅补充缺失的信息。</translation>
     </message>
     <message>
-        <location filename="../qml/components/RefreshMetadataDialog.qml" line="96"/>
+        <location filename="../qml/components/RefreshMetadataDialog.qml" line="100"/>
         <source>Replace all metadata</source>
         <translation>替换所有元数据</translation>
     </message>
     <message>
-        <location filename="../qml/components/RefreshMetadataDialog.qml" line="42"/>
+        <location filename="../qml/components/RefreshMetadataDialog.qml" line="43"/>
         <source>Unable to start the refresh.</source>
         <translation>无法开始刷新。</translation>
     </message>
     <message>
-        <location filename="../qml/components/RefreshMetadataDialog.qml" line="97"/>
+        <location filename="../qml/components/RefreshMetadataDialog.qml" line="101"/>
         <source>Download metadata again and overwrite existing fields.</source>
         <translation>重新下载元数据并覆盖现有字段。</translation>
     </message>
     <message>
-        <location filename="../qml/components/RefreshMetadataDialog.qml" line="210"/>
+        <location filename="../qml/components/RefreshMetadataDialog.qml" line="207"/>
+        <location filename="../qml/components/RefreshMetadataDialog.qml" line="248"/>
         <source>Replace existing images</source>
         <translation>替换现有图片</translation>
     </message>
     <message>
-        <location filename="../qml/components/RefreshMetadataDialog.qml" line="229"/>
+        <location filename="../qml/components/RefreshMetadataDialog.qml" line="267"/>
         <source>Existing custom metadata or images may be overwritten.</source>
         <translation>现有的自定义元数据或图片可能会被覆盖。</translation>
     </message>
     <message>
-        <location filename="../qml/components/RefreshMetadataDialog.qml" line="251"/>
+        <location filename="../qml/components/RefreshMetadataDialog.qml" line="290"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../qml/components/RefreshMetadataDialog.qml" line="257"/>
+        <location filename="../qml/components/RefreshMetadataDialog.qml" line="300"/>
         <source>Refresh</source>
         <translation>刷新</translation>
     </message>
     <message>
-        <location filename="../qml/components/RefreshMetadataDialog.qml" line="257"/>
+        <location filename="../qml/components/RefreshMetadataDialog.qml" line="300"/>
         <source>Starting…</source>
         <translation>正在启动…</translation>
     </message>
@@ -2245,133 +2399,133 @@
 <context>
     <name>SearchPage</name>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="279"/>
+        <location filename="../qml/pages/SearchPage.qml" line="284"/>
         <source>Search</source>
         <translation>搜索</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="286"/>
+        <location filename="../qml/pages/SearchPage.qml" line="291"/>
         <source>Find movies, series, seasons, and episodes</source>
         <translation>查找电影、剧集、季与单集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="303"/>
+        <location filename="../qml/pages/SearchPage.qml" line="308"/>
         <source>Search library</source>
         <translation>搜索片库</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="304"/>
+        <location filename="../qml/pages/SearchPage.qml" line="309"/>
         <source>Enter a title, episode, or season</source>
         <translation>输入片名、集名或季信息</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="320"/>
+        <location filename="../qml/pages/SearchPage.qml" line="342"/>
         <source>Clear</source>
         <translation>清除</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="332"/>
+        <location filename="../qml/pages/SearchPage.qml" line="354"/>
         <source>Search results</source>
         <translation>搜索结果</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="334"/>
+        <location filename="../qml/pages/SearchPage.qml" line="356"/>
         <source>Searching…</source>
         <translation>正在搜索…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="337"/>
+        <location filename="../qml/pages/SearchPage.qml" line="359"/>
         <source>Showing first %1 results</source>
         <translation>显示前 %1 项结果</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="340"/>
+        <location filename="../qml/pages/SearchPage.qml" line="362"/>
         <source>Showing %1 of %2 results</source>
         <translation>显示 %1 / %2 项结果</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="343"/>
-        <location filename="../qml/pages/SearchPage.qml" line="450"/>
+        <location filename="../qml/pages/SearchPage.qml" line="365"/>
+        <location filename="../qml/pages/SearchPage.qml" line="472"/>
         <source>%1 results</source>
         <translation>找到 %1 项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="344"/>
+        <location filename="../qml/pages/SearchPage.qml" line="366"/>
         <source>No matches</source>
         <translation>没有匹配结果</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="359"/>
+        <location filename="../qml/pages/SearchPage.qml" line="381"/>
         <source>Searching %1 cached items. %2</source>
         <translation>正在搜索本地缓存的 %1 项内容。%2</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="365"/>
+        <location filename="../qml/pages/SearchPage.qml" line="387"/>
         <source>Searching %1 cached items while indexing continues (%1 of %2).</source>
         <translation>正在搜索本地缓存的 %1 项内容；后台索引仍在继续（%1 / %2）。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="367"/>
+        <location filename="../qml/pages/SearchPage.qml" line="389"/>
         <source>Searching %1 cached items while indexing continues.</source>
         <translation>正在搜索本地缓存的 %1 项内容；后台索引仍在继续。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="371"/>
+        <location filename="../qml/pages/SearchPage.qml" line="393"/>
         <source>Searching %1 cached items; the catalog index is not complete yet.</source>
         <translation>正在搜索本地缓存的 %1 项内容；全库索引尚未完成。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="441"/>
+        <location filename="../qml/pages/SearchPage.qml" line="463"/>
         <source>Series</source>
         <translation>剧集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="441"/>
+        <location filename="../qml/pages/SearchPage.qml" line="463"/>
         <source>Movies</source>
         <translation>电影</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="442"/>
+        <location filename="../qml/pages/SearchPage.qml" line="464"/>
         <source>Episodes</source>
         <translation>单集</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="551"/>
+        <location filename="../qml/pages/SearchPage.qml" line="573"/>
         <source>Start searching your Emby library</source>
         <translation>从你的 Emby 片库开始搜索</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="555"/>
+        <location filename="../qml/pages/SearchPage.qml" line="577"/>
         <source>Searching the cached catalog…</source>
         <translation>正在搜索本地媒体目录…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="557"/>
+        <location filename="../qml/pages/SearchPage.qml" line="579"/>
         <source>Building your local catalog…</source>
         <translation>正在建立本地媒体目录…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="558"/>
+        <location filename="../qml/pages/SearchPage.qml" line="580"/>
         <source>Try another keyword</source>
         <translation>换一个关键词试试</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="567"/>
+        <location filename="../qml/pages/SearchPage.qml" line="589"/>
         <source>Cached results appear instantly while the full catalog indexes in the background</source>
         <translation>已缓存的结果会立即显示，其余媒体目录会在后台继续索引</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="571"/>
+        <location filename="../qml/pages/SearchPage.qml" line="593"/>
         <source>More matches can appear as indexing progresses</source>
         <translation>随着索引推进，可能会出现更多匹配项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="572"/>
+        <location filename="../qml/pages/SearchPage.qml" line="594"/>
         <source>Try a shorter title, alias, or episode code</source>
         <translation>尝试输入更短的片名、别名或剧集编号</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SearchPage.qml" line="569"/>
+        <location filename="../qml/pages/SearchPage.qml" line="591"/>
         <source>The current keyword is preserved; results will update after search recovers.</source>
         <translation>当前关键词会保留；搜索恢复后结果会自动更新。</translation>
     </message>
@@ -2440,546 +2594,788 @@
 <context>
     <name>SettingsPage</name>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="569"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="663"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="682"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="785"/>
         <source>PREFERENCES</source>
         <translation>偏好设置</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="671"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="793"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="580"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="722"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="694"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="844"/>
         <source>Emby server</source>
         <translation>Emby 服务器</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="730"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="852"/>
         <source>Connect any HTTP or HTTPS address, including reverse-proxy path prefixes.</source>
         <translation>支持任意 HTTP 或 HTTPS 地址，包括反向代理路径前缀。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="856"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="978"/>
         <source>Display name</source>
         <translation>显示名称</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="475"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="857"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="575"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="979"/>
         <source>Home</source>
         <translation>家庭服务器</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="865"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="987"/>
         <source>Server address</source>
         <translation>服务器地址</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="892"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1014"/>
         <source>Username</source>
         <translation>用户名</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="893"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1015"/>
         <source>Your Emby username</source>
         <translation>你的 Emby 用户名</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="900"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1022"/>
         <source>Password</source>
         <translation>密码</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="901"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1023"/>
         <source>Your Emby password</source>
         <translation>你的 Emby 密码</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="787"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="909"/>
         <source>Connected</source>
         <translation>已连接</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="932"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1054"/>
         <source>Not connected</source>
         <translation>未连接</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="825"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="947"/>
         <source>Disconnect</source>
         <translation>断开连接</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="86"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="90"/>
         <source>Tune Anime4K model and source handling</source>
         <translation>调整 Anime4K 模型和片源处理</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="458"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="558"/>
         <source>Unencrypted HTTP connection</source>
         <translation>未加密的 HTTP 连接</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="459"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="559"/>
         <source>HTTP sends your Emby password and session token without encryption. Continue only if you trust the network path to this server; HTTPS is strongly recommended.</source>
         <translation>HTTP 会以未加密方式传输你的 Emby 密码和会话令牌。仅在你信任到该服务器的网络链路时继续；强烈建议使用 HTTPS。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="460"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="560"/>
         <source>Connect with HTTP</source>
         <translation>仍使用 HTTP 连接</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="877"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="999"/>
         <source>HTTPS connection: credentials are encrypted in transit.</source>
         <translation>HTTPS 连接：凭据在传输过程中已加密。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="878"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1000"/>
         <source>HTTP connection: credentials are not encrypted. Trusted local networks only.</source>
         <translation>HTTP 连接：凭据未经加密。请仅在可信网络中使用。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="943"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1065"/>
         <source>Connecting…</source>
         <translation>正在连接…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="943"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1065"/>
         <source>Connect to Emby</source>
         <translation>连接 Emby</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1435"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="1442"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="1458"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1557"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1564"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1580"/>
         <source>Playback performance protection</source>
         <translation>播放性能保护</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1477"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="1484"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="1503"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1599"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1606"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1625"/>
         <source>Anime4K downgrade threshold</source>
         <translation>Anime4K 降档阈值</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1485"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1607"/>
         <source>Yanami continuously checks rendering time, output frame drops, and A/V sync. After three consecutive overloaded checks, it lowers Anime4K by one tier. If no lower tier remains, upscaling is disabled only for the current playback. This percentage sets the rendering-time threshold: 80% means a check is overloaded when rendering takes more than 80% of one frame (about 13.3 ms at 60 FPS).</source>
         <translation>Yanami 会持续检查画面渲染耗时、输出掉帧和音画同步。连续 3 个检测周期负载过高时，会先降低一个 Anime4K 档位；如果已经没有更低档位，则仅在本次播放中关闭超分。这里的百分比表示渲染耗时触发线。例如 80% 表示渲染耗时超过一帧时长的 80%，就记为一次负载过高；60 FPS 时约为 13.3 ms。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1504"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1626"/>
         <source>Rendering is marked overloaded when it uses more than this percentage of one frame.</source>
         <translation>当渲染耗时超过单帧时长的这个百分比时，就记为一次负载过高。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1527"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1649"/>
         <source>60% · Stricter</source>
         <translation>60% · 更严格</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1534"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1656"/>
         <source>90% · More tolerant</source>
         <translation>90% · 更宽松</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1648"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1770"/>
         <source>Model download · %1 percent</source>
         <translation>模型下载 · %1%</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1949"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1945"/>
+        <source>Connected devices switch automatically; the last meaningful input becomes active.</source>
+        <translation>已连接设备会自动切换；最后一次有效输入将成为当前设备。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1993"/>
+        <source>Active device</source>
+        <translation>当前设备</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2009"/>
+        <source>Profile</source>
+        <translation>配置方案</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2025"/>
+        <source>Input engine</source>
+        <translation>输入引擎</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2049"/>
+        <source>Connected devices</source>
+        <translation>已连接设备</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2092"/>
+        <source>Unknown device</source>
+        <translation>未知设备</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2150"/>
+        <source>Input test active · press any controller button</source>
+        <translation>输入测试已开始 · 请按任意控制器按键</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2151"/>
+        <source>Input test · isolated controller diagnostics</source>
+        <translation>输入测试 · 独立控制器诊断</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2147"/>
+        <source> · repeating</source>
+        <translation> · 连发</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2151"/>
+        <source>Waiting for input</source>
+        <translation>等待输入</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2176"/>
+        <source>Controller input is isolated · press B / Back to exit</source>
+        <translation>控制器输入已隔离 · 按 B / 返回键退出</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2177"/>
+        <source>Select Start test (A / OK) to prevent navigation while testing</source>
+        <translation>选择“开始测试”（A / 确定），测试期间不会触发导航</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2212"/>
+        <source>Stop test</source>
+        <translation>停止测试</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2212"/>
+        <source>Start test</source>
+        <translation>开始测试</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2185"/>
+        <source>Clear</source>
+        <translation>清除</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2202"/>
+        <source>The Xbox software path is implemented; physical Xbox acceptance is pending. PlayStation, Nintendo Switch, TV remote, and generic profiles are experimental until validated on their physical hardware.</source>
+        <translation>Xbox 软件路径已经实现，但 Xbox 实机验收仍待完成。PlayStation、Nintendo Switch、电视遥控器和通用配置在对应实机验证前均为实验性支持。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="2402"/>
         <source>This release includes project credentials. Developer credentials entered below take precedence.</source>
         <translation>此发行版本已包含项目凭据。在下方填写的开发者凭据将优先使用。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1950"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2403"/>
         <source>Use developer credentials for local development. AppSecret is stored only in the operating-system credential vault.</source>
         <translation>本地开发可使用开发者凭据。AppSecret 只会存储在操作系统的凭据保险库中。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1999"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2452"/>
         <source>Developer override</source>
         <translation>开发者凭据优先</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="2001"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2454"/>
         <source>Bundled release credentials</source>
         <translation>发行版内置凭据</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="2014"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2467"/>
         <source>Remove override</source>
         <translation>移除开发者凭据</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1940"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2393"/>
         <source>DanDanPlay credentials</source>
         <translation>DanDanPlay 凭据</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1210"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1332"/>
         <source>Anime4K unavailable</source>
         <translation>Anime4K 不可用</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1966"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2419"/>
         <source>Developer application ID</source>
         <translation>开发者应用 ID</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1972"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2425"/>
         <source>Developer application secret</source>
         <translation>开发者应用密钥</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="2002"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2455"/>
         <source>Not configured</source>
         <translation>未配置</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="2020"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2473"/>
         <source>Validating…</source>
         <translation>正在验证…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="2020"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2473"/>
         <source>Validate and save</source>
         <translation>验证并保存</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="581"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="982"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="695"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1104"/>
         <source>Language</source>
         <translation>语言</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="678"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="800"/>
         <source>Manage your media server and playback defaults.</source>
         <translation>管理媒体服务器和播放默认设置。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="803"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="925"/>
         <source>Username: %1</source>
         <translation>用户名：%1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="819"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="941"/>
         <source>Server address: %1</source>
         <translation>服务器地址：%1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="989"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1111"/>
         <source>Changes apply immediately and are remembered on this device.</source>
         <translation>更改会立即生效，并记住在此设备上的选择。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1008"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1130"/>
         <source>English</source>
         <translation>英文</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1016"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1138"/>
         <source>Simplified Chinese</source>
         <translation>简体中文</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="582"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="1042"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="696"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1164"/>
         <source>Playback</source>
         <translation>播放</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1049"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1171"/>
         <source>Hardware decoding and original quality are preferred automatically.</source>
         <translation>自动优先使用硬件解码与原画播放。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1073"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1195"/>
         <source>AUTO  ·  ORIGINAL</source>
         <translation>自动  ·  原画</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="584"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="1797"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="1833"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="699"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2243"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2286"/>
         <source>Developer options</source>
         <translation>开发者选项</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1798"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="1841"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2244"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2294"/>
         <source>Advanced settings for local development and service integrations.</source>
         <translation>用于本地开发和服务集成的高级设置。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="64"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="73"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="68"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="77"/>
         <source>Performance</source>
         <translation>性能</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="74"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="78"/>
         <source>Lowest GPU load · best for integrated graphics</source>
         <translation>最低 GPU 负载 · 适合核显</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="65"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="77"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="69"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="81"/>
         <source>Balanced</source>
         <translation>平衡</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="78"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="82"/>
         <source>Clearer lines with comfortable playback headroom</source>
         <translation>更清晰的线条，并保留充足的播放余量</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="66"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="81"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="70"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="85"/>
         <source>Quality</source>
         <translation>质量</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="82"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="86"/>
         <source>Highest real-time detail · for faster discrete GPUs</source>
         <translation>最高实时细节 · 适合性能更强的独立显卡</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="67"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="85"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="71"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="89"/>
         <source>Custom</source>
         <translation>自定义</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="583"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="697"/>
         <source>Anime upscaling</source>
         <translation>动画超分</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1134"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1256"/>
         <source>Real-time anime upscaling</source>
         <translation>实时动画超分</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1142"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1264"/>
         <source>Reconstruct cleaner lines and details while video is playing.</source>
         <translation>在播放时实时重建更清晰的线条和细节。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1160"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1282"/>
         <source>Enable real-time anime upscaling</source>
         <translation>启用实时动画超分</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1172"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1294"/>
         <source>On</source>
         <translation>开启</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1172"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1294"/>
         <source>Off</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1171"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1293"/>
         <source>Unavailable</source>
         <translation>不可用</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1234"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1356"/>
         <source>Preset</source>
         <translation>档位</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1298"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1420"/>
         <source>Advanced configuration</source>
         <translation>高级配置</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1306"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1428"/>
         <source>Options shown here are specific to %1.</source>
         <translation>以下选项仅适用于 %1。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1317"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1439"/>
         <source>Reset</source>
         <translation>恢复默认</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="32"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="58"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="36"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="62"/>
         <source>Checking graphics capabilities…</source>
         <translation>正在检测显卡能力…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="34"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="38"/>
         <source>This upscaling method is unavailable on the active playback renderer.</source>
         <translation>当前播放渲染器无法使用此超分方案。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="249"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="134"/>
+        <source>Xbox</source>
+        <translation>Xbox</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="136"/>
+        <source>PlayStation · experimental</source>
+        <translation>PlayStation · 实验性</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="138"/>
+        <source>Nintendo Switch · experimental</source>
+        <translation>Nintendo Switch · 实验性</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="140"/>
+        <source>TV remote · experimental</source>
+        <translation>电视遥控器 · 实验性</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="142"/>
+        <source>Generic controller</source>
+        <translation>通用控制器</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="143"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="2000"/>
+        <source>None</source>
+        <translation>无</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="148"/>
+        <source>Navigate up</source>
+        <translation>向上导航</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="150"/>
+        <source>Navigate down</source>
+        <translation>向下导航</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="152"/>
+        <source>Navigate left</source>
+        <translation>向左导航</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="154"/>
+        <source>Navigate right</source>
+        <translation>向右导航</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="156"/>
+        <source>Activate</source>
+        <translation>确认</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="158"/>
+        <source>Back</source>
+        <translation>返回</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="160"/>
+        <source>Context menu</source>
+        <translation>上下文菜单</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="162"/>
+        <source>Application menu</source>
+        <translation>应用菜单</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="164"/>
+        <source>Search</source>
+        <translation>搜索</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="166"/>
+        <source>Previous page</source>
+        <translation>上一页</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="168"/>
+        <source>Next page</source>
+        <translation>下一页</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="170"/>
+        <source>Page up</source>
+        <translation>向上翻页</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="172"/>
+        <source>Page down</source>
+        <translation>向下翻页</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="174"/>
+        <source>Scroll up</source>
+        <translation>向上滚动</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="176"/>
+        <source>Scroll down</source>
+        <translation>向下滚动</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="178"/>
+        <source>Scroll left</source>
+        <translation>向左滚动</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="180"/>
+        <source>Scroll right</source>
+        <translation>向右滚动</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="182"/>
+        <source>Play or pause</source>
+        <translation>播放或暂停</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="184"/>
+        <source>Seek backward</source>
+        <translation>后退</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="186"/>
+        <source>Seek forward</source>
+        <translation>快进</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="188"/>
+        <source>Volume up</source>
+        <translation>提高音量</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="190"/>
+        <source>Volume down</source>
+        <translation>降低音量</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="192"/>
+        <source>Previous item</source>
+        <translation>上一项</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="194"/>
+        <source>Next item</source>
+        <translation>下一项</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="195"/>
+        <source>Unknown action</source>
+        <translation>未知操作</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="343"/>
         <source>Information about %1</source>
         <translation>关于“%1”的说明</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1169"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="698"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1937"/>
+        <source>Controller</source>
+        <translation>控制器</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/SettingsPage.qml" line="1291"/>
         <source>Checking</source>
         <translation>检测中</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1211"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1333"/>
         <source>Checking playback renderer</source>
         <translation>正在检测播放渲染器</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1327"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1449"/>
         <source>Content mode</source>
         <translation>片源模式</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1328"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1450"/>
         <source>Modes A and B use different restoration networks. Mode C combines upscaling with denoising; start with A and compare on difficult sources.</source>
         <translation>A 与 B 使用不同的修复网络；C 将超分与降噪结合。建议先从 A 开始，再针对复杂片源对比选择。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1338"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1460"/>
         <source>CNN size</source>
         <translation>CNN 规模</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1339"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1461"/>
         <source>Controls Anime4K model capacity from S to UL. Larger models can recover more detail but require more GPU time.</source>
         <translation>控制 Anime4K 从 S 到 UL 的模型规模。模型越大，可能恢复更多细节，但会占用更多 GPU 时间。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1349"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1471"/>
         <source>Restore passes</source>
         <translation>修复阶段</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1350"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1472"/>
         <source>Two passes add a second neural processing stage. This can help difficult sources but increases GPU workload.</source>
         <translation>两阶段会增加第二次神经网络处理，可能改善复杂片源，但也会提高 GPU 负载。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1351"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1473"/>
         <source>1 pass</source>
         <translation>1 阶段</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1351"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1473"/>
         <source>2 passes</source>
         <translation>2 阶段</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1372"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="1379"/>
-        <location filename="../qml/pages/SettingsPage.qml" line="1395"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1494"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1501"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1517"/>
         <source>Automatic downscale</source>
         <translation>自动降采样</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1380"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1502"/>
         <source>Adapts the Anime4K shader chain when the source is already close to the output size, reducing unnecessary processing.</source>
         <translation>当片源尺寸已接近输出尺寸时调整 Anime4K 着色器链，减少不必要的处理。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1386"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1508"/>
         <source>Avoid unnecessary shader passes when the source is already close to output size.</source>
         <translation>当片源尺寸已接近输出尺寸时，避免执行不必要的着色器阶段。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1443"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1565"/>
         <source>Tracks playback smoothness. If Anime4K causes sustained frame drops, Yanami lowers its preset and can turn it off for that playback.</source>
         <translation>持续检测到 Anime4K 导致掉帧时，Yanami 会先降低档位；如果仍不流畅，会在本次播放中暂时关闭超分。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1449"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1571"/>
         <source>If playback starts dropping frames, Yanami lowers Anime4K first and temporarily turns it off only when needed.</source>
         <translation>播放出现掉帧时，Yanami 会先降低 Anime4K 档位，必要时再暂时关闭超分。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1459"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1581"/>
         <source>Automatically lowers Anime4K or turns it off when playback cannot stay smooth.</source>
         <translation>播放不够流畅时，自动降低 Anime4K 档位或暂时关闭超分。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1589"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1711"/>
         <source>Model components · %1 · %2</source>
         <translation>模型组件 · %1 · %2</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1601"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1723"/>
         <source>Download is required before this configuration can be used. Playback continues in original quality until it is ready.</source>
         <translation>使用此配置前需要下载组件。准备完成前将继续以原画播放。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1603"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1725"/>
         <source>Downloading · %1% complete</source>
         <translation>正在下载 · 已完成 %1%</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1607"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1729"/>
         <source>Checking installed components…</source>
         <translation>正在检查已安装组件…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1608"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1730"/>
         <source>Verifying model components…</source>
         <translation>正在校验模型组件…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1611"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1733"/>
         <source>The component download failed. Try again.</source>
         <translation>组件下载失败，请重试。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1612"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1734"/>
         <source>Ready · components verified</source>
         <translation>已就绪 · 组件已校验</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1627"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1749"/>
         <source>Try again</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1628"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1750"/>
         <source>Download components</source>
         <translation>下载组件</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1630"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1752"/>
         <source>Download upscaling components?</source>
         <translation>下载超分组件？</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1631"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1753"/>
         <source>This configuration needs its model components before it can be used. Until the download and verification finish, videos will continue playing in original quality.</source>
         <translation>此配置需要模型组件才能使用。下载和校验完成前，视频仍会以原画播放。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1632"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1754"/>
         <source>Download</source>
         <translation>下载</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1713"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1835"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1742"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1864"/>
         <source>Installed</source>
         <translation>已安装</translation>
     </message>
     <message>
-        <location filename="../qml/pages/SettingsPage.qml" line="1755"/>
+        <location filename="../qml/pages/SettingsPage.qml" line="1877"/>
         <source>Changes will apply to the next playback. A missing or unsupported component always falls back to original quality.</source>
         <translation>更改将在下次播放时生效。组件缺失或不受支持时始终回退到原画。</translation>
     </message>
@@ -3127,17 +3523,17 @@
 <context>
     <name>VolumeControl</name>
     <message>
-        <location filename="../qml/components/VolumeControl.qml" line="65"/>
+        <location filename="../qml/components/VolumeControl.qml" line="70"/>
         <source>Unmute</source>
         <translation>取消静音</translation>
     </message>
     <message>
-        <location filename="../qml/components/VolumeControl.qml" line="65"/>
+        <location filename="../qml/components/VolumeControl.qml" line="70"/>
         <source>Mute</source>
         <translation>静音</translation>
     </message>
     <message>
-        <location filename="../qml/components/VolumeControl.qml" line="120"/>
+        <location filename="../qml/components/VolumeControl.qml" line="129"/>
         <source>Volume</source>
         <translation>音量</translation>
     </message>

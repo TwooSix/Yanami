@@ -8,7 +8,13 @@ ListView {
     property real lastWheelTime: 0
     property real wheelBoost: 1
     property bool passVerticalWheelToParent: false
+    // Built-in ListView key navigation consumes arrows before the page-level
+    // SpatialFocusNavigator sees them and can animate its highlight separately
+    // from contentX. Keep virtual model-order navigation in the shared focus
+    // graph while disabling that competing path.
+    readonly property bool controllerVirtualNavigationEnabled: true
     readonly property bool canScrollHorizontally: contentWidth > width + 1
+    readonly property bool wheelAnimationRunning: wheelAnimation.running
 
     signal userScrollStarted()
 
@@ -54,7 +60,7 @@ ListView {
     }
 
     function resetScrollPosition() {
-        wheelAnimation.stop()
+        root.prepareForFocusReveal()
         root.positionViewAtBeginning()
         Qt.callLater(root.clampScrollPosition)
     }
@@ -69,7 +75,39 @@ ListView {
             root.contentX = maximum
     }
 
+    function prepareForFocusReveal() {
+        wheelAnimation.stop()
+        root.cancelFlick()
+        root.lastWheelTime = 0
+        root.wheelBoost = 1
+    }
+
+    function revealContentX(value) {
+        const minimum = root.originX
+        const maximum = Math.max(minimum,
+            minimum + root.contentWidth - root.width)
+        root.prepareForFocusReveal()
+        root.contentX = Math.max(minimum, Math.min(maximum, value))
+    }
+
+    function scrollContentXBy(delta) {
+        root.userScrollStarted()
+        root.cancelFlick()
+        const minimum = root.originX
+        const maximum = Math.max(minimum,
+            minimum + root.contentWidth - root.width)
+        const currentTarget = wheelAnimation.running
+            ? wheelAnimation.to : root.contentX
+        const target = Math.max(minimum, Math.min(maximum,
+            currentTarget + delta))
+        if (Math.abs(target - currentTarget) < 0.5)
+            return
+        wheelAnimation.to = target
+        wheelAnimation.restart()
+    }
+
     orientation: ListView.Horizontal
+    keyNavigationEnabled: false
     spacing: 14
     clip: true
     boundsBehavior: Flickable.StopAtBounds
@@ -111,7 +149,6 @@ ListView {
         blocking: true
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onWheel: event => {
-            root.userScrollStarted()
             const now = Date.now()
             root.wheelBoost = now - root.lastWheelTime < 150
                 ? Math.min(2.1, root.wheelBoost + 0.16)
@@ -121,13 +158,7 @@ ListView {
                 ? event.pixelDelta.x
                 : event.pixelDelta.y
             const rawDelta = pixelDelta !== 0 ? pixelDelta : event.angleDelta.y * 1.7
-            const currentTarget = wheelAnimation.running ? wheelAnimation.to : root.contentX
-            const minimum = root.originX
-            const maximum = Math.max(minimum,
-                minimum + root.contentWidth - root.width)
-            wheelAnimation.to = Math.max(minimum, Math.min(maximum,
-                currentTarget - rawDelta * root.wheelBoost))
-            wheelAnimation.restart()
+            root.scrollContentXBy(-rawDelta * root.wheelBoost)
             event.accepted = true
         }
     }

@@ -6,6 +6,7 @@ import Yanami.Ui
 Item {
     id: root
 
+    property bool pageActive: false
     property real embyConnectionProgress: app.session.connected ? 1 : 0
     property bool observedConnected: app.session.connected
     property bool loadingUpscalingSettings: false
@@ -17,6 +18,10 @@ Item {
     property int upscalingAnime4KRestorePasses: 1
     property bool upscalingAnime4KAutoDownscale: true
     property bool upscalingPerformanceProtection: true
+    property string lastControllerAction: ""
+    property string lastControllerPrompt: ""
+    property bool lastControllerActionRepeated: false
+    property bool controllerActionCleared: false
     readonly property var upscalingPresetIds: ["performance", "balanced", "quality", "custom"]
     readonly property var upscalingSelectedProviderCapability:
         nativeUpscalingProvider("anime4k")
@@ -99,8 +104,10 @@ Item {
     readonly property int activeSection: {
         const probeY = settingsFlickable.contentY + sectionScrollTopMargin + 20
         if (settingsFlickable.contentY > 0.5 && settingsFlickable.atYEnd)
-            return 4
+            return 5
         if (probeY >= form.y + developerSection.y)
+            return 5
+        if (probeY >= form.y + controllerSection.y)
             return 4
         if (probeY >= form.y + upscalingSection.y)
             return 3
@@ -109,6 +116,77 @@ Item {
         if (probeY >= form.y + languagePanel.y)
             return 1
         return 0
+    }
+
+    function controllerFamilyLabel(family) {
+        const normalized = String(family || "").toLowerCase()
+        if (normalized === "xbox")
+            return qsTr("Xbox")
+        if (normalized === "playstation")
+            return qsTr("PlayStation · experimental")
+        if (normalized === "nintendo")
+            return qsTr("Nintendo Switch · experimental")
+        if (normalized === "remote")
+            return qsTr("TV remote · experimental")
+        if (normalized === "generic")
+            return qsTr("Generic controller")
+        return qsTr("None")
+    }
+
+    function controllerActionLabel(action) {
+        if (action === InputModality.NavigateUp)
+            return qsTr("Navigate up")
+        if (action === InputModality.NavigateDown)
+            return qsTr("Navigate down")
+        if (action === InputModality.NavigateLeft)
+            return qsTr("Navigate left")
+        if (action === InputModality.NavigateRight)
+            return qsTr("Navigate right")
+        if (action === InputModality.Activate)
+            return qsTr("Activate")
+        if (action === InputModality.Back)
+            return qsTr("Back")
+        if (action === InputModality.Context)
+            return qsTr("Context menu")
+        if (action === InputModality.Menu)
+            return qsTr("Application menu")
+        if (action === InputModality.Search)
+            return qsTr("Search")
+        if (action === InputModality.PagePrevious)
+            return qsTr("Previous page")
+        if (action === InputModality.PageNext)
+            return qsTr("Next page")
+        if (action === InputModality.PageUp)
+            return qsTr("Page up")
+        if (action === InputModality.PageDown)
+            return qsTr("Page down")
+        if (action === InputModality.ScrollUp)
+            return qsTr("Scroll up")
+        if (action === InputModality.ScrollDown)
+            return qsTr("Scroll down")
+        if (action === InputModality.ScrollLeft)
+            return qsTr("Scroll left")
+        if (action === InputModality.ScrollRight)
+            return qsTr("Scroll right")
+        if (action === InputModality.PlayPause)
+            return qsTr("Play or pause")
+        if (action === InputModality.SeekBackward)
+            return qsTr("Seek backward")
+        if (action === InputModality.SeekForward)
+            return qsTr("Seek forward")
+        if (action === InputModality.VolumeUp)
+            return qsTr("Volume up")
+        if (action === InputModality.VolumeDown)
+            return qsTr("Volume down")
+        if (action === InputModality.PreviousItem)
+            return qsTr("Previous item")
+        if (action === InputModality.NextItem)
+            return qsTr("Next item")
+        return qsTr("Unknown action")
+    }
+
+    function controllerDefaultFocusItem() {
+        return sectionRepeater.itemAt(0)
     }
 
     function indexOfValue(values, value, fallback) {
@@ -180,6 +258,12 @@ Item {
         focusPolicy: Qt.StrongFocus
         Accessible.role: Accessible.CheckBox
         Accessible.name: accessibleLabel
+        Keys.onPressed: event => {
+            if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter)
+                return
+            compactSwitch.click()
+            event.accepted = true
+        }
 
         contentItem: Item {}
         background: Item {
@@ -248,6 +332,12 @@ Item {
         Accessible.role: Accessible.Button
         Accessible.name: qsTr("Information about %1").arg(fieldLabel)
         Accessible.description: helpText
+        Keys.onPressed: event => {
+            if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter)
+                return
+            infoButton.click()
+            event.accepted = true
+        }
 
         contentItem: Item {
             AppIcon {
@@ -486,6 +576,8 @@ Item {
         if (sectionIndex === 3)
             return upscalingSection
         if (sectionIndex === 4)
+            return controllerSection
+        if (sectionIndex === 5)
             return developerSection
         return embyPanel
     }
@@ -526,6 +618,26 @@ Item {
 
         function onUpscalingSettingsChanged() {
             root.loadUpscalingSettings()
+        }
+    }
+
+    ControllerInputTestScope {
+        id: controllerInputTestScope
+        available: root.pageActive && root.activeSection === 4
+    }
+
+    Connections {
+        target: InputModality
+
+        function onControllerInputTestAction(action, repeated) {
+            if (!controllerInputTestScope.acquired)
+                return
+            if (controllerInputTestScope.handleAction(action, repeated))
+                return
+            root.controllerActionCleared = false
+            root.lastControllerAction = root.controllerActionLabel(action)
+            root.lastControllerPrompt = InputModality.promptForAction(action)
+            root.lastControllerActionRepeated = repeated
         }
     }
 
@@ -576,11 +688,13 @@ Item {
                 }
 
                 Repeater {
+                    id: sectionRepeater
                     model: [
                         qsTr("Emby server"),
                         qsTr("Language"),
                         qsTr("Playback"),
                         qsTr("Anime upscaling"),
+                        qsTr("Controller"),
                         qsTr("Developer options")
                     ]
 
@@ -602,6 +716,13 @@ Item {
                         text: modelData
                         Accessible.name: text
                         onClicked: root.scrollToSection(index)
+                        Keys.onPressed: event => {
+                            if (event.key !== Qt.Key_Return
+                                    && event.key !== Qt.Key_Enter)
+                                return
+                            sectionButton.click()
+                            event.accepted = true
+                        }
 
                         contentItem: Text {
                             text: sectionButton.text
@@ -1762,6 +1883,336 @@ Item {
                 }
             }
 
+            GlassPanel {
+                id: controllerSection
+                objectName: "controllerDiagnosticsSection"
+
+                readonly property var devices:
+                    InputModality.connectedDevices || []
+                Layout.fillWidth: true
+                Layout.preferredHeight: controllerLayout.implicitHeight + 56
+                radius: Theme.radiusLarge
+
+                ColumnLayout {
+                    id: controllerLayout
+                    anchors.fill: parent
+                    anchors.margins: 28
+                    spacing: 18
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 16
+
+                        Rectangle {
+                            Layout.preferredWidth: 48
+                            Layout.preferredHeight: 48
+                            radius: 16
+                            color: InputModality.controllerConnected
+                                ? Theme.accentSoft : "#14FFFFFF"
+                            border.width: 1
+                            border.color: Theme.outline
+
+                            AppIcon {
+                                anchors.centerIn: parent
+                                width: 22
+                                height: 22
+                                name: "gear"
+                                color: InputModality.controllerConnected
+                                    ? Theme.accent : Theme.textMuted
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: qsTr("Controller")
+                                color: Theme.text
+                                font.family: Theme.fontForText(text)
+                                font.pixelSize: 19
+                                font.weight: Font.DemiBold
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: qsTr("Connected devices switch automatically; the last meaningful input becomes active.")
+                                color: Theme.textMuted
+                                font.family: Theme.fontForText(text)
+                                font.pixelSize: 12
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 104
+                        radius: 18
+                        color: "#0DFFFFFF"
+                        border.width: 1
+                        border.color: Theme.outline
+
+                        GridLayout {
+                            anchors.fill: parent
+                            anchors.margins: 18
+                            columns: 2
+                            columnSpacing: 28
+                            rowSpacing: 9
+
+                            Text {
+                                text: qsTr("Active device")
+                                color: Theme.textMuted
+                                font.family: Theme.fontForText(text)
+                                font.pixelSize: 11
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: InputModality.activeDeviceName || qsTr("None")
+                                color: Theme.text
+                                font.family: Theme.fontForText(text)
+                                font.pixelSize: 12
+                                font.weight: Font.DemiBold
+                                horizontalAlignment: Text.AlignRight
+                                elide: Text.ElideMiddle
+                            }
+                            Text {
+                                text: qsTr("Profile")
+                                color: Theme.textMuted
+                                font.family: Theme.fontForText(text)
+                                font.pixelSize: 11
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: root.controllerFamilyLabel(
+                                    InputModality.activeDeviceFamily)
+                                color: Theme.text
+                                font.family: Theme.fontForText(text)
+                                font.pixelSize: 12
+                                horizontalAlignment: Text.AlignRight
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                text: qsTr("Input engine")
+                                color: Theme.textMuted
+                                font.family: Theme.fontForText(text)
+                                font.pixelSize: 11
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: String(InputModality.controllerBackend
+                                             || "none").toUpperCase()
+                                color: Theme.textMuted
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 11
+                                font.weight: Font.DemiBold
+                                horizontalAlignment: Text.AlignRight
+                            }
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        visible: controllerSection.devices.length > 0
+                        spacing: 8
+
+                        Text {
+                            text: qsTr("Connected devices")
+                            color: Theme.textMuted
+                            font.family: Theme.fontForText(text)
+                            font.pixelSize: 11
+                            font.weight: Font.DemiBold
+                        }
+
+                        Repeater {
+                            model: controllerSection.devices
+
+                            delegate: Rectangle {
+                                id: controllerDeviceRow
+                                required property var modelData
+                                required property int index
+
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 48
+                                radius: 14
+                                color: String(modelData.name || "")
+                                    === String(InputModality.activeDeviceName || "")
+                                    ? "#16FFFFFF" : "#09FFFFFF"
+                                border.width: 1
+                                border.color: Theme.outline
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 14
+                                    anchors.rightMargin: 14
+                                    spacing: 12
+
+                                    Rectangle {
+                                        Layout.preferredWidth: 8
+                                        Layout.preferredHeight: 8
+                                        radius: 4
+                                        color: controllerDeviceRow.modelData.connected === false
+                                            ? Theme.textMuted
+                                            : String(controllerDeviceRow.modelData.supportTier || "")
+                                                === "verified"
+                                                ? Theme.success : Theme.info
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: String(controllerDeviceRow.modelData.name
+                                                     || qsTr("Unknown device"))
+                                        color: Theme.text
+                                        font.family: Theme.fontForText(text)
+                                        font.pixelSize: 12
+                                        elide: Text.ElideMiddle
+                                    }
+                                    Text {
+                                        text: root.controllerFamilyLabel(
+                                            controllerDeviceRow.modelData.family)
+                                        color: Theme.textMuted
+                                        font.family: Theme.fontForText(text)
+                                        font.pixelSize: 10
+                                    }
+                                    Text {
+                                        text: String(controllerDeviceRow.modelData[
+                                            "back" + "end"]
+                                                     || "none").toUpperCase()
+                                        color: Theme.textMuted
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 10
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 108
+                        radius: 18
+                        color: "#0DFFFFFF"
+                        border.width: 1
+                        border.color: root.lastControllerAction.length > 0
+                            ? "#52FF8FA7" : Theme.outline
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: 18
+                            spacing: 14
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 5
+
+                                Text {
+                                    text: controllerInputTestScope.running
+                                        ? qsTr("Input test active · press any controller button")
+                                        : qsTr("Input test · isolated controller diagnostics")
+                                    color: Theme.textMuted
+                                    font.family: Theme.fontForText(text)
+                                    font.pixelSize: 11
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: root.lastControllerAction.length > 0
+                                        ? root.lastControllerAction
+                                            + (root.lastControllerActionRepeated
+                                               ? qsTr(" · repeating") : "")
+                                        : (!root.controllerActionCleared
+                                           && InputModality.lastActionName.length > 0
+                                           ? InputModality.lastActionName
+                                           : qsTr("Waiting for input"))
+                                    color: root.lastControllerAction.length > 0
+                                        ? Theme.text : Theme.textMuted
+                                    font.family: Theme.fontForText(text)
+                                    font.pixelSize: 14
+                                    font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: controllerInputTestScope.running
+                                        ? qsTr("Controller input is isolated · press B / Back to exit")
+                                        : qsTr("Select Start test (A / OK) to prevent navigation while testing")
+                                    color: controllerInputTestScope.running
+                                        ? Theme.accent : Theme.textMuted
+                                    font.family: Theme.fontForText(text)
+                                    font.pixelSize: 10
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            Rectangle {
+                                visible: root.lastControllerPrompt.length > 0
+                                Layout.preferredWidth: Math.max(
+                                    36, controllerPrompt.implicitWidth + 18)
+                                Layout.preferredHeight: 36
+                                radius: 12
+                                color: Theme.accentSoft
+                                border.width: 1
+                                border.color: "#52FF8FA7"
+
+                                Text {
+                                    id: controllerPrompt
+                                    anchors.centerIn: parent
+                                    text: root.lastControllerPrompt
+                                    color: Theme.accent
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 12
+                                    font.weight: Font.Bold
+                                }
+                            }
+
+                            AppButton {
+                                kind: controllerInputTestScope.running
+                                    ? "secondary" : "primary"
+                                controlSize: 36
+                                text: controllerInputTestScope.running
+                                    ? qsTr("Stop test") : qsTr("Start test")
+                                enabled: controllerInputTestScope.available
+                                onClicked: {
+                                    if (controllerInputTestScope.running) {
+                                        controllerInputTestScope.stop()
+                                    } else {
+                                        root.controllerActionCleared = true
+                                        root.lastControllerAction = ""
+                                        root.lastControllerPrompt = ""
+                                        root.lastControllerActionRepeated = false
+                                        controllerInputTestScope.start()
+                                    }
+                                }
+                            }
+
+                            AppButton {
+                                kind: "ghost"
+                                controlSize: 36
+                                text: qsTr("Clear")
+                                enabled: root.lastControllerAction.length > 0
+                                    || root.lastControllerPrompt.length > 0
+                                    || (!root.controllerActionCleared
+                                        && InputModality.lastActionName.length > 0)
+                                onClicked: {
+                                    root.controllerActionCleared = true
+                                    root.lastControllerAction = ""
+                                    root.lastControllerPrompt = ""
+                                    root.lastControllerActionRepeated = false
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("The Xbox software path is implemented; physical Xbox acceptance is pending. PlayStation, Nintendo Switch, TV remote, and generic profiles are experimental until validated on their physical hardware.")
+                        color: Theme.textMuted
+                        font.family: Theme.fontForText(text)
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
             Item {
                 id: developerSection
 
@@ -1796,6 +2247,13 @@ Item {
                     hoverEnabled: true
                     Accessible.name: qsTr("Developer options")
                     Accessible.description: qsTr("Advanced settings for local development and service integrations.")
+                    Keys.onPressed: event => {
+                        if (event.key !== Qt.Key_Return
+                                && event.key !== Qt.Key_Enter)
+                            return
+                        developerToggle.click()
+                        event.accepted = true
+                    }
                     onToggled: {
                         if (!checked)
                             forceActiveFocus()

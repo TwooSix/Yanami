@@ -17,6 +17,7 @@ AppModalPopup {
     signal added(string itemId)
 
     dismissBlocked: root.submitting
+    initialFocusTarget: root.options.length > 0 ? targetList : cancelButton
 
     function openFor(item, targets) {
         root.mediaItem = item || ({})
@@ -25,6 +26,7 @@ AppModalPopup {
         root.submitting = false
         root.inlineError = ""
         newNameField.text = ""
+        targetList.currentIndex = root.options.length > 0 ? 0 : -1
         root.open()
     }
 
@@ -42,6 +44,16 @@ AppModalPopup {
             root.submitting = false
             root.inlineError = qsTr("Unable to add this item.")
         }
+    }
+
+    function selectTargetAt(index) {
+        if (index < 0 || index >= root.options.length)
+            return false
+        targetList.currentIndex = index
+        root.selectedId = String((root.options[index] || {}).id || "")
+        newNameField.text = ""
+        targetList.positionViewAtIndex(index, ListView.Contain)
+        return root.selectedId.length > 0
     }
 
     function submitSucceeded(itemId) {
@@ -95,6 +107,11 @@ AppModalPopup {
         border.color: "#4AFFFFFF"
     }
 
+    PopupControllerNavigator {
+        popup: root
+        navigationEnabled: !targetList.activeFocus
+    }
+
     contentItem: ColumnLayout {
         spacing: 16
 
@@ -134,6 +151,39 @@ AppModalPopup {
             clip: true
             spacing: 6
             model: root.options
+            activeFocusOnTab: true
+            keyNavigationEnabled: false
+            currentIndex: -1
+            Accessible.role: Accessible.List
+            Accessible.name: qsTr("Existing destinations")
+            KeyNavigation.down: newNameField
+
+            Keys.onPressed: event => {
+                if (root.options.length === 0)
+                    return
+                let next = targetList.currentIndex < 0 ? 0 : targetList.currentIndex
+                if (event.key === Qt.Key_Up) {
+                    next = Math.max(0, next - 1)
+                } else if (event.key === Qt.Key_Down) {
+                    if (next >= root.options.length - 1) {
+                        newNameField.forceActiveFocus(Qt.TabFocusReason)
+                        event.accepted = true
+                        return
+                    }
+                    next = Math.min(root.options.length - 1, next + 1)
+                } else if (event.key === Qt.Key_Return
+                        || event.key === Qt.Key_Enter
+                        || event.key === Qt.Key_Space) {
+                    root.selectTargetAt(next)
+                    event.accepted = true
+                    return
+                } else {
+                    return
+                }
+                targetList.currentIndex = next
+                targetList.positionViewAtIndex(next, ListView.Contain)
+                event.accepted = true
+            }
             ScrollBar.vertical: AppScrollBar {
                 policy: ScrollBar.AlwaysOn
                 visible: root.options.length * 54 > targetList.height
@@ -142,14 +192,20 @@ AppModalPopup {
             delegate: Rectangle {
                 id: targetRow
                 required property var modelData
+                required property int index
                 transform: Translate { x: Theme.scrollBarGutter }
                 width: Math.max(0, targetList.width - 2 * Theme.scrollBarGutter)
                 height: 48
+                activeFocusOnTab: false
                 radius: 14
                 color: rowMouse.containsMouse ? "#18FFFFFF" : "#0EFFFFFF"
-                border.width: root.selectedId === String(modelData.id || "") ? 1.5 : 1
-                border.color: root.selectedId === String(modelData.id || "")
-                    ? Theme.accent : Theme.outline
+                border.width: targetList.activeFocus
+                        && targetList.currentIndex === index ? 2
+                    : (root.selectedId === String(modelData.id || "") ? 1.5 : 1)
+                border.color: targetList.activeFocus
+                        && targetList.currentIndex === index ? Theme.accent
+                    : (root.selectedId === String(modelData.id || "")
+                        ? Theme.accent : Theme.outline)
 
                 Rectangle {
                     anchors.left: parent.left
@@ -192,6 +248,7 @@ AppModalPopup {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
+                        targetList.currentIndex = targetRow.index
                         root.selectedId = String(targetRow.modelData.id || "")
                         newNameField.text = ""
                     }
@@ -214,6 +271,8 @@ AppModalPopup {
             label: qsTr("New playlist")
             placeholderText: qsTr("Enter a name to create a new destination")
             onTextChanged: if (text.trim().length > 0) root.selectedId = ""
+            KeyNavigation.up: targetList
+            KeyNavigation.down: cancelButton
         }
 
         Text {
@@ -230,16 +289,24 @@ AppModalPopup {
             Layout.fillWidth: true
             Item { Layout.fillWidth: true }
             AppButton {
+                id: cancelButton
                 kind: "ghost"
                 text: qsTr("Cancel")
                 enabled: !root.submitting
                 onClicked: root.requestDismiss("cancel")
+                KeyNavigation.up: newNameField
+                KeyNavigation.left: addButton
+                KeyNavigation.right: addButton
             }
             AppButton {
+                id: addButton
                 kind: "primary"
                 text: root.submitting ? qsTr("Adding…") : qsTr("Add")
                 enabled: !root.submitting
                 onClicked: root.submit()
+                KeyNavigation.up: newNameField
+                KeyNavigation.left: cancelButton
+                KeyNavigation.right: cancelButton
             }
         }
     }

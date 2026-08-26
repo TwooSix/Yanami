@@ -7,9 +7,21 @@ Item {
 
     property real volume: 100
     property real lastAudibleVolume: 70
+    // A player can provide a stable, always-visible item from whose Window
+    // overlay the popup is hosted.  The popup must use the overlay's coordinate
+    // system too; Qt reparents Popup visuals there, so coordinates relative to
+    // a faded transport row would otherwise be clamped to the window corner.
+    property Item popupHost: null
     readonly property bool opened: volumePopup.opened
+    readonly property point popupPosition:
+        Qt.point(volumePopup.x, volumePopup.y)
     readonly property bool keyboardInteractionActive: volumePopup.opened
         && (volumeSlider.activeFocus || volumeSlider.pressed)
+    readonly property Item focusTarget: volumeButton
+    property Item navigationLeft: null
+    property Item navigationRight: null
+    property Item navigationUp: null
+    property Item navigationDown: null
     signal volumeRequested(real value)
 
     implicitWidth: 38
@@ -22,11 +34,35 @@ Item {
 
     function showVolume() {
         closeTimer.stop()
+        root.updatePopupPosition()
         if (!volumePopup.opened)
             volumePopup.open()
+        // Popup creates/reparents its visual item while opening. Recalculate
+        // once that has happened so a RowLayout's final position is used.
+        Qt.callLater(root.updatePopupPosition)
+    }
+
+    function popupAnchor() {
+        const host = volumePopup.parent || root.popupHost || root
+        return root.mapToItem(host, root.width / 2, 0)
+    }
+
+    function updatePopupPosition() {
+        if (!volumePopup.parent)
+            return
+        const anchor = root.popupAnchor()
+        volumePopup.x = anchor.x - volumePopup.width / 2
+        volumePopup.y = anchor.y - volumePopup.height - 12
     }
 
     function scheduleClose() {
+        closeTimer.interval = 260
+        closeTimer.restart()
+    }
+
+    function showTransientVolume() {
+        root.showVolume()
+        closeTimer.interval = 1200
         closeTimer.restart()
     }
 
@@ -72,13 +108,20 @@ Item {
                 root.scheduleClose()
         }
         onClicked: root.toggleMuted()
+        KeyNavigation.left: root.navigationLeft
+        KeyNavigation.right: root.navigationRight
+        KeyNavigation.up: root.navigationUp
+        KeyNavigation.down: root.navigationDown
     }
 
     AppTransientPopup {
         id: volumePopup
-        parent: root
-        x: (root.width - width) / 2
-        y: -height - 12
+        parent: {
+            const host = root.popupHost || root
+            return host.Overlay.overlay || host
+        }
+        x: 0
+        y: 0
         width: 64
         height: 174
         padding: 8
@@ -192,6 +235,30 @@ Item {
         }
 
         onClosed: closeTimer.stop()
+    }
+
+    onXChanged: {
+        if (volumePopup.opened)
+            root.updatePopupPosition()
+    }
+    onYChanged: {
+        if (volumePopup.opened)
+            root.updatePopupPosition()
+    }
+
+    Connections {
+        target: root.popupHost
+        enabled: target !== null
+
+        function onWidthChanged() {
+            if (volumePopup.opened)
+                Qt.callLater(root.updatePopupPosition)
+        }
+
+        function onHeightChanged() {
+            if (volumePopup.opened)
+                Qt.callLater(root.updatePopupPosition)
+        }
     }
 
     Timer {

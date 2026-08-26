@@ -59,6 +59,16 @@ set(CMAKE_AUTOMOC ON)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Gui Network Quick QuickControls2 OpenGL LinguistTools)
 get_filename_component(YANAMI_QT_PREFIX "${Qt6_DIR}/../../.." ABSOLUTE)
+if(WIN32)
+    # SDL is the primary gamepad backend for the Windows release. XInput stays
+    # linked below as an exclusive runtime fallback when SDL initialization
+    # fails or is explicitly selected for diagnostics.
+    find_package(SDL3 3.2 CONFIG REQUIRED)
+else()
+    # Controller support outside the primary Windows target is experimental;
+    # keep those builders working when SDL3 is not installed.
+    find_package(SDL3 3.2 CONFIG QUIET)
+endif()
 
 # The MSYS2 build of pkg-config may expose POSIX paths such as
 # /ucrt64/include to native Windows CMake. Locate the import library directly
@@ -97,6 +107,12 @@ if(WIN32)
     # of allowing find_file() to fall back to System32.
     find_file(VULKAN_RUNTIME_DLL
         NAMES vulkan-1.dll
+        HINTS "${YANAMI_QT_PREFIX}/bin"
+        NO_DEFAULT_PATH
+        REQUIRED
+    )
+    find_file(SDL3_RUNTIME_DLL
+        NAMES SDL3.dll
         HINTS "${YANAMI_QT_PREFIX}/bin"
         NO_DEFAULT_PATH
         REQUIRED
@@ -334,6 +350,7 @@ qt_add_qml_module(yanami-ui
         qml/components/AppToolTip.qml
         qml/components/BrandMark.qml
         qml/components/CardProgressStrip.qml
+        qml/components/ControllerInputTestScope.qml
         qml/components/DanmakuMenu.qml
         qml/components/DanmakuOverlay.qml
         qml/components/DetailHero.qml
@@ -353,11 +370,13 @@ qt_add_qml_module(yanami-ui
         qml/components/NavButton.qml
         qml/components/PosterCard.qml
         qml/components/PlaybackAdvancePolicy.qml
+        qml/components/PlaybackControllerPolicy.qml
         qml/components/PlaybackEndOverlay.qml
         qml/components/PlaybackSettingsMenu.qml
         qml/components/StatusToast.qml
         qml/components/PlaybackQueueMenu.qml
         qml/components/PlaybackHost.qml
+        qml/components/PopupControllerNavigator.qml
         qml/components/RecentEpisodeCard.qml
         qml/components/RefreshMetadataDialog.qml
         qml/components/RoundedImage.qml
@@ -366,6 +385,7 @@ qt_add_qml_module(yanami-ui
         qml/components/SmoothGridView.qml
         qml/components/SmoothHorizontalList.qml
         qml/components/SmoothListView.qml
+        qml/components/SpatialFocusNavigator.qml
         qml/components/TrackMenu.qml
         qml/components/VolumeControl.qml
         qml/components/WindowResizeHandles.qml
@@ -378,6 +398,10 @@ target_link_libraries(yanami-ui PRIVATE
     Qt6::Gui
     Qt6::Quick
 )
+if(SDL3_FOUND)
+    target_compile_definitions(yanami-ui PRIVATE YANAMI_HAS_SDL3=1)
+    target_link_libraries(yanami-ui PRIVATE SDL3::SDL3)
+endif()
 if(WIN32)
     # Yanami supports Windows 10/11, where XInput 1.4 is a system component.
     # The generic MinGW import library targets the legacy XINPUT1_3.dll,
@@ -442,6 +466,7 @@ if(WIN32)
             "-DYANAMI_WINDEPLOYQT=${WINDEPLOYQT_EXECUTABLE}"
             "-DYANAMI_MPV_RUNTIME=${MPV_RUNTIME_DLL}"
             "-DYANAMI_VULKAN_RUNTIME=${VULKAN_RUNTIME_DLL}"
+            "-DYANAMI_SDL3_RUNTIME=${SDL3_RUNTIME_DLL}"
             "-DYANAMI_PACMAN=${PACMAN_EXECUTABLE}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/DeployWindowsRuntime.cmake"
         DEPENDS yanami-desktop yanami-deploy-rust-bridge
@@ -639,6 +664,12 @@ if(BUILD_TESTING)
         Qt6::Gui
         Qt6::Test
     )
+    if(SDL3_FOUND)
+        target_compile_definitions(
+            yanami-input-modality-tests PRIVATE YANAMI_HAS_SDL3=1)
+        target_link_libraries(
+            yanami-input-modality-tests PRIVATE SDL3::SDL3)
+    endif()
     if(WIN32)
         target_link_libraries(yanami-input-modality-tests PRIVATE xinput1_4)
     endif()
@@ -649,6 +680,35 @@ if(BUILD_TESTING)
     set_tests_properties(yanami-input-modality-tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
+    if(WIN32 AND SDL3_FOUND)
+        add_executable(yanami-sdl-virtual-controller-tests
+            tests/SdlVirtualControllerIntegrationTests.cpp
+            native/ControllerNavigation.cpp
+            native/ControllerNavigation.hpp
+            native/InputModalityController.cpp
+            native/InputModalityController.hpp
+        )
+        target_compile_definitions(
+            yanami-sdl-virtual-controller-tests PRIVATE YANAMI_HAS_SDL3=1)
+        target_include_directories(
+            yanami-sdl-virtual-controller-tests PRIVATE native)
+        target_link_libraries(yanami-sdl-virtual-controller-tests PRIVATE
+            Qt6::Gui
+            Qt6::Test
+            SDL3::SDL3
+            xinput1_4
+        )
+        add_test(
+            NAME yanami-sdl-virtual-controller-tests
+            COMMAND $<TARGET_FILE:yanami-sdl-virtual-controller-tests>
+        )
+        set_tests_properties(yanami-sdl-virtual-controller-tests PROPERTIES
+            ENVIRONMENT
+                "QT_QPA_PLATFORM=offscreen;QT_PLUGIN_PATH=${YANAMI_QT_PREFIX}/share/qt6/plugins"
+            LABELS "controller;integration;sdl"
+            TIMEOUT 15
+        )
+    endif()
     if(NOT YANAMI_ENABLE_DEV_HOOKS)
         add_test(
             NAME yanami-production-artifact-policy

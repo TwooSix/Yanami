@@ -18,6 +18,7 @@ Item {
     property int pendingFocusAttempts: 0
     property bool resultKeyboardFocusArmed: false
     property bool suppressNextScrollAnchor: false
+    property Item controllerExitTarget: null
     property string scrollAnchorSection: ""
     property string scrollAnchorItemId: ""
     property string scrollAnchorRowKey: ""
@@ -161,9 +162,9 @@ Item {
         const viewportTop = resultsList.contentY
         const viewportBottom = viewportTop + resultsList.height
         if (point.y < viewportTop + margin)
-            resultsList.scrollToContentY(point.y - margin)
+            resultsList.revealContentY(point.y - margin)
         else if (point.y + card.height > viewportBottom - margin)
-            resultsList.scrollToContentY(
+            resultsList.revealContentY(
                 point.y + card.height - resultsList.height + margin)
     }
 
@@ -265,6 +266,10 @@ Item {
         searchField.focusInput()
     }
 
+    function controllerDefaultFocusItem() {
+        return searchField.focusTarget
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.rightMargin: 14
@@ -303,14 +308,31 @@ Item {
                     label: qsTr("Search library")
                     placeholderText: qsTr("Enter a title, episode, or season")
                     onTextChanged: root.query = text
-                    Keys.onDownPressed: event => {
-                        event.accepted = app.search.titleResults.count > 0
+                    controllerLeftHandler: function() {
+                        if (!root.controllerExitTarget
+                                || !root.controllerExitTarget.visible
+                                || !root.controllerExitTarget.enabled) {
+                            return false
+                        }
+                        root.controllerExitTarget.forceActiveFocus(
+                            Qt.TabFocusReason)
+                        return true
+                    }
+                    controllerDownHandler: function() {
+                        return app.search.titleResults.count > 0
                             ? root.focusResultCard("titles", 0)
                             : root.focusResultCard("episodes", 0)
+                    }
+                    controllerRightHandler: function() {
+                        if (!clearButton.enabled)
+                            return false
+                        clearButton.forceActiveFocus(Qt.TabFocusReason)
+                        return true
                     }
                 }
 
                 AppButton {
+                    id: clearButton
                     visible: true
                     opacity: root.query.length > 0 ? 1 : 0
                     enabled: root.query.length > 0
@@ -656,7 +678,7 @@ Item {
 
     Connections {
         target: InputModality
-        function onFocusNavigationActiveChanged() {
+        function onModalityChanged() {
             if (!InputModality.focusNavigationActive)
                 root.cancelResultFocusRestore()
         }

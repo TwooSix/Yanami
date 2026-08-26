@@ -94,6 +94,7 @@ repository.
 | C++ compiler | C++20 capable |
 | Qt | 6.8 or newer with Qt Quick, Quick Controls, OpenGL, and Linguist Tools |
 | libmpv | Development headers and library; `pkg-config` is used on Linux/macOS |
+| SDL3 | Primary controller backend on Windows; optional for experimental Linux/macOS controller support |
 
 Clone the repository first:
 
@@ -111,7 +112,7 @@ Open PowerShell in the repository root:
 .\scripts\run-windows.ps1
 ```
 
-The bootstrap script installs or configures MSYS2 UCRT64, Qt, libmpv, CMake,
+The bootstrap script installs or configures MSYS2 UCRT64, Qt, SDL3, libmpv, CMake,
 Ninja, and the matching Rust GNU toolchain. It uses Scoop when available and
 otherwise falls back to `winget`.
 

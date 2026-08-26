@@ -2,6 +2,8 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import QtQuick.Layouts
+import QtCore
+import Qt.labs.folderlistmodel
 import Yanami.Ui
 
 AppModalPopup {
@@ -436,7 +438,48 @@ AppModalPopup {
             return
         root.pendingContext = root.contextFor(type, imageIndex, mode)
         root.currentImageType = root.pendingContext.imageType
-        uploadDialog.open()
+        if (InputModality.modality === InputModality.Controller
+                || InputModality.modality === InputModality.Remote)
+            controllerFilePicker.openAt(StandardPaths.writableLocation(
+                StandardPaths.PicturesLocation))
+        else
+            uploadDialog.open()
+    }
+
+    function acceptUploadFile(fileUrl) {
+        if (!root.opened || String(fileUrl || "").length === 0)
+            return false
+        const context = root.pendingContext || ({})
+        root.pendingMutation = {
+            kind: "upload",
+            fileUrl: String(fileUrl),
+            context: context
+        }
+        root.beginUploadMutation(context, String(fileUrl))
+        root.working = true
+        root.workingKind = "mutation"
+        root.inlineError = ""
+        return true
+    }
+
+    function cancelPendingUpload() {
+        root.pendingContext = ({})
+        if (root.viewModel)
+            root.viewModel.clearPendingContext()
+    }
+
+    function revealOverviewItem(item) {
+        if (!item || !overviewScroll.visible)
+            return
+        const position = item.mapToItem(overviewColumn, 0, 0)
+        const top = position.y - 16
+        const bottom = position.y + item.height + 16
+        if (top < overviewScroll.contentY)
+            overviewScroll.contentY = Math.max(0, top)
+        else if (bottom > overviewScroll.contentY + overviewScroll.height)
+            overviewScroll.contentY = Math.min(
+                Math.max(0, overviewScroll.contentHeight - overviewScroll.height),
+                bottom - overviewScroll.height)
     }
 
     function confirmDelete(image) {
@@ -691,6 +734,7 @@ AppModalPopup {
     scrimColor: "#78000000"
     dismissBlocked: root.working && root.workingKind === "mutation"
     initialFocusTarget: closeButton
+    PopupControllerNavigator { popup: root }
 
     onClosed: {
         if (root.viewModel)
@@ -876,6 +920,32 @@ AppModalPopup {
                             border.color: artworkCard.activeFocus
                                 ? Theme.accent : "#24FFFFFF"
                             clip: true
+                            Accessible.role: Accessible.Button
+                            Accessible.name: root.imageTypeLabel(artworkCard.imageType)
+                            Accessible.description: artworkCard.hasImage
+                                ? qsTr("Current image") : qsTr("No image")
+                            Keys.onPressed: event => {
+                                if (event.key !== Qt.Key_Return
+                                        && event.key !== Qt.Key_Enter
+                                        && event.key !== Qt.Key_Space)
+                                    return
+                                if (root.hasProviderForType(artworkCard.imageType)) {
+                                    root.beginRemoteSearch(
+                                        artworkCard.imageType,
+                                        artworkCard.targetImageIndex,
+                                        artworkCard.hasImage ? "replace" : "add")
+                                } else {
+                                    root.beginUpload(
+                                        artworkCard.imageType,
+                                        artworkCard.targetImageIndex,
+                                        artworkCard.hasImage ? "replace" : "add")
+                                }
+                                event.accepted = true
+                            }
+                            onActiveFocusChanged: {
+                                if (activeFocus)
+                                    root.revealOverviewItem(artworkCard)
+                            }
 
                             Connections {
                                 target: root
@@ -1081,6 +1151,38 @@ AppModalPopup {
                                 border.color: extraCard.activeFocus
                                     ? Theme.accent : "#24FFFFFF"
                                 clip: true
+                                Accessible.role: Accessible.Button
+                                Accessible.name: root.imageTypeLabel(
+                                    root.expandedImageType) + " · "
+                                    + (root.hasProviderForType(
+                                           root.expandedImageType)
+                                        ? qsTr("Search online")
+                                        : qsTr("Upload image"))
+                                Accessible.description: root.resolutionText(
+                                    extraCard.modelData)
+                                Keys.onPressed: event => {
+                                    if (event.key !== Qt.Key_Return
+                                            && event.key !== Qt.Key_Enter
+                                            && event.key !== Qt.Key_Space)
+                                        return
+                                    if (root.hasProviderForType(
+                                                root.expandedImageType)) {
+                                        root.beginRemoteSearch(
+                                            root.expandedImageType,
+                                            extraCard.modelData.imageIndex,
+                                            "replace")
+                                    } else {
+                                        root.beginUpload(
+                                            root.expandedImageType,
+                                            extraCard.modelData.imageIndex,
+                                            "replace")
+                                    }
+                                    event.accepted = true
+                                }
+                                onActiveFocusChanged: {
+                                    if (activeFocus)
+                                        root.revealOverviewItem(extraCard)
+                                }
 
                                 Connections {
                                     target: root
@@ -1272,6 +1374,23 @@ AppModalPopup {
                             border.color: backdropCard.activeFocus
                                 ? Theme.accent : "#24FFFFFF"
                             clip: true
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("Backdrop")
+                            Keys.onPressed: event => {
+                                if (event.key !== Qt.Key_Return
+                                        && event.key !== Qt.Key_Enter
+                                        && event.key !== Qt.Key_Space)
+                                    return
+                                root.beginRemoteSearch(
+                                    "Backdrop",
+                                    backdropCard.modelData.imageIndex,
+                                    "replace")
+                                event.accepted = true
+                            }
+                            onActiveFocusChanged: {
+                                if (activeFocus)
+                                    root.revealOverviewItem(backdropCard)
+                            }
 
                             Connections {
                                 target: root
@@ -1501,14 +1620,26 @@ AppModalPopup {
                     required property var modelData
                     width: searchGrid.cellWidth
                     height: searchGrid.cellHeight
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Use image from %1").arg(
+                        String(modelData.providerName || qsTr("online source")))
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                                || event.key === Qt.Key_Space) {
+                            root.applyRemoteImage(remoteCard.modelData)
+                            event.accepted = true
+                        }
+                    }
 
                     Rectangle {
                         anchors.fill: parent
                         anchors.margins: 7
                         radius: 18
                         color: remoteMouse.containsMouse ? "#18FFFFFF" : "#0DFFFFFF"
-                        border.width: 1
-                        border.color: remoteMouse.containsMouse ? "#45FFFFFF" : "#24FFFFFF"
+                        border.width: remoteCard.activeFocus ? 2 : 1
+                        border.color: remoteCard.activeFocus ? Theme.accent
+                            : (remoteMouse.containsMouse ? "#45FFFFFF" : "#24FFFFFF")
                         clip: true
 
                         Behavior on color { ColorAnimation { duration: 130 } }
@@ -1613,6 +1744,431 @@ AppModalPopup {
         }
     }
 
+    AppModalPopup {
+        id: controllerFilePicker
+        objectName: "controllerImageFilePicker"
+
+        property url startFolder: StandardPaths.writableLocation(
+            StandardPaths.PicturesLocation)
+        property bool driveBrowserVisible: false
+        readonly property var windowsDriveLetters: [
+            "A:", "B:", "C:", "D:", "E:", "F:", "G:", "H:",
+            "I:", "J:", "K:", "L:", "M:", "N:", "O:", "P:",
+            "Q:", "R:", "S:", "T:", "U:", "V:", "W:", "X:",
+            "Y:", "Z:"
+        ]
+
+        function openAt(folder) {
+            const target = String(folder || "").length > 0
+                ? folder : controllerFilePicker.startFolder
+            imageFolderModel.folder = target
+            controllerFilePicker.driveBrowserVisible = false
+            fileList.currentIndex = -1
+            controllerFilePicker.open()
+        }
+
+        function openLocation(location) {
+            imageFolderModel.folder = StandardPaths.writableLocation(location)
+            controllerFilePicker.driveBrowserVisible = false
+            fileList.currentIndex = -1
+            Qt.callLater(function() {
+                if (controllerFilePicker.opened)
+                    fileList.forceActiveFocus(Qt.TabFocusReason)
+            })
+        }
+
+        function showComputer() {
+            controllerFilePicker.driveBrowserVisible = true
+            driveGrid.currentIndex = 0
+            Qt.callLater(function() {
+                if (controllerFilePicker.opened)
+                    driveGrid.forceActiveFocus(Qt.TabFocusReason)
+            })
+        }
+
+        function openDrive(index) {
+            if (index < 0 || index >= controllerFilePicker.windowsDriveLetters.length)
+                return false
+            const drive = controllerFilePicker.windowsDriveLetters[index]
+            imageFolderModel.folder = "file:///" + drive + "/"
+            controllerFilePicker.driveBrowserVisible = false
+            fileList.currentIndex = -1
+            Qt.callLater(function() {
+                if (controllerFilePicker.opened)
+                    fileList.forceActiveFocus(Qt.TabFocusReason)
+            })
+            return true
+        }
+
+        function goToParent() {
+            if (controllerFilePicker.driveBrowserVisible)
+                return false
+            const parentFolder = imageFolderModel.parentFolder
+            if (String(parentFolder || "").length === 0
+                    || String(parentFolder) === String(imageFolderModel.folder))
+                return false
+            imageFolderModel.folder = parentFolder
+            fileList.currentIndex = -1
+            return true
+        }
+
+        function activateCurrent() {
+            const index = fileList.currentIndex
+            if (index < 0 || index >= imageFolderModel.count)
+                return false
+            if (imageFolderModel.isFolder(index)) {
+                imageFolderModel.folder = imageFolderModel.get(index, "fileUrl")
+                fileList.currentIndex = -1
+                return true
+            }
+            const selectedUrl = imageFolderModel.get(index, "fileUrl")
+            if (!root.acceptUploadFile(selectedUrl))
+                return false
+            controllerFilePicker.forceDismiss()
+            return true
+        }
+
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        width: Math.min(760, Math.max(440, parent.width - 80))
+        height: Math.min(650, Math.max(420, parent.height - 96))
+        padding: 22
+        popupRole: PopupCoordinator.modalRole
+        scrimColor: "#82000000"
+        initialFocusTarget: fileList
+        focusReturnTarget: closeButton
+        onDismissedByUser: root.cancelPendingUpload()
+
+        PopupControllerNavigator {
+            popup: controllerFilePicker
+            navigationEnabled: !fileList.activeFocus && !driveGrid.activeFocus
+        }
+
+        background: Rectangle {
+            radius: 24
+            color: "#FA181B23"
+            border.width: 1
+            border.color: "#52FFFFFF"
+        }
+
+        FolderListModel {
+            id: imageFolderModel
+            objectName: "controllerImageFolderModel"
+            folder: controllerFilePicker.startFolder
+            nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.gif"]
+            showFiles: true
+            showDirs: true
+            showDirsFirst: true
+            showDotAndDotDot: false
+            sortField: FolderListModel.Name
+
+            onCountChanged: Qt.callLater(function() {
+                if (controllerFilePicker.opened && fileList.currentIndex < 0
+                        && imageFolderModel.count > 0) {
+                    fileList.currentIndex = 0
+                    fileList.positionViewAtBeginning()
+                }
+            })
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Choose an image")
+                    color: Theme.text
+                    font.family: Theme.fontForText(text)
+                    font.pixelSize: 19
+                    font.weight: Font.DemiBold
+                }
+
+                AppButton {
+                    id: pickerCancelButton
+                    kind: "ghost"
+                    text: qsTr("Cancel")
+                    onClicked: controllerFilePicker.requestDismiss("cancel")
+                    KeyNavigation.down: fileList
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 7
+
+                AppButton {
+                    id: parentFolderButton
+                    kind: "ghost"
+                    text: qsTr("Up")
+                    controlSize: 34
+                    onClicked: controllerFilePicker.goToParent()
+                    KeyNavigation.down: fileList
+                }
+                AppButton {
+                    text: qsTr("Pictures")
+                    controlSize: 34
+                    onClicked: controllerFilePicker.openLocation(
+                        StandardPaths.PicturesLocation)
+                    KeyNavigation.down: fileList
+                }
+                AppButton {
+                    text: qsTr("Downloads")
+                    controlSize: 34
+                    onClicked: controllerFilePicker.openLocation(
+                        StandardPaths.DownloadLocation)
+                    KeyNavigation.down: fileList
+                }
+                AppButton {
+                    text: qsTr("Home")
+                    controlSize: 34
+                    onClicked: controllerFilePicker.openLocation(
+                        StandardPaths.HomeLocation)
+                    KeyNavigation.down: fileList
+                }
+                AppButton {
+                    id: computerButton
+                    text: qsTr("Computer")
+                    controlSize: 34
+                    onClicked: controllerFilePicker.showComputer()
+                    KeyNavigation.down: controllerFilePicker.driveBrowserVisible
+                        ? driveGrid : fileList
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: controllerFilePicker.driveBrowserVisible
+                    ? qsTr("Computer · choose a drive")
+                    : String(imageFolderModel.folder || "")
+                color: Theme.textMuted
+                font.family: Theme.fontForText(text)
+                font.pixelSize: 11
+                elide: Text.ElideMiddle
+            }
+
+            ListView {
+                id: fileList
+                objectName: "controllerImageFileList"
+                visible: !controllerFilePicker.driveBrowserVisible
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: imageFolderModel
+                currentIndex: -1
+                activeFocusOnTab: true
+                keyNavigationEnabled: false
+                boundsBehavior: Flickable.StopAtBounds
+                Accessible.role: Accessible.List
+                Accessible.name: qsTr("Image files")
+                KeyNavigation.up: parentFolderButton
+
+                Keys.onPressed: event => {
+                    if (imageFolderModel.count === 0)
+                        return
+                    let next = fileList.currentIndex < 0 ? 0 : fileList.currentIndex
+                    const page = Math.max(1, Math.floor(fileList.height / 48) - 1)
+                    if (event.key === Qt.Key_Up) {
+                        if (next === 0) {
+                            parentFolderButton.forceActiveFocus(Qt.TabFocusReason)
+                            event.accepted = true
+                            return
+                        }
+                        next = Math.max(0, next - 1)
+                    } else if (event.key === Qt.Key_Down) {
+                        next = Math.min(imageFolderModel.count - 1, next + 1)
+                    } else if (event.key === Qt.Key_PageUp) {
+                        next = Math.max(0, next - page)
+                    } else if (event.key === Qt.Key_PageDown) {
+                        next = Math.min(imageFolderModel.count - 1, next + page)
+                    } else if (event.key === Qt.Key_Home) {
+                        next = 0
+                    } else if (event.key === Qt.Key_End) {
+                        next = imageFolderModel.count - 1
+                    } else if (event.key === Qt.Key_Return
+                            || event.key === Qt.Key_Enter
+                            || event.key === Qt.Key_Space) {
+                        controllerFilePicker.activateCurrent()
+                        event.accepted = true
+                        return
+                    } else {
+                        return
+                    }
+                    fileList.currentIndex = next
+                    fileList.positionViewAtIndex(next, ListView.Contain)
+                    event.accepted = true
+                }
+
+                delegate: Rectangle {
+                    id: fileRow
+                    required property int index
+                    required property string fileName
+                    required property url fileUrl
+                    required property bool fileIsDir
+
+                    width: fileList.width
+                    height: 46
+                    radius: 12
+                    color: fileMouse.containsMouse || fileList.currentIndex === index
+                        ? "#18FFFFFF" : "transparent"
+                    border.width: fileList.activeFocus
+                            && fileList.currentIndex === index ? 2 : 0
+                    border.color: Theme.accent
+                    Accessible.role: fileIsDir
+                        ? Accessible.ListItem : Accessible.ListItem
+                    Accessible.name: fileName
+                    Accessible.description: fileIsDir
+                        ? qsTr("Folder") : qsTr("Image file")
+
+                    Text {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 14
+                        anchors.right: parent.right
+                        anchors.rightMargin: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: (fileRow.fileIsDir ? "▸  " : "") + fileRow.fileName
+                        color: fileRow.fileIsDir ? Theme.text : "#E6EAF2"
+                        font.family: Theme.fontForText(text)
+                        font.pixelSize: 13
+                        font.weight: fileRow.fileIsDir ? Font.DemiBold : Font.Normal
+                        elide: Text.ElideMiddle
+                    }
+
+                    MouseArea {
+                        id: fileMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: fileList.currentIndex = fileRow.index
+                        onDoubleClicked: {
+                            fileList.currentIndex = fileRow.index
+                            controllerFilePicker.activateCurrent()
+                        }
+                    }
+                }
+
+                ScrollBar.vertical: AppScrollBar {
+                    policy: fileList.contentHeight > fileList.height + 1
+                        ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    visible: imageFolderModel.count === 0
+                        && imageFolderModel.status === FolderListModel.Ready
+                    text: qsTr("No image files in this folder")
+                    color: Theme.textMuted
+                    font.family: Theme.fontForText(text)
+                    font.pixelSize: 13
+                }
+
+                LoadingIndicator {
+                    anchors.centerIn: parent
+                    visible: imageFolderModel.status === FolderListModel.Loading
+                    running: visible
+                    indicatorSize: 30
+                }
+            }
+
+            GridView {
+                id: driveGrid
+                objectName: "controllerImageDriveGrid"
+                visible: controllerFilePicker.driveBrowserVisible
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: controllerFilePicker.windowsDriveLetters
+                cellWidth: Math.max(88, Math.floor(width / 5))
+                cellHeight: 64
+                currentIndex: 0
+                activeFocusOnTab: true
+                keyNavigationEnabled: false
+                Accessible.role: Accessible.List
+                Accessible.name: qsTr("Computer drives")
+                KeyNavigation.up: computerButton
+
+                Keys.onPressed: event => {
+                    const count = controllerFilePicker.windowsDriveLetters.length
+                    const columns = Math.max(1, Math.floor(driveGrid.width
+                        / driveGrid.cellWidth))
+                    let next = driveGrid.currentIndex < 0 ? 0 : driveGrid.currentIndex
+                    if (event.key === Qt.Key_Left) {
+                        next = Math.max(0, next - 1)
+                    } else if (event.key === Qt.Key_Right) {
+                        next = Math.min(count - 1, next + 1)
+                    } else if (event.key === Qt.Key_Up) {
+                        if (next < columns) {
+                            computerButton.forceActiveFocus(Qt.TabFocusReason)
+                            event.accepted = true
+                            return
+                        }
+                        next = Math.max(0, next - columns)
+                    } else if (event.key === Qt.Key_Down) {
+                        next = Math.min(count - 1, next + columns)
+                    } else if (event.key === Qt.Key_Return
+                            || event.key === Qt.Key_Enter
+                            || event.key === Qt.Key_Space) {
+                        controllerFilePicker.openDrive(next)
+                        event.accepted = true
+                        return
+                    } else {
+                        return
+                    }
+                    driveGrid.currentIndex = next
+                    driveGrid.positionViewAtIndex(next, GridView.Contain)
+                    event.accepted = true
+                }
+
+                delegate: Rectangle {
+                    id: driveCard
+                    required property int index
+                    required property string modelData
+
+                    width: driveGrid.cellWidth - 8
+                    height: driveGrid.cellHeight - 8
+                    radius: 14
+                    color: driveGrid.currentIndex === index ? "#20FFFFFF" : "#0EFFFFFF"
+                    border.width: driveGrid.activeFocus
+                            && driveGrid.currentIndex === index ? 2 : 1
+                    border.color: driveGrid.activeFocus
+                            && driveGrid.currentIndex === index
+                        ? Theme.accent : Theme.outline
+                    Accessible.role: Accessible.ListItem
+                    Accessible.name: qsTr("Drive %1").arg(modelData)
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: driveCard.modelData
+                        color: Theme.text
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 16
+                        font.weight: Font.DemiBold
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            driveGrid.currentIndex = driveCard.index
+                            controllerFilePicker.openDrive(driveCard.index)
+                        }
+                    }
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Only JPG, PNG, WebP, and GIF images are shown.")
+                color: Theme.textMuted
+                font.family: Theme.fontForText(text)
+                font.pixelSize: 11
+            }
+        }
+    }
+
     FileDialog {
         id: uploadDialog
         title: qsTr("Choose an image")
@@ -1622,24 +2178,9 @@ AppModalPopup {
             qsTr("All files (*)")
         ]
         onAccepted: {
-            if (!root.opened)
-                return
-            const context = root.pendingContext || ({})
-            root.pendingMutation = {
-                kind: "upload",
-                fileUrl: selectedFile.toString(),
-                context: context
-            }
-            root.beginUploadMutation(context, selectedFile.toString())
-            root.working = true
-            root.workingKind = "mutation"
-            root.inlineError = ""
+            root.acceptUploadFile(selectedFile.toString())
         }
-        onRejected: {
-            root.pendingContext = ({})
-            if (root.viewModel)
-                root.viewModel.clearPendingContext()
-        }
+        onRejected: root.cancelPendingUpload()
     }
 
     AppConfirmDialog {

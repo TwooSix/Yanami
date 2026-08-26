@@ -88,6 +88,7 @@ DMG 已随包携带 Qt 和 libmpv，运行时无需安装 Homebrew。早期预�
 | C++ 编译器 | 支持 C++20 |
 | Qt | 6.8 或更高版本，包含 Qt Quick、Quick Controls、OpenGL 和 Linguist Tools |
 | libmpv | 开发头文件和库；Linux/macOS 通过 `pkg-config` 查找 |
+| SDL3 | Windows 的主要控制器后端；Linux/macOS 的实验性控制器支持可选使用 |
 
 首先克隆仓库：
 
@@ -105,7 +106,7 @@ cd Yanami
 .\scripts\run-windows.ps1
 ```
 
-引导脚本会安装或配置 MSYS2 UCRT64、Qt、libmpv、CMake、Ninja 和匹配的 Rust
+引导脚本会安装或配置 MSYS2 UCRT64、Qt、SDL3、libmpv、CMake、Ninja 和匹配的 Rust
 GNU 工具链。脚本会优先使用 Scoop，否则回退到 `winget`。
 
 其他常用方式：

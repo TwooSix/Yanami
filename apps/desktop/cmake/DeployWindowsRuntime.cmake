@@ -11,7 +11,8 @@ foreach(required_variable IN ITEMS
         YANAMI_QT_PREFIX
         YANAMI_WINDEPLOYQT
         YANAMI_MPV_RUNTIME
-        YANAMI_VULKAN_RUNTIME)
+        YANAMI_VULKAN_RUNTIME
+        YANAMI_SDL3_RUNTIME)
     if(NOT DEFINED ${required_variable} OR NOT EXISTS "${${required_variable}}")
         message(FATAL_ERROR "${required_variable} does not exist: ${${required_variable}}")
     endif()
@@ -20,6 +21,7 @@ endforeach()
 get_filename_component(app_dir "${YANAMI_EXECUTABLE}" DIRECTORY)
 get_filename_component(mpv_name "${YANAMI_MPV_RUNTIME}" NAME)
 get_filename_component(vulkan_name "${YANAMI_VULKAN_RUNTIME}" NAME)
+get_filename_component(sdl3_name "${YANAMI_SDL3_RUNTIME}" NAME)
 
 # Limit dependency and ownership scans to files that windeployqt can place in
 # the runnable application tree.  The build root may also contain nested CPack
@@ -69,6 +71,13 @@ file(COPY_FILE
 file(COPY_FILE
     "${YANAMI_VULKAN_RUNTIME}"
     "${app_dir}/${vulkan_name}"
+    ONLY_IF_DIFFERENT)
+# SDL3 is a direct dependency of the input module. Seed it explicitly so the
+# build-tree executable and the recursive runtime-closure scan behave the same
+# on developer machines and clean packaging hosts.
+file(COPY_FILE
+    "${YANAMI_SDL3_RUNTIME}"
+    "${app_dir}/${sdl3_name}"
     ONLY_IF_DIFFERENT)
 
 # MSYS2 keeps qmlimportscanner under share/qt6/bin rather than beside
@@ -181,6 +190,9 @@ if(DEFINED YANAMI_COLLECT_PACKAGE_LICENSES AND YANAMI_COLLECT_PACKAGE_LICENSES)
         set(original_candidates)
         if(deployed_name STREQUAL "${mpv_name}")
             list(APPEND original_candidates "${YANAMI_MPV_RUNTIME}")
+        endif()
+        if(deployed_name STREQUAL "${sdl3_name}")
+            list(APPEND original_candidates "${YANAMI_SDL3_RUNTIME}")
         endif()
         if(deployed_relative MATCHES "^qml/(.*)$")
             list(APPEND original_candidates

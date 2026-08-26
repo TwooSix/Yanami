@@ -153,6 +153,10 @@ Image DTOs contain opaque `image://yanami/<key>` URLs. Rust downloads and atomic
 
 Application popups use the shared `AppPopup` and `AppMenu` families and register with `PopupCoordinator`. The coordinator owns stacking, scope, Escape handling, outside-click dismissal, application-shortcut blocking, and the `transient < modal < confirm < error` order. A running mutation may block dismissal, and dirty editors request confirmation before closing. Native platform dialogs such as `FileDialog` are outside this in-window popup system.
 
+### Controller input
+
+Controller and TV-remote input crosses one semantic boundary owned by `InputModalityController` and `ControllerNavigationSource`. Device backends and profiles own physical mappings, connection state, neutral gating, repeat, and active-device arbitration; QML owns contextual action policy and focus movement. SDL3 is the primary gamepad backend and Windows XInput is an exclusive fallback. Remote keyboard events are correlated with read-only Raw Input identity instead of being dispatched twice. See [CONTROLLER_INTERACTION.md](CONTROLLER_INTERACTION.md) for mappings, support levels, exclusions, and acceptance gates.
+
 ## 5. Rust bridge boundary
 
 `RustBridgeRuntime` is the only C++ type that loads the Rust library, resolves symbols, owns the backend handle, or frees Rust strings. Feature code sees named C++ methods, not dynamic-library details.

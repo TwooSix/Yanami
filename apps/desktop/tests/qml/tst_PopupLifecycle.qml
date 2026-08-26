@@ -186,6 +186,24 @@ TestCase {
         onVolumeRequested: value => testCase.requestedVolume = value
     }
 
+    Item {
+        id: hiddenVolumeChromeFixture
+        parent: surface
+        x: 500
+        y: 390
+        z: 10
+        width: 38
+        height: 38
+        visible: false
+
+        VolumeControl {
+            id: hiddenVolumeControlFixture
+            anchors.fill: parent
+            volume: 64
+            popupHost: surface
+        }
+    }
+
     Rectangle {
         id: applicationChromeFixture
         parent: surface
@@ -605,6 +623,9 @@ TestCase {
         volumeControlFixture.closePopup()
         volumeControlFixture.volume = 64
         volumeControlFixture.visible = false
+        hiddenVolumeControlFixture.closePopup()
+        hiddenVolumeChromeFixture.x = 500
+        hiddenVolumeChromeFixture.y = 390
         popupSwitchFixture.visible = false
         menuSwitchFixture.visible = false
         applicationChromeFixture.visible = false
@@ -707,6 +728,48 @@ TestCase {
         mouseClick(overlay, buttonPoint.x, buttonPoint.y)
         tryCompare(volumeControlFixture, "opened", false)
         compare(testCase.requestedVolume, 0)
+    }
+
+    function test_controllerVolumeMeterIsTransientAndKeepsFocus() {
+        volumeControlFixture.visible = true
+        openerFocusTarget.forceActiveFocus(Qt.OtherFocusReason)
+        tryCompare(openerFocusTarget, "activeFocus", true)
+
+        volumeControlFixture.showTransientVolume()
+        tryCompare(volumeControlFixture, "opened", true)
+        compare(openerFocusTarget.activeFocus, true)
+        compare(volumeControlFixture.keyboardInteractionActive, false)
+        compare(PopupCoordinator.blocksApplicationShortcuts, false)
+
+        // A held D-pad or repeated media-volume key must extend the meter
+        // lifetime instead of letting the first press close it mid-input.
+        wait(700)
+        volumeControlFixture.showTransientVolume()
+        wait(700)
+        compare(volumeControlFixture.opened, true)
+        compare(openerFocusTarget.activeFocus, true)
+
+        tryCompare(volumeControlFixture, "opened", false, 700)
+        compare(openerFocusTarget.activeFocus, true)
+    }
+
+    function test_controllerVolumeMeterRevealsHiddenPlayerChrome() {
+        compare(hiddenVolumeChromeFixture.visible, false)
+
+        // The control is laid out long before playback input arrives. Move its
+        // hidden chrome first to ensure popup placement is refreshed at show
+        // time instead of retaining construction-time mapToItem() coordinates.
+        hiddenVolumeChromeFixture.x = 420
+        hiddenVolumeChromeFixture.y = 360
+
+        hiddenVolumeControlFixture.showTransientVolume()
+        tryCompare(hiddenVolumeControlFixture, "opened", true)
+        compare(hiddenVolumeChromeFixture.visible, false)
+        compare(Math.round(hiddenVolumeControlFixture.popupPosition.x), 407)
+        compare(Math.round(hiddenVolumeControlFixture.popupPosition.y), 174)
+
+        tryCompare(hiddenVolumeControlFixture, "opened", false, 1600)
+        compare(hiddenVolumeChromeFixture.visible, false)
     }
 
     function test_transientTopBlankIsNotAssumedToBeWindowChrome() {
