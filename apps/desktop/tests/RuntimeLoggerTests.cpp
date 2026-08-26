@@ -186,6 +186,17 @@ private slots:
                " Bearer loose-secret"
             << "localPath="
             << QDir::home().filePath(QStringLiteral("private/runtime.log"));
+        const QByteArray sensitiveSource = QDir::home()
+            .filePath(QStringLiteral("private/source/RuntimeLoggerTests.cpp"))
+            .toUtf8();
+        QMessageLogger(
+            sensitiveSource.constData(),
+            321,
+            "sensitiveDataIsRedacted",
+            runtimeLoggerTestLog().categoryName())
+            .warning()
+            .noquote()
+            << "runtime_logger_source_redaction_probe";
         RuntimeLogger::shutdown();
 
         const QString log = QString::fromUtf8(readFile(activePath));
@@ -200,6 +211,8 @@ private slots:
         QVERIFY(!log.contains(QStringLiteral("bearer-secret")));
         QVERIFY(!log.contains(QStringLiteral("loose-secret")));
         QVERIFY(log.contains(QStringLiteral("<user-home>")));
+        QVERIFY(log.contains(QStringLiteral(
+            "source=\"<user-home>/private/source/RuntimeLoggerTests.cpp:321\"")));
         QVERIFY(!log.contains(QDir::cleanPath(QDir::homePath())));
     }
 

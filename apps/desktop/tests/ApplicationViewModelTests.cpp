@@ -1655,5 +1655,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(ApplicationViewModelTests)
+QTEST_GUILESS_MAIN(ApplicationViewModelTests)
 #include "ApplicationViewModelTests.moc"

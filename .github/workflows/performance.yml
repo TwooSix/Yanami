@@ -136,9 +136,6 @@ jobs:
     timeout-minutes: 25
     env:
       PERF_OUTPUT: ${{ github.workspace }}\build\performance\hosted
-      # pull_request checks out GitHub's synthetic merge commit by default.
-      # Evidence must identify the commit that actually produced the binaries.
-      YANAMI_PERF_HEAD_SHA: ${{ github.sha }}
     steps:
       - name: Record docs-only skip
         if: needs.classify.outputs.relevant != 'true'
@@ -206,6 +203,9 @@ jobs:
           YANAMI_MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
           MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
           RUSTUP_TOOLCHAIN: stable-x86_64-pc-windows-gnu
+          # pull_request checks out GitHub's synthetic merge commit by default.
+          # Evidence must identify the commit that actually produced the binaries.
+          YANAMI_PERF_HEAD_SHA: ${{ github.sha }}
         run: |
           $ucrtBin = Join-Path $env:YANAMI_MSYS2_ROOT "ucrt64\bin"
           $env:PATH = "$env:USERPROFILE\.cargo\bin;$ucrtBin;$env:PATH"

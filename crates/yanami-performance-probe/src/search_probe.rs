@@ -4,7 +4,6 @@ use std::{
     fs,
     io::{BufRead, BufReader},
     path::Path,
-    process::Command,
     sync::{
         Arc, Barrier,
         atomic::{AtomicBool, Ordering},
@@ -12,6 +11,9 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+use std::process::Command;
 
 use pinyin::ToPinyin;
 use serde::Deserialize;

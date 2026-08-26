@@ -131,22 +131,28 @@ TestCase {
     function test_playerAndGlobalToastDoNotOverlap(data) {
         testCase.width = data.viewportWidth
         testCase.height = data.viewportHeight
-        globalStatusToast.show(
-            "The server could not complete this action. Please try again.",
-            "error")
+        globalStatusToast.show("Retry.", "error")
         statusToast.show("连接较慢，恢复后将自动继续播放。", "warning")
         tryCompare(globalStatusToast, "shown", true)
         tryCompare(statusToast, "shown", true)
 
+        const globalMessage = findChild(
+            globalStatusToast, "statusToastMessage")
+        verify(globalMessage !== null)
+        tryCompare(globalMessage, "lineCount", 1)
         compare(statusToast.y
                 - (globalStatusToast.y + globalStatusToast.height), 8)
 
         const shortHeight = globalStatusToast.height
         globalStatusToast.show(
-            "服务器正在重新连接媒体源；当前播放状态会被保留，连接恢复后会自动继续，请稍候。",
+            "Reconnecting to the media source while preserving playback "
+                + "state. The player will continue automatically after the "
+                + "connection recovers. Please wait while the server retries "
+                + "the request and verifies that playback can safely resume.",
             "warning")
         tryVerify(function() {
-            return globalStatusToast.height > shortHeight
+            return globalMessage.lineCount >= 2
+                && globalStatusToast.height > shortHeight
         })
         compare(statusToast.y
                 - (globalStatusToast.y + globalStatusToast.height), 8)

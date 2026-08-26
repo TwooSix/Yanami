@@ -479,7 +479,7 @@ QByteArray formatEntry(
     prefix += QStringLiteral(" message=\"");
 
     QString suffix = QStringLiteral("\" source=");
-    suffix += quoteField(source);
+    suffix += quoteField(redactSensitiveData(source));
     suffix += QStringLiteral(" function=");
     suffix += quoteField(function);
     suffix += u'\n';

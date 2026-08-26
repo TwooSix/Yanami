@@ -504,9 +504,9 @@ Item {
         }
 
         function test_destroyed_bookmark_falls_back_safely() {
-            const transient = bookmarkLoader.item
-            verify(navigator.focusItem(transient))
-            navigator.remember("destroyed", transient)
+            const bookmarkItem = bookmarkLoader.item
+            verify(navigator.focusItem(bookmarkItem))
+            navigator.remember("destroyed", bookmarkItem)
             bookmarkLoader.active = false
             tryVerify(function() { return bookmarkLoader.item === null })
             verify(navigator.restore("destroyed", scene))
