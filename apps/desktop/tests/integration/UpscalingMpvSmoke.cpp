@@ -1,11 +1,13 @@
 #include "DevelopmentHooks.hpp"
 #include "MpvVideoItem.hpp"
+#include "OfflineNetworkAccessManager.hpp"
 #include "PerformanceTrace.hpp"
 #include "UpscalingAssetManager.hpp"
 #include "UpscalingCapabilityProbe.hpp"
 #include "UpscalingCatalog.hpp"
 
 #include <QDir>
+#include <QCryptographicHash>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
@@ -15,6 +17,7 @@
 #include <QQuickWindow>
 #include <QSGRendererInterface>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QTimer>
 
 #include <algorithm>
@@ -61,6 +64,56 @@ bool createY4mFixture(const QString &path, int frameCount = 48)
     return file.flush();
 }
 
+QVector<YanamiUpscaling::ShaderArtifact> offlineArtifacts(
+    const YanamiUpscaling::ResolvedProfile &profile,
+    const QByteArray &payload)
+{
+    QVector<YanamiUpscaling::ShaderArtifact> artifacts;
+    artifacts.reserve(profile.orderedShaderArtifactIds.size());
+    const QString digest = QString::fromLatin1(QCryptographicHash::hash(
+        payload, QCryptographicHash::Sha256).toHex());
+    for (qsizetype index = 0;
+         index < profile.orderedShaderArtifactIds.size(); ++index) {
+        const QString fileName = QStringLiteral("offline-%1.glsl").arg(index);
+        artifacts.append({
+            .id = profile.orderedShaderArtifactIds.at(index),
+            .providerId = profile.providerId,
+            .version = profile.version,
+            .assetSetId = QStringLiteral("anime4k-offline-mpv-smoke"),
+            .fileName = fileName,
+            .installRelativePath = QStringLiteral(
+                "anime4k/offline-mpv-smoke/%1").arg(fileName),
+            .downloadUrl = QStringLiteral(
+                "https://raw.githubusercontent.com/bloc97/Anime4K/%1")
+                    .arg(fileName),
+            .sizeBytes = payload.size(),
+            .sha256 = digest,
+            .licenseSpdx = QStringLiteral("MIT"),
+            .licenseUrl = QStringLiteral(
+                "https://github.com/bloc97/Anime4K/blob/master/LICENSE"),
+        });
+    }
+    return artifacts;
+}
+
+bool installOfflineArtifacts(
+    UpscalingAssetManager &manager,
+    const QVector<YanamiUpscaling::ShaderArtifact> &artifacts,
+    const QByteArray &payload)
+{
+    for (const auto &artifact : artifacts) {
+        const QString path = manager.absolutePath(artifact);
+        if (path.isEmpty() || !QDir().mkpath(QFileInfo(path).absolutePath()))
+            return false;
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)
+            || file.write(payload) != payload.size()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -72,31 +125,32 @@ int main(int argc, char **argv)
     QCoreApplication::setApplicationName(
         QStringLiteral("yanami-upscaling-mpv-smoke"));
 
-    const QString assetRoot = QDir(QStandardPaths::writableLocation(
-        QStandardPaths::AppDataLocation)).filePath(
-            QStringLiteral("models/upscaling"));
-    auto *assets = new UpscalingAssetManager(assetRoot, &application);
-    auto *capabilities = new UpscalingCapabilityProbe(&application);
     const QString provider = argc > 1
         ? QString::fromLocal8Bit(argv[1]) : QStringLiteral("anime4k");
     const QString preset = argc > 2
         ? QString::fromLocal8Bit(argv[2]) : QStringLiteral("performance");
     const QString smokeMode = argc > 3
         ? QString::fromLocal8Bit(argv[3]) : QString{};
-    const bool performanceProtection = smokeMode == QStringLiteral("protection");
-    const bool qualification = smokeMode == QStringLiteral("qualification");
-    const bool runtimeToggle = smokeMode == QStringLiteral("toggle");
+    const QString assetMode = argc > 4
+        ? QString::fromLocal8Bit(argv[4]) : QStringLiteral("live");
+    const bool offline = smokeMode == QStringLiteral("offline")
+        || assetMode == QStringLiteral("offline");
+    const QString scenario = smokeMode == QStringLiteral("offline")
+        ? QString{} : smokeMode;
+    const bool performanceProtection = scenario == QStringLiteral("protection");
+    const bool qualification = scenario == QStringLiteral("qualification");
+    const bool runtimeToggle = scenario == QStringLiteral("toggle");
     const bool toggleBenchmark =
-        smokeMode == QStringLiteral("toggle-benchmark");
-    const bool rapidToggle = smokeMode == QStringLiteral("rapid-toggle");
-    const bool rapidDisable = smokeMode == QStringLiteral("rapid-disable");
-    const bool pendingStop = smokeMode == QStringLiteral("pending-stop");
+        scenario == QStringLiteral("toggle-benchmark");
+    const bool rapidToggle = scenario == QStringLiteral("rapid-toggle");
+    const bool rapidDisable = scenario == QStringLiteral("rapid-disable");
+    const bool pendingStop = scenario == QStringLiteral("pending-stop");
     const bool stopConfigure =
-        smokeMode == QStringLiteral("stop-configure");
-    const bool pendingOpen = smokeMode == QStringLiteral("pending-open");
+        scenario == QStringLiteral("stop-configure");
+    const bool pendingOpen = scenario == QStringLiteral("pending-open");
     const bool failureRollback =
-        smokeMode == QStringLiteral("failure-rollback");
-    const bool originalPlayback = smokeMode == QStringLiteral("original");
+        scenario == QStringLiteral("failure-rollback");
+    const bool originalPlayback = scenario == QStringLiteral("original");
     const bool monitorPerformance = performanceProtection || qualification;
     const auto profile = YanamiUpscaling::UpscalingCatalog::resolve(
         provider, preset);
@@ -106,6 +160,46 @@ int main(int argc, char **argv)
         });
         return 1;
     }
+    QTemporaryDir offlineAssetDirectory;
+    QTemporaryDir offlineMediaDirectory;
+    if (offline
+        && (!offlineAssetDirectory.isValid()
+            || !offlineMediaDirectory.isValid())) {
+        printResult({
+            {QStringLiteral("result"),
+             QStringLiteral("offline-temporary-directory-failed")},
+        });
+        return 15;
+    }
+    const QString assetRoot = offline
+        ? offlineAssetDirectory.path()
+        : QDir(QStandardPaths::writableLocation(
+              QStandardPaths::AppDataLocation))
+              .filePath(QStringLiteral("models/upscaling"));
+    const QByteArray offlineShader = QByteArrayLiteral(
+        "//!HOOK MAIN\n"
+        "//!BIND HOOKED\n"
+        "vec4 hook(){return HOOKED_tex(HOOKED_pos);}\n");
+    const QVector<YanamiUpscaling::ShaderArtifact> artifacts = offline
+        ? offlineArtifacts(profile, offlineShader)
+        : profile.requiredArtifacts;
+    auto *offlineNetwork = offline
+        ? new YanamiTest::OfflineNetworkAccessManager(
+              {}, false, &application)
+        : nullptr;
+    auto *assets = offline
+        ? new UpscalingAssetManager(offlineNetwork, assetRoot, &application)
+        : new UpscalingAssetManager(assetRoot, &application);
+    if (offline
+        && (artifacts.isEmpty()
+            || !installOfflineArtifacts(*assets, artifacts, offlineShader))) {
+        printResult({
+            {QStringLiteral("result"),
+             QStringLiteral("offline-fixture-install-failed")},
+        });
+        return 15;
+    }
+    auto *capabilities = new UpscalingCapabilityProbe(&application);
     const QString taskId = QStringLiteral("mpv-smoke-%1-%2")
         .arg(provider, preset);
     auto *window = new QQuickWindow;
@@ -135,7 +229,8 @@ int main(int argc, char **argv)
                  QJsonObject::fromVariantMap(capabilities->result())},
             });
         });
-    capabilities->observe(window);
+    if (!offline)
+        capabilities->observe(window);
 
     bool playerStarted = false;
     QObject::connect(
@@ -167,15 +262,87 @@ int main(int argc, char **argv)
 
             QStringList shaderPaths;
             QHash<QString, QString> pathById;
-            for (const auto &artifact : profile.requiredArtifacts)
+            for (const auto &artifact : artifacts)
                 pathById.insert(artifact.id, assets->absolutePath(artifact));
             for (const QString &id : profile.orderedShaderArtifactIds)
                 shaderPaths.append(pathById.value(id));
 
-            const QString mediaDirectory = QDir(
-                QStandardPaths::writableLocation(
-                    QStandardPaths::TempLocation))
-                .filePath(QStringLiteral("yanami-upscaling-mpv-smoke"));
+            const QVariantMap runtime {
+                {QStringLiteral("schema"), 1},
+                {QStringLiteral("enabled"), true},
+                {QStringLiteral("providerId"), profile.providerId},
+                {QStringLiteral("profileId"), profile.profileId},
+                {QStringLiteral("modelVersion"), profile.version},
+                {QStringLiteral("backend"), QVariantMap {
+                    {QStringLiteral("kind"),
+                     YanamiUpscaling::UpscalingCatalog::backendKindId(
+                         profile.backendKind)},
+                }},
+                {QStringLiteral("orderedShaderPaths"), shaderPaths},
+                {QStringLiteral("options"), profile.mpvOptions},
+                {QStringLiteral("performanceProtection"),
+                 monitorPerformance},
+                {QStringLiteral("reservedHeadroomPercent"), 20},
+            };
+
+            // The hosted CI path verifies the complete catalog -> validated
+            // runtime -> asynchronous libmpv property chain without creating
+            // a scene graph or requiring a graphics device.
+            if (offline && scenario.isEmpty()) {
+                auto *player = new MpvVideoItem(nullptr, assetRoot);
+                player->setParent(&application);
+                QObject::connect(
+                    player,
+                    &MpvVideoItem::upscalingConfigurationFinished,
+                    &application,
+                    [&, player, shaderCount = shaderPaths.size()](
+                        bool enabled,
+                        bool success,
+                        double dispatchCpuMs,
+                        double completionMs) {
+                        const int networkRequests = offlineNetwork
+                            ? offlineNetwork->requestCount() : -1;
+                        const bool passed = enabled
+                            && success
+                            && player->upscalingActive()
+                            && !player->upscalingConfigurationPending()
+                            && player->effectiveUpscalingProfile()
+                                == profile.profileId
+                            && networkRequests == 0;
+                        printResult({
+                            {QStringLiteral("result"), passed
+                                ? QStringLiteral("pass")
+                                : QStringLiteral("configuration-failed")},
+                            {QStringLiteral("active"),
+                             player->upscalingActive()},
+                            {QStringLiteral("pending"),
+                             player->upscalingConfigurationPending()},
+                            {QStringLiteral("networkRequests"),
+                             networkRequests},
+                            {QStringLiteral("shaderCount"),
+                             shaderCount},
+                            {QStringLiteral("dispatchCpuMs"), dispatchCpuMs},
+                            {QStringLiteral("completionMs"), completionMs},
+                            {QStringLiteral("profileId"),
+                             player->effectiveUpscalingProfile()},
+                        });
+                        application.exit(passed ? 0 : 16);
+                    });
+                if (!player->configureUpscaling(runtime)) {
+                    printResult({
+                        {QStringLiteral("result"),
+                         QStringLiteral("configuration-rejected")},
+                    });
+                    application.exit(16);
+                }
+                return;
+            }
+
+            const QString mediaDirectory = offline
+                ? offlineMediaDirectory.path()
+                : QDir(QStandardPaths::writableLocation(
+                      QStandardPaths::TempLocation))
+                      .filePath(QStringLiteral("yanami-upscaling-mpv-smoke"));
             QDir().mkpath(mediaDirectory);
             const QString suppliedQualificationMedia =
                 QString::fromLocal8Bit(qgetenv(
@@ -196,27 +363,10 @@ int main(int argc, char **argv)
                 return;
             }
 
-            auto *player = new MpvVideoItem(window->contentItem());
+            auto *player = new MpvVideoItem(window->contentItem(), assetRoot);
             auto benchmarkSamples = std::make_shared<QList<double>>();
             player->setWidth(window->width());
             player->setHeight(window->height());
-            const QVariantMap runtime {
-                {QStringLiteral("schema"), 1},
-                {QStringLiteral("enabled"), true},
-                {QStringLiteral("providerId"), profile.providerId},
-                {QStringLiteral("profileId"), profile.profileId},
-                {QStringLiteral("modelVersion"), profile.version},
-                {QStringLiteral("backend"), QVariantMap {
-                    {QStringLiteral("kind"),
-                     YanamiUpscaling::UpscalingCatalog::backendKindId(
-                         profile.backendKind)},
-                }},
-                {QStringLiteral("orderedShaderPaths"), shaderPaths},
-                {QStringLiteral("options"), profile.mpvOptions},
-                {QStringLiteral("performanceProtection"),
-                 monitorPerformance},
-                {QStringLiteral("reservedHeadroomPercent"), 20},
-            };
             const QString badShaderPath = QDir(assetRoot).filePath(
                 QStringLiteral("anime4k/smoke-invalid-shader.glsl"));
             QObject::connect(window, &QQuickWindow::widthChanged,
@@ -802,15 +952,26 @@ int main(int argc, char **argv)
                         &application,
                         [&, player] {
                             const bool active = player->upscalingActive();
+                            const int networkRequests = offlineNetwork
+                                ? offlineNetwork->requestCount() : -1;
+                            const bool offlineBoundaryHeld = !offline
+                                || networkRequests == 0;
                             printResult({
                                 {QStringLiteral("result"),
-                                 active ? QStringLiteral("pass")
-                                        : QStringLiteral("inactive")},
+                                 active && offlineBoundaryHeld
+                                     ? QStringLiteral("pass")
+                                     : (active
+                                           ? QStringLiteral("network-used")
+                                           : QStringLiteral("inactive"))},
                                 {QStringLiteral("active"), active},
+                                {QStringLiteral("offline"), offline},
+                                {QStringLiteral("networkRequests"),
+                                 networkRequests},
                                 {QStringLiteral("profileId"),
                                  player->effectiveUpscalingProfile()},
                             });
-                            application.exit(active ? 0 : 5);
+                            application.exit(
+                                active && offlineBoundaryHeld ? 0 : 5);
                         });
                 });
 
@@ -834,13 +995,13 @@ int main(int argc, char **argv)
             }
         });
 
-    QTimer::singleShot(60'000, &application, [&] {
+    QTimer::singleShot(offline ? 15'000 : 60'000, &application, [&] {
         printResult({
             {QStringLiteral("result"), QStringLiteral("timeout")},
         });
         application.exit(6);
     });
-    assets->download(taskId, profile.requiredArtifacts);
+    assets->download(taskId, artifacts);
     const int result = application.exec();
     delete window;
     YanamiPerformance::PerformanceTrace::shutdown();

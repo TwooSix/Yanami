@@ -519,6 +519,17 @@ private:
 };
 
 MpvVideoItem::MpvVideoItem(QQuickItem *parent)
+    : MpvVideoItem(
+          parent,
+          QDir(QStandardPaths::writableLocation(
+              QStandardPaths::AppDataLocation))
+              .filePath(QStringLiteral("models/upscaling")))
+{
+}
+
+MpvVideoItem::MpvVideoItem(
+    QQuickItem *parent,
+    const QString &upscalingAssetRoot)
     : QQuickFramebufferObject(parent)
     , m_mpvOwner(createMpvHandle(), [](mpv_handle *handle) {
         if (handle)
@@ -526,6 +537,8 @@ MpvVideoItem::MpvVideoItem(QQuickItem *parent)
     })
     , m_mpv(m_mpvOwner.get())
     , m_renderState(std::make_shared<MpvRenderState>())
+    , m_upscalingAssetRoot(QDir::cleanPath(
+          QFileInfo(upscalingAssetRoot).absoluteFilePath()))
 {
     if (!m_mpv)
         throw std::runtime_error("mpv_create failed");
@@ -966,11 +979,8 @@ bool MpvVideoItem::beginUpscalingRuntimeConfig(
     QElapsedTimer dispatchTimer;
     dispatchTimer.start();
 
-    const QString assetRoot = QDir(
-        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
-        .filePath(QStringLiteral("models/upscaling"));
     const auto validation = YanamiUpscaling::validateRuntimeConfig(
-        runtimeConfig, assetRoot);
+        runtimeConfig, m_upscalingAssetRoot);
     if (validation.isValid() && !validation.config.enabled
         && !m_upscalingPropertiesDirty) {
         clearUpscalingState();

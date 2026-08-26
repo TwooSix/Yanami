@@ -1,6 +1,13 @@
 set(installed_root "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
 set(installed_executable
     "${installed_root}/bin/yanami-desktop@CMAKE_EXECUTABLE_SUFFIX@")
+set(collect_package_licenses ON)
+if("$ENV{YANAMI_PR_INSTALL_SMOKE}" STREQUAL "1")
+    # PR install smoke reuses the already audited dependency deployment but
+    # avoids repeating the expensive pacman ownership/license inventory. The
+    # release package path never sets this test-only environment marker.
+    set(collect_package_licenses OFF)
+endif()
 
 execute_process(
     COMMAND "@CMAKE_COMMAND@"
@@ -14,7 +21,7 @@ execute_process(
         "-DYANAMI_PACMAN=@PACMAN_EXECUTABLE@"
         "-DYANAMI_PACKAGE_ROOT=${installed_root}"
         "-DYANAMI_LICENSE_FALLBACK_ROOT=@YANAMI_WORKSPACE@/licenses/msys2-fallback"
-        "-DYANAMI_COLLECT_PACKAGE_LICENSES=ON"
+        "-DYANAMI_COLLECT_PACKAGE_LICENSES=${collect_package_licenses}"
         -P "@CMAKE_CURRENT_SOURCE_DIR@/cmake/DeployWindowsRuntime.cmake"
     RESULT_VARIABLE deploy_result
     COMMAND_ECHO STDOUT)

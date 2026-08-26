@@ -58,6 +58,11 @@ public:
     Q_ENUM(PlaybackState)
 
     explicit MpvVideoItem(QQuickItem *parent = nullptr);
+    // Integration tests may supply an isolated component root. Production QML
+    // construction always uses the standard application data location above.
+    MpvVideoItem(
+        QQuickItem *parent,
+        const QString &upscalingAssetRoot);
     ~MpvVideoItem() override;
 
     Renderer *createRenderer() const override;
@@ -203,6 +208,7 @@ private:
     std::shared_ptr<mpv_handle> m_mpvOwner;
     mpv_handle *m_mpv = nullptr;
     std::shared_ptr<MpvRenderState> m_renderState;
+    QString m_upscalingAssetRoot;
     std::atomic_bool m_eventDrainQueued{false};
     QByteArray m_pendingLoadTarget;
     quint64 m_pendingLoadGeneration = 0;

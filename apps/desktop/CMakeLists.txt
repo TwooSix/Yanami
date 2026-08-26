@@ -588,9 +588,67 @@ if(APPLE)
     install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/InstallMacRuntime.cmake")
 endif()
 
+if(UNIX AND NOT APPLE)
+    configure_file(
+        cmake/InstallLinuxRuntime.cmake.in
+        "${CMAKE_CURRENT_BINARY_DIR}/InstallLinuxRuntime.cmake"
+        @ONLY
+    )
+    install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/InstallLinuxRuntime.cmake")
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.8 REQUIRED COMPONENTS QuickTest Test)
+
+    add_test(
+        NAME yanami-package-manifest-policy-tests
+        COMMAND "${CMAKE_COMMAND}"
+            "-DYANAMI_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/package-manifest-policy-test"
+            "-DYANAMI_CMAKE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/PackageManifestPolicyTests.cmake"
+    )
+    set_tests_properties(yanami-package-manifest-policy-tests PROPERTIES
+        LABELS "package;policy"
+        TIMEOUT 15
+    )
+
+    if(NOT YANAMI_ENABLE_DEV_HOOKS)
+        if(WIN32)
+            set(YANAMI_INSTALL_SMOKE_EXECUTABLE "bin/yanami-desktop.exe")
+            set(YANAMI_INSTALL_SMOKE_BRIDGE
+                "bin/${YANAMI_RUST_BRIDGE_NAME}")
+        elseif(APPLE)
+            set(YANAMI_INSTALL_SMOKE_EXECUTABLE
+                "Yanami.app/Contents/MacOS/Yanami")
+            set(YANAMI_INSTALL_SMOKE_BRIDGE
+                "Yanami.app/Contents/MacOS/${YANAMI_RUST_BRIDGE_NAME}")
+        else()
+            set(YANAMI_INSTALL_SMOKE_EXECUTABLE "bin/yanami-desktop")
+            set(YANAMI_INSTALL_SMOKE_BRIDGE
+                "bin/${YANAMI_RUST_BRIDGE_NAME}")
+        endif()
+        add_custom_target(yanami-pr-install-smoke
+            COMMAND "${CMAKE_COMMAND}"
+                "-DYANAMI_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+                "-DYANAMI_STAGE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/pr-install-smoke/$<CONFIG>"
+                "-DYANAMI_CONFIG=$<CONFIG>"
+                "-DYANAMI_PLATFORM=${YANAMI_PACKAGE_PLATFORM}"
+                "-DYANAMI_EXECUTABLE_RELATIVE=${YANAMI_INSTALL_SMOKE_EXECUTABLE}"
+                "-DYANAMI_BRIDGE_RELATIVE=${YANAMI_INSTALL_SMOKE_BRIDGE}"
+                "-DYANAMI_QT_PREFIX=${YANAMI_QT_PREFIX}"
+                "-DYANAMI_EXPECTED_VERSION=${YANAMI_BUILD_VERSION}"
+                "-DYANAMI_EXPECTED_SOURCE_VERSION=${YANAMI_SOURCE_VERSION}"
+                "-DYANAMI_EXPECTED_COMMIT=${YANAMI_BUILD_COMMIT}"
+                "-DYANAMI_EXPECTED_RUN_ID=${YANAMI_BUILD_RUN_ID}"
+                "-DYANAMI_EXPECTED_ARCHITECTURE=${YANAMI_PACKAGE_ARCHITECTURE}"
+                "-DYANAMI_CMAKE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/InstallTreeSmoke.cmake"
+            DEPENDS yanami-desktop yanami-deploy-rust-bridge
+            COMMENT "Auditing and launching the isolated PR install tree"
+            VERBATIM
+        )
+    endif()
 
     set_source_files_properties(
         tests/manual/StatusFeedbackShowcase.qml
@@ -1162,6 +1220,7 @@ if(BUILD_TESTING)
     )
     add_executable(yanami-upscaling-download-smoke
         tests/integration/UpscalingDownloadSmoke.cpp
+        tests/integration/OfflineNetworkAccessManager.hpp
         native/UpscalingAssetManager.cpp
         native/UpscalingAssetManager.hpp
         native/UpscalingCatalog.cpp
@@ -1173,8 +1232,18 @@ if(BUILD_TESTING)
         Qt6::Core
         Qt6::Network
     )
+    add_test(
+        NAME yanami-upscaling-download-offline-smoke
+        COMMAND $<TARGET_FILE:yanami-upscaling-download-smoke>
+            anime4k performance offline
+    )
+    set_tests_properties(yanami-upscaling-download-offline-smoke PROPERTIES
+        LABELS "integration;offline;upscaling"
+        TIMEOUT 15
+    )
     add_executable(yanami-upscaling-mpv-smoke
         tests/integration/UpscalingMpvSmoke.cpp
+        tests/integration/OfflineNetworkAccessManager.hpp
         native/DevelopmentHooks.cpp
         native/DevelopmentHooks.hpp
         native/MpvVideoItem.cpp
@@ -1203,6 +1272,17 @@ if(BUILD_TESTING)
         Qt6::OpenGL
         Qt6::Quick
         MPV::MPV
+    )
+    add_test(
+        NAME yanami-upscaling-mpv-offline-smoke
+        COMMAND $<TARGET_FILE:yanami-upscaling-mpv-smoke>
+            anime4k performance offline
+    )
+    set_tests_properties(yanami-upscaling-mpv-offline-smoke PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QT_OPENGL=software;LIBGL_ALWAYS_SOFTWARE=1"
+        LABELS "integration;mpv;offline;upscaling"
+        TIMEOUT 30
     )
     add_executable(yanami-update-checker-tests
         tests/UpdateCheckerTests.cpp

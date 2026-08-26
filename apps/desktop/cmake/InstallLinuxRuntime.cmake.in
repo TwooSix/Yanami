@@ -1,0 +1,10 @@
+set(installed_root "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
+execute_process(
+    COMMAND "@CMAKE_COMMAND@"
+        "-DYANAMI_PACKAGE_ROOT=${installed_root}"
+        -P "@CMAKE_CURRENT_SOURCE_DIR@/cmake/WritePackageManifest.cmake"
+    RESULT_VARIABLE manifest_result)
+if(NOT manifest_result EQUAL 0)
+    message(FATAL_ERROR
+        "Writing the Linux install manifest failed with exit code ${manifest_result}")
+endif()
