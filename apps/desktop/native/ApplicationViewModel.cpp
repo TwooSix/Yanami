@@ -4,6 +4,7 @@
 
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSet>
 #include <QSettings>
 #include <QTimer>
 
@@ -1205,6 +1206,17 @@ void ApplicationViewModel::initialize(const BackendPortSet &ports)
     m_status = new ApplicationStatusViewModel(ports.status, this);
     m_updates = new UpdateChecker(this);
 
+    connect(m_playback, &PlaybackViewModel::ready, this,
+        [this](const QVariantMap &descriptor) {
+            const QVariantMap context = descriptor
+                .value(QStringLiteral("playbackContext")).toMap();
+            m_playbackSeriesId =
+                context.value(QStringLiteral("kind")).toString()
+                        == QStringLiteral("series")
+                ? context.value(QStringLiteral("sourceId")).toString().trimmed()
+                : QString{};
+        });
+
     const QPointer<SessionPort> session = ports.session;
     if (session) {
         m_sessionGeneration = session->generation();
@@ -1215,6 +1227,7 @@ void ApplicationViewModel::initialize(const BackendPortSet &ports)
                     return;
                 m_sessionGeneration = session->generation();
                 ++m_playbackActivityReconcileRevision;
+                m_playbackSeriesId.clear();
                 m_imageEditor->setSessionGeneration(m_sessionGeneration);
                 m_metadataEditor->invalidateSession();
                 m_mediaTarget->cancel();
@@ -1230,14 +1243,49 @@ void ApplicationViewModel::initialize(const BackendPortSet &ports)
                 const quint64 generation = session ? session->generation() : 0;
                 const quint64 reconcileRevision =
                     ++m_playbackActivityReconcileRevision;
+                const QString displayedCollectionId =
+                    catalog->collectionDisplayedId();
+                const QVariantMap displayedCollectionParent =
+                    catalog->collectionParent();
+                QString continuationSeriesId = m_playbackSeriesId;
+                if (continuationSeriesId.isEmpty()
+                    && catalog->collectionTargetId() == displayedCollectionId) {
+                    const QString parentType = displayedCollectionParent
+                        .value(QStringLiteral("itemType")).toString();
+                    if (parentType == QStringLiteral("Series")) {
+                        continuationSeriesId = displayedCollectionId;
+                    } else if (parentType == QStringLiteral("Season")) {
+                        continuationSeriesId = displayedCollectionParent
+                            .value(QStringLiteral("seriesId")).toString();
+                    }
+                }
+                const QString seriesCollectionId =
+                    catalog->collectionTargetId() == displayedCollectionId
+                        && displayedCollectionParent
+                               .value(QStringLiteral("itemType")).toString()
+                            == QStringLiteral("Series")
+                    ? displayedCollectionId
+                    : QString{};
                 catalog->invalidateActivity();
+                catalog->invalidateSeriesContinue(continuationSeriesId);
                 QTimer::singleShot(800, this,
-                    [this, catalog, session, generation, reconcileRevision] {
+                    [this, catalog, session, generation, reconcileRevision,
+                     seriesCollectionId] {
                     if (catalog
                         && reconcileRevision
                             == m_playbackActivityReconcileRevision
                         && (!session || session->generation() == generation)) {
                         catalog->ensureActivityFresh();
+                        if (!seriesCollectionId.isEmpty()
+                            && catalog->collectionDisplayedId()
+                                == seriesCollectionId
+                            && catalog->collectionTargetId()
+                                == seriesCollectionId
+                            && catalog->collectionParent()
+                                   .value(QStringLiteral("itemType")).toString()
+                                == QStringLiteral("Series")) {
+                            catalog->refreshCollection(seriesCollectionId);
+                        }
                     }
                 });
                 QTimer::singleShot(3200, this,
@@ -1255,6 +1303,16 @@ void ApplicationViewModel::initialize(const BackendPortSet &ports)
         connect(m_mediaActions, &MediaActionsViewModel::playedChanged, this,
             [this, catalog, session](const QString &, bool,
                 const QVariantMap &result) {
+                QSet<QString> affectedSeriesIds;
+                for (const QVariant &value :
+                     result.value(QStringLiteral("affectedItems")).toList()) {
+                    const QString seriesId = value.toMap()
+                        .value(QStringLiteral("seriesId")).toString().trimmed();
+                    if (!seriesId.isEmpty())
+                        affectedSeriesIds.insert(seriesId);
+                }
+                for (const QString &seriesId : affectedSeriesIds)
+                    catalog->invalidateSeriesContinue(seriesId);
                 if (result.value(QStringLiteral("reconcileComplete"), true).toBool())
                     return;
                 const quint64 generation = session ? session->generation() : 0;

@@ -59,7 +59,7 @@ bool hasCachedHomeContent(const ApplicationViewModel &viewModel)
     return store
         && (store->libraryModel()->rowCount() > 0
             || store->resumeModel()->rowCount() > 0
-            || store->recentModel()->rowCount() > 0);
+            || !store->queryItems(QStringLiteral("latestSections")).isEmpty());
 }
 
 QEvent::Type syntheticInteractionProbeEventType()
@@ -480,10 +480,16 @@ int main(int argc, char *argv[])
         const auto tryAutoplayRecent = [&applicationViewModel, autoplayRecentTitle, autoplayStarted] {
             if (*autoplayStarted)
                 return;
-            QVariantList items = applicationViewModel.home()->mediaStore()
-                ->queryItems(QStringLiteral("recent"));
-            items.append(applicationViewModel.home()->mediaStore()
-                ->queryItems(QStringLiteral("resume")));
+            MediaStore *store = applicationViewModel.home()->mediaStore();
+            QVariantList items;
+            for (const QVariant &sectionValue :
+                 store->queryItems(QStringLiteral("latestSections"))) {
+                const QString scopeId = sectionValue.toMap()
+                    .value(QStringLiteral("id")).toString();
+                items.append(store->queryItems(
+                    QStringLiteral("latest"), scopeId));
+            }
+            items.append(store->queryItems(QStringLiteral("resume")));
             const auto match = std::find_if(items.cbegin(), items.cend(), [&autoplayRecentTitle](const QVariant &value) {
                 return value.toMap()
                     .value(QStringLiteral("title"))

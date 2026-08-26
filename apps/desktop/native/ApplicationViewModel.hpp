@@ -553,4 +553,5 @@ private:
     UpdateChecker *m_updates = nullptr;
     quint64 m_sessionGeneration = 0;
     quint64 m_playbackActivityReconcileRevision = 0;
+    QString m_playbackSeriesId;
 };

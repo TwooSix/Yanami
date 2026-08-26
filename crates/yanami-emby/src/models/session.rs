@@ -53,7 +53,20 @@ pub struct UserDto {
     #[serde(default)]
     pub server_id: Option<String>,
     #[serde(default)]
+    pub configuration: UserConfiguration,
+    #[serde(default)]
     pub policy: UserPolicy,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct UserConfiguration {
+    /// Library views the user has hidden from server-backed Latest Media rows.
+    #[serde(default)]
+    pub latest_items_excludes: Vec<String>,
+    /// Mirrors the Emby Web preference for omitting played Latest Media.
+    #[serde(default)]
+    pub hide_played_in_latest: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

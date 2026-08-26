@@ -729,7 +729,7 @@ QJsonObject MediaStore::toCacheJson(const QSet<QString> &queryKinds) const
     QSet<QString> referencedIds;
     QJsonArray queries;
     for (MediaQueryModel *model : m_queries) {
-        if (!queryKinds.contains(model->kind()) || !model->scopeId().isEmpty())
+        if (!queryKinds.contains(model->kind()))
             continue;
         QJsonArray rows;
         for (const MediaQueryRow &row : model->m_rows) {

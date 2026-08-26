@@ -6,6 +6,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
@@ -15,7 +16,7 @@
 namespace {
 
 constexpr int desktopSchemaVersion = 8;
-constexpr int libraryCacheSchemaVersion = 1;
+constexpr int libraryCacheSchemaVersion = 2;
 
 void discardInvalidCache(const QString &path, const char *reason)
 {
@@ -29,6 +30,37 @@ void discardInvalidCache(const QString &path, const char *reason)
             << "outcome=remove_failed"
             << "path=" << path;
     }
+}
+
+QSet<QString> latestMediaScopes(const QJsonObject &object)
+{
+    QSet<QString> availableScopes;
+    QSet<QString> sectionScopes;
+    for (const QJsonValue &queryValue :
+         object.value(QStringLiteral("queries")).toArray()) {
+        const QJsonObject query = queryValue.toObject();
+        const QString kind = query.value(QStringLiteral("kind"))
+            .toString().trimmed().toLower();
+        if (kind == QStringLiteral("latest")) {
+            const QString scopeId = query.value(QStringLiteral("scopeId"))
+                .toString();
+            if (!scopeId.isEmpty())
+                availableScopes.insert(scopeId);
+            continue;
+        }
+        if (kind != QStringLiteral("latestsections")
+            || !query.value(QStringLiteral("scopeId")).toString().isEmpty()) {
+            continue;
+        }
+        for (const QJsonValue &rowValue :
+             query.value(QStringLiteral("rows")).toArray()) {
+            const QString scopeId = rowValue.toObject()
+                .value(QStringLiteral("entityId")).toString();
+            if (!scopeId.isEmpty())
+                sectionScopes.insert(scopeId);
+        }
+    }
+    return availableScopes & sectionScopes;
 }
 
 } // namespace
@@ -67,6 +99,7 @@ bool CatalogCoordinator::loadLibraryCache()
         discardInvalidCache(m_cachePath, "invalid_store");
         return false;
     }
+    m_latestMediaScopeIds = latestMediaScopes(object);
 
     m_lastFullLibraryRefreshMs =
         object.value(QStringLiteral("fullRefreshedAtMs"))
@@ -105,7 +138,8 @@ void CatalogCoordinator::saveLibraryCache() const
         QStringLiteral("library"),
         QStringLiteral("views"),
         QStringLiteral("resume"),
-        QStringLiteral("recent"),
+        QStringLiteral("latestsections"),
+        QStringLiteral("latest"),
         QStringLiteral("favorites"),
     });
     object.insert(QStringLiteral("userCapabilities"), QJsonObject {

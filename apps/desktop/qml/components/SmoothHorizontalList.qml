@@ -9,6 +9,21 @@ ListView {
     property real wheelBoost: 1
     readonly property bool canScrollHorizontally: contentWidth > width + 1
 
+    signal userScrollStarted()
+
+    onDraggingChanged: {
+        if (dragging)
+            root.userScrollStarted()
+    }
+
+    Keys.onPressed: event => {
+        if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
+            root.userScrollStarted()
+            event.accepted = false
+        }
+        // ListView keeps its default keyboard and controller navigation.
+    }
+
     onCountChanged: {
         wheelAnimation.stop()
         if (count === 0)
@@ -70,6 +85,11 @@ ListView {
             && (rowHover.hovered || root.moving || wheelAnimation.running || hovered || pressed)
             ? 1 : 0
 
+        onPressedChanged: {
+            if (pressed)
+                root.userScrollStarted()
+        }
+
         Behavior on opacity { NumberAnimation { duration: 160 } }
     }
 
@@ -79,6 +99,7 @@ ListView {
         blocking: true
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onWheel: event => {
+            root.userScrollStarted()
             const now = Date.now()
             root.wheelBoost = now - root.lastWheelTime < 150
                 ? Math.min(2.1, root.wheelBoost + 0.16)

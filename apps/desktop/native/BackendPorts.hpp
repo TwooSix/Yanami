@@ -84,6 +84,7 @@ public:
 
     virtual RequestDisposition loadLibrary() = 0;
     virtual void invalidateActivity() = 0;
+    virtual void invalidateSeriesContinue(const QString &seriesId) = 0;
     virtual RequestDisposition ensureActivityFresh() = 0;
     virtual RequestDisposition refreshActivity() = 0;
     virtual RequestDisposition loadFavorites() = 0;

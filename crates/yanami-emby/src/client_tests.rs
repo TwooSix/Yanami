@@ -385,6 +385,74 @@ fn empty_items_query() -> super::ItemQuery {
     }
 }
 
+#[tokio::test]
+async fn scoped_latest_media_uses_parent_and_server_grouping_without_type_filter() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        for expected_is_played in [Some("false"), None] {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let request = read_http_request_line(&mut stream).await;
+            let url = request_url(&request);
+            assert_eq!(url.path(), "/Users/fake-user/Items/Latest");
+            let parameters: BTreeMap<_, _> = url.query_pairs().into_owned().collect();
+            assert_eq!(
+                parameters.get("ParentId").map(String::as_str),
+                Some("tv-view")
+            );
+            assert_eq!(parameters.get("Limit").map(String::as_str), Some("16"));
+            assert_eq!(
+                parameters.get("GroupItems").map(String::as_str),
+                Some("true")
+            );
+            assert_eq!(
+                parameters.get("IsPlayed").map(String::as_str),
+                expected_is_played
+            );
+            assert!(!parameters.contains_key("IncludeItemTypes"));
+            write_json_response(
+                &mut stream,
+                "200 OK",
+                r#"[
+                    {"Id":"series-b","Name":"Series B","Type":"Series","ChildCount":2},
+                    {"Id":"series-a","Name":"Series A","Type":"Series","ChildCount":1}
+                ]"#,
+            )
+            .await;
+        }
+    });
+
+    let profile = local_http_profile(
+        "Latest Media test",
+        Url::parse(&format!("http://{address}")).unwrap(),
+    );
+    let client = EmbyClient::with_session(
+        profile,
+        ClientIdentity::yanami("fake-device"),
+        "fake-user",
+        SecretString::from("fake-token"),
+    )
+    .unwrap();
+    let items = client
+        .latest_items_for_parent("tv-view", 16, true)
+        .await
+        .unwrap();
+    assert_eq!(
+        items
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        ["series-b", "series-a"]
+    );
+    assert_eq!(items[0].child_count, Some(2));
+    let visible_items = client
+        .latest_items_for_parent("tv-view", 16, false)
+        .await
+        .unwrap();
+    assert_eq!(visible_items.len(), 2);
+    server.await.unwrap();
+}
+
 #[test]
 fn full_catalog_page_is_lightweight_and_server_ordered() {
     let query = ItemQuery::full_catalog_page(1_000, 500);
@@ -559,6 +627,133 @@ async fn items_query_supports_catalog_projection_and_incremental_filters() {
         Some("primary-tag")
     );
     assert_eq!(item.primary_image_aspect_ratio, Some(0.666_666_666_7));
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn series_next_up_scopes_request_and_preserves_server_result() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        for body in [
+            r#"{"Items":[{"Id":"episode-9","Name":"Nine","Type":"Episode","SeriesId":"series-a"},{"Id":"episode-2","Name":"Two","Type":"Episode","SeriesId":"series-a"}],"TotalRecordCount":2}"#,
+            r#"{"Items":[],"TotalRecordCount":0}"#,
+        ] {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let url = request_url(&read_http_request_line(&mut stream).await);
+            assert_eq!(url.path(), "/Shows/NextUp");
+            let query: BTreeMap<_, _> = url.query_pairs().into_owned().collect();
+            assert_eq!(query.get("UserId").map(String::as_str), Some("fake-user"));
+            assert_eq!(query.get("SeriesId").map(String::as_str), Some("series-a"));
+            assert_eq!(query.get("Limit").map(String::as_str), Some("1"));
+            assert_eq!(
+                query.get("EnableUserData").map(String::as_str),
+                Some("true")
+            );
+            assert_eq!(
+                query.get("EnableImageTypes").map(String::as_str),
+                Some("Primary,Thumb,Backdrop")
+            );
+            for forbidden in [
+                "Filters",
+                "SortBy",
+                "SortOrder",
+                "IncludeItemTypes",
+                "Recursive",
+                "IsPlayed",
+            ] {
+                assert!(
+                    !query.contains_key(forbidden),
+                    "unexpected {forbidden} query"
+                );
+            }
+            write_json_response(&mut stream, "200 OK", body).await;
+        }
+    });
+
+    let profile = local_http_profile(
+        "Series Next Up test",
+        Url::parse(&format!("http://{address}")).unwrap(),
+    );
+    let client = EmbyClient::with_session(
+        profile,
+        ClientIdentity::yanami("fake-device"),
+        "fake-user",
+        SecretString::from("fake-token"),
+    )
+    .unwrap();
+    let result = client.next_up(Some("series-a"), 1).await.unwrap();
+    assert_eq!(
+        result
+            .items
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        ["episode-9", "episode-2"]
+    );
+    assert!(
+        client
+            .next_up(Some("series-a"), 1)
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn series_episodes_request_preserves_cross_season_order_and_user_data() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let url = request_url(&read_http_request_line(&mut stream).await);
+        assert_eq!(url.path(), "/Shows/series-a/Episodes");
+        let query: BTreeMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(query.get("UserId").map(String::as_str), Some("fake-user"));
+        assert_eq!(
+            query.get("EnableUserData").map(String::as_str),
+            Some("true")
+        );
+        assert!(!query.contains_key("SeasonId"));
+        for forbidden in ["Limit", "SortBy", "SortOrder", "IsPlayed"] {
+            assert!(
+                !query.contains_key(forbidden),
+                "unexpected {forbidden} query"
+            );
+        }
+        write_json_response(
+            &mut stream,
+            "200 OK",
+            r#"{"Items":[{"Id":"s2e1","Name":"Season two","Type":"Episode","SeriesId":"series-a","ParentIndexNumber":2,"IndexNumber":1,"UserData":{"Played":false}},{"Id":"s1e2","Name":"Played hole","Type":"Episode","SeriesId":"series-a","ParentIndexNumber":1,"IndexNumber":2,"UserData":{"Played":true}}],"TotalRecordCount":2}"#,
+        )
+        .await;
+    });
+
+    let profile = local_http_profile(
+        "Series Episodes test",
+        Url::parse(&format!("http://{address}")).unwrap(),
+    );
+    let client = EmbyClient::with_session(
+        profile,
+        ClientIdentity::yanami("fake-device"),
+        "fake-user",
+        SecretString::from("fake-token"),
+    )
+    .unwrap();
+    let result = client.episodes("series-a", None).await.unwrap();
+    assert_eq!(
+        result
+            .items
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        ["s2e1", "s1e2"]
+    );
+    assert_eq!(result.items[0].parent_index_number, Some(2));
+    assert_eq!(result.items[0].index_number, Some(1));
+    assert!(result.items[1].user_data.as_ref().unwrap().played);
     server.await.unwrap();
 }
 

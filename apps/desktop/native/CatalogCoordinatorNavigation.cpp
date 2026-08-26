@@ -26,6 +26,13 @@ const QString activityRequestKey = QStringLiteral("activity");
 const QString favoritesRequestKey = QStringLiteral("favorites");
 const QString libraryNavigationLaneKey = QStringLiteral("navigation.library");
 const QString collectionNavigationLaneKey = QStringLiteral("navigation.collection");
+const QString latestSectionsResponseKind = QStringLiteral("latestSections");
+const QString seriesContinueResponseKind = QStringLiteral("seriesContinue");
+
+QString latestResponseQueryKey(const QString &scopeId)
+{
+    return QStringLiteral("latest:") + scopeId;
+}
 
 QString schemaVersionLabel(const QJsonValue &value)
 {
@@ -450,10 +457,9 @@ void CatalogCoordinator::applyNavigationResult(
         saveLibraryCache();
         if (presentationCurrent) {
             m_statusSink.publishStatus(
-                tr("Loaded %1 libraries, %2 titles and %3 recent episodes.")
+                tr("Loaded %1 libraries and %2 titles.")
                     .arg(m_mediaStore->libraryViewsModel()->rowCount())
-                    .arg(m_mediaStore->libraryModel()->rowCount())
-                    .arg(m_mediaStore->recentModel()->rowCount()),
+                    .arg(m_mediaStore->libraryModel()->rowCount()),
                 false);
         }
         return;
@@ -478,12 +484,53 @@ void CatalogCoordinator::applyNavigationResult(
         object, QStringLiteral("collection"));
     const QVariantList collectionItems = normalizedQueryItems(
         object, QStringLiteral("collection"));
+    const QJsonObject collectionQuery = object.value(QStringLiteral("queries"))
+        .toObject().value(QStringLiteral("collection")).toObject();
+    const bool seriesCollection = collectionParent
+        .value(QStringLiteral("itemType")).toString() == QStringLiteral("Series");
+    QVariantList seriesContinueItems;
+    if (collectionQuery.value(QStringLiteral("scopeId")).toString()
+            != request.parentId
+        || (seriesCollection
+            && (!hasNormalizedQuery(object, seriesContinueResponseKind)
+                || object.value(QStringLiteral("queries")).toObject()
+                       .value(seriesContinueResponseKind).toObject()
+                       .value(QStringLiteral("scopeId")).toString()
+                    != request.parentId))) {
+        qWarning().noquote()
+            << "collection_response_invalid_scope"
+            << "parent=" << request.parentId
+            << "series=" << seriesCollection;
+        if (currentCollection) {
+            m_collectionErrorId = request.parentId;
+            emit stateChanged();
+            m_statusSink.publishStatus(
+                tr("The collection response was invalid."), true);
+        }
+        return;
+    }
+    if (seriesCollection) {
+        seriesContinueItems = normalizedQueryItems(
+            object, seriesContinueResponseKind);
+    }
     m_requests.invalidate({activityRequestKey, favoritesRequestKey});
+    const qint64 fetchedAtMs = QDateTime::currentMSecsSinceEpoch();
+    if (seriesCollection) {
+        // Commit the companion row first so collectionReady cannot briefly
+        // expose the previous continuation queue during a refresh.
+        m_mediaStore->setQuery(
+            seriesContinueResponseKind,
+            request.parentId,
+            seriesContinueItems,
+            {},
+            fetchedAtMs);
+    }
     m_mediaStore->setQuery(
         QStringLiteral("collection"),
         request.parentId,
         collectionItems,
-        collectionParent);
+        collectionParent,
+        fetchedAtMs);
     if (currentCollection)
         publishCachedCollection(request.parentId);
     saveLibraryCache();
@@ -492,7 +539,8 @@ void CatalogCoordinator::applyNavigationResult(
         << "parent=" << request.parentId
         << "target=" << m_collectionTargetId
         << "published=" << currentCollection
-        << "items=" << collectionItems.size();
+        << "items=" << collectionItems.size()
+        << "seriesContinueItems=" << seriesContinueItems.size();
     if (currentCollection) {
         if (!m_collectionErrorId.isEmpty()) {
             m_collectionErrorId.clear();
@@ -696,7 +744,7 @@ bool CatalogCoordinator::applyLibraryObject(
     if (!hasNormalizedQuery(object, QStringLiteral("library"))
         || !hasNormalizedQuery(object, QStringLiteral("views"))
         || !hasNormalizedQuery(object, QStringLiteral("resume"))
-        || !hasNormalizedQuery(object, QStringLiteral("recent"))
+        || !hasNormalizedQuery(object, latestSectionsResponseKind)
         || !object.value(QStringLiteral("userCapabilities")).isObject()) {
         return false;
     }
@@ -725,12 +773,12 @@ bool CatalogCoordinator::applyLibraryObject(
         capabilityObject.value(QStringLiteral("canDelete")).toBool(),
     };
     const qint64 fetchedAt = QDateTime::currentMSecsSinceEpoch();
+    if (!applyActivityQueries(object, activityRevision))
+        return false;
     m_mediaStore->setQuery(
         QStringLiteral("library"), {}, mediaItems, {}, fetchedAt);
     m_mediaStore->setQuery(
         QStringLiteral("views"), {}, libraryViews, {}, fetchedAt);
-    if (!applyActivityQueries(object, activityRevision))
-        return false;
     if (m_capabilities != capabilities) {
         m_capabilities = capabilities;
         publishCapabilities();
@@ -748,7 +796,7 @@ bool CatalogCoordinator::applyActivityObject(
     quint64 activityRevision)
 {
     if (!hasNormalizedQuery(object, QStringLiteral("resume"))
-        || !hasNormalizedQuery(object, QStringLiteral("recent"))) {
+        || !hasNormalizedQuery(object, latestSectionsResponseKind)) {
         return false;
     }
     return applyActivityQueries(object, activityRevision);
@@ -769,13 +817,11 @@ bool CatalogCoordinator::applyActivityQueries(
     }
     const QVariantList resumeItems = normalizedQueryItems(
         object, QStringLiteral("resume"));
-    const QVariantList recentItems = normalizedQueryItems(
-        object, QStringLiteral("recent"));
     const qint64 fetchedAt = QDateTime::currentMSecsSinceEpoch();
+    if (!applyLatestMediaQueries(object, fetchedAt))
+        return false;
     m_mediaStore->setQuery(
         QStringLiteral("resume"), {}, resumeItems, {}, fetchedAt);
-    m_mediaStore->setQuery(
-        QStringLiteral("recent"), {}, recentItems, {}, fetchedAt);
     m_activityRevisionCommitted = activityRevision;
     // Library and targeted Activity are both legitimate producers. Any
     // committed snapshot repairs the shared activity resource state; a
@@ -784,4 +830,61 @@ bool CatalogCoordinator::applyActivityQueries(
     m_activityConsecutiveFailures = 0;
     m_activityRetryAfterMs = 0;
     return true;
+}
+
+bool CatalogCoordinator::applyLatestMediaQueries(
+    const QJsonObject &object,
+    qint64 fetchedAtMs)
+{
+    const QVariantList sections = normalizedQueryItems(
+        object, latestSectionsResponseKind);
+    struct LatestQuerySnapshot
+    {
+        QString scopeId;
+        QVariantList items;
+    };
+    QVector<LatestQuerySnapshot> snapshots;
+    snapshots.reserve(sections.size());
+    QSet<QString> nextScopeIds;
+    for (const QVariant &sectionValue : sections) {
+        const QString scopeId = sectionValue.toMap()
+            .value(QStringLiteral("id")).toString();
+        const QString queryKey = latestResponseQueryKey(scopeId);
+        const QJsonObject query = object.value(QStringLiteral("queries"))
+            .toObject().value(queryKey).toObject();
+        if (scopeId.isEmpty() || nextScopeIds.contains(scopeId)
+            || !hasNormalizedQuery(object, queryKey)
+            || query.value(QStringLiteral("scopeId")).toString() != scopeId) {
+            return false;
+        }
+        nextScopeIds.insert(scopeId);
+        snapshots.push_back({
+            scopeId,
+            normalizedQueryItems(object, queryKey),
+        });
+    }
+
+    const QSet<QString> previousScopeIds = m_latestMediaScopeIds;
+    for (const LatestQuerySnapshot &snapshot : snapshots) {
+        m_mediaStore->setQuery(
+            QStringLiteral("latest"), snapshot.scopeId,
+            snapshot.items, {}, fetchedAtMs);
+    }
+    for (const QString &removedScope : previousScopeIds - nextScopeIds) {
+        // Models are stable QML objects, so clear removed scopes instead of
+        // deleting them out from under an existing delegate binding.
+        m_mediaStore->setQuery(
+            QStringLiteral("latest"), removedScope, {}, {}, fetchedAtMs);
+    }
+    m_mediaStore->setQuery(
+        QStringLiteral("latestSections"), {}, sections, {}, fetchedAtMs);
+    m_latestMediaScopeIds = nextScopeIds;
+    return true;
+}
+
+void CatalogCoordinator::markLatestMediaQueriesStale()
+{
+    for (const QString &scopeId : m_latestMediaScopeIds)
+        m_mediaStore->markQueryStale(QStringLiteral("latest"), scopeId);
+    m_mediaStore->markQueryStale(QStringLiteral("latestSections"));
 }

@@ -176,6 +176,83 @@ private slots:
                  QStringLiteral("fresh.jpg"));
     }
 
+    void normalizedCacheRoundTripKeepsScopedLatestMediaRows()
+    {
+        MediaStore original;
+        original.setQuery(QStringLiteral("latestSections"), {}, {
+            item(QStringLiteral("tv-view"), QStringLiteral("TV"), QStringLiteral("view.jpg")),
+        });
+        original.setQuery(QStringLiteral("latest"), QStringLiteral("tv-view"), {
+            item(QStringLiteral("series-1"), QStringLiteral("Series"), QStringLiteral("cover.jpg")),
+        });
+        const QJsonObject cache = original.toCacheJson({
+            QStringLiteral("latestsections"), QStringLiteral("latest"),
+        });
+
+        MediaStore restored;
+        QVERIFY(restored.restoreCacheJson(cache));
+        QCOMPARE(restored.queryModel(QStringLiteral("latestSections"))->rowCount(), 1);
+        QCOMPARE(restored.queryModel(
+            QStringLiteral("latest"), QStringLiteral("tv-view"))->rowCount(), 1);
+        QCOMPARE(restored.queryModel(
+            QStringLiteral("latest"), QStringLiteral("tv-view"))
+                ->get(0).value(QStringLiteral("title")).toString(),
+            QStringLiteral("Series"));
+    }
+
+    void scopedSeriesContinueRefreshesMultipleRowsWithoutCrossingSeries()
+    {
+        MediaStore store;
+        MediaQueryModel *seriesA = store.queryModel(
+            QStringLiteral("seriesContinue"), QStringLiteral("series-a"));
+        MediaQueryModel *seriesB = store.queryModel(
+            QStringLiteral("seriesContinue"), QStringLiteral("series-b"));
+
+        store.setQuery(QStringLiteral("seriesContinue"), QStringLiteral("series-a"), {
+            item(QStringLiteral("episode-a9"), QStringLiteral("Nine"),
+                QStringLiteral("a9.jpg"), QStringLiteral("Episode"),
+                QStringLiteral("S01E09")),
+            item(QStringLiteral("episode-a10"), QStringLiteral("Ten"),
+                QStringLiteral("a10.jpg"), QStringLiteral("Episode"),
+                QStringLiteral("S01E10")),
+            item(QStringLiteral("episode-a-s2e1"), QStringLiteral("New season"),
+                QStringLiteral("a-s2e1.jpg"), QStringLiteral("Episode"),
+                QStringLiteral("S02E01")),
+        });
+        store.setQuery(QStringLiteral("seriesContinue"), QStringLiteral("series-b"), {
+            item(QStringLiteral("episode-b2"), QStringLiteral("Two"),
+                QStringLiteral("b2.jpg"), QStringLiteral("Episode"),
+                QStringLiteral("S01E02")),
+        });
+        QCOMPARE(seriesA->rowCount(), 3);
+        QCOMPARE(seriesB->rowCount(), 1);
+        QCOMPARE(seriesA->get(0).value(QStringLiteral("id")).toString(),
+                 QStringLiteral("episode-a9"));
+        QCOMPARE(seriesA->get(2).value(QStringLiteral("subtitle")).toString(),
+                 QStringLiteral("S02E01"));
+
+        store.setQuery(QStringLiteral("seriesContinue"), QStringLiteral("series-a"), {
+            item(QStringLiteral("episode-a10"), QStringLiteral("Ten"),
+                QStringLiteral("a10.jpg"), QStringLiteral("Episode"),
+                QStringLiteral("S01E10")),
+            item(QStringLiteral("episode-a-s2e1"), QStringLiteral("New season"),
+                QStringLiteral("a-s2e1.jpg"), QStringLiteral("Episode"),
+                QStringLiteral("S02E01")),
+        });
+        QCOMPARE(store.queryModel(QStringLiteral("seriesContinue"),
+                     QStringLiteral("series-a")), seriesA);
+        QCOMPARE(seriesA->get(0).value(QStringLiteral("id")).toString(),
+                 QStringLiteral("episode-a10"));
+        QCOMPARE(seriesA->rowCount(), 2);
+        QCOMPARE(seriesB->get(0).value(QStringLiteral("id")).toString(),
+                 QStringLiteral("episode-b2"));
+
+        store.setQuery(
+            QStringLiteral("seriesContinue"), QStringLiteral("series-a"), {});
+        QCOMPARE(seriesA->rowCount(), 0);
+        QCOMPARE(seriesB->rowCount(), 1);
+    }
+
     void staleOrUnchangedSourceVersionCannotRevertMetadata()
     {
         MediaStore store;

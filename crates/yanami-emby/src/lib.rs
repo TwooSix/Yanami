@@ -16,6 +16,7 @@ pub use client::{ClientIdentity, EmbyClient, EmbyError, ItemQuery, RemoteImageQu
 pub use models::{
     AuthenticationResult, BaseItem, ChapterInfo, EmbyNotification, ImageInfo, ImageProviderInfo,
     ItemsResult, LibraryChange, MediaSource, MediaStream, PlaybackInfo, PlaybackProgress,
-    RefreshProgress, RemoteImageInfo, RemoteImageResult, UserDataChange, UserDto, UserItemData,
+    RefreshProgress, RemoteImageInfo, RemoteImageResult, UserConfiguration, UserDataChange,
+    UserDto, UserItemData,
 };
 pub use planner::PlaybackPlanner;

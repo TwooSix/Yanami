@@ -338,6 +338,7 @@ qt_add_qml_module(yanami-ui
         qml/components/DanmakuOverlay.qml
         qml/components/DetailHero.qml
         qml/components/EpisodeCard.qml
+        qml/components/EpisodeScrollPolicy.qml
         qml/components/GlassPanel.qml
         qml/components/LibraryCard.qml
         qml/components/LoadingIndicator.qml

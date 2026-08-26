@@ -261,8 +261,8 @@
     </message>
     <message>
         <location filename="../native/CatalogCoordinatorNavigation.cpp" line="453"/>
-        <source>Loaded %1 libraries, %2 titles and %3 recent episodes.</source>
-        <translation>已加载 %1 个媒体库、%2 个标题和 %3 个最近更新单集。</translation>
+        <source>Loaded %1 libraries and %2 titles.</source>
+        <translation>已加载 %1 个媒体库和 %2 个标题。</translation>
     </message>
     <message>
         <location filename="../native/CatalogCoordinatorNavigation.cpp" line="502"/>
@@ -728,19 +728,24 @@
         <translation>无法刷新“继续观看”</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="682"/>
-        <source>Recent updates</source>
-        <translation>最近更新</translation>
+        <location filename="../qml/pages/HomePage.qml" line="747"/>
+        <source>Latest %1</source>
+        <translation>最新%1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="735"/>
-        <source>Could not refresh recent updates</source>
-        <translation>无法刷新最近更新</translation>
+        <location filename="../qml/pages/HomePage.qml" line="799"/>
+        <source>Latest media</source>
+        <translation>最新媒体</translation>
     </message>
     <message>
-        <location filename="../qml/pages/HomePage.qml" line="736"/>
-        <source>No recent updates</source>
-        <translation>没有最近更新</translation>
+        <location filename="../qml/pages/HomePage.qml" line="824"/>
+        <source>Could not refresh latest media</source>
+        <translation>无法刷新最新媒体</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/HomePage.qml" line="825"/>
+        <source>No recently added media</source>
+        <translation>没有最近添加的媒体</translation>
     </message>
     <message>
         <location filename="../qml/pages/HomePage.qml" line="398"/>

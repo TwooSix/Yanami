@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Effects
 import Yanami.Ui
 
 Item {
@@ -73,39 +74,78 @@ Item {
         radius: 20
         clip: true
         color: "#202633"
-        border.width: 1
+        border.width: root.pointerHovered ? 0 : 1
         border.color: Theme.outline
+        readonly property real texturePadding: 1
 
-        RoundedImage {
-            id: episodeImage
-            anchors.fill: parent
-            source: root.imageUrl
-            radius: artwork.radius
-            asynchronous: true
-            cache: true
-            fillMode: Image.PreserveAspectCrop
-        }
+        Item {
+            id: artworkMask
+            x: -artwork.texturePadding
+            y: -artwork.texturePadding
+            width: artwork.width + artwork.texturePadding * 2
+            height: artwork.height + artwork.texturePadding * 2
+            visible: false
+            layer.enabled: true
 
-        Rectangle {
-            anchors.fill: parent
-            radius: artwork.radius
-            opacity: 1
-            gradient: Gradient {
-                orientation: Gradient.Vertical
-                GradientStop { position: 0; color: "#08000000" }
-                GradientStop { position: 0.55; color: "#28000000" }
-                GradientStop { position: 1; color: "#E6080A0F" }
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: artwork.texturePadding
+                radius: artwork.radius
+                color: "white"
             }
-            Behavior on opacity { NumberAnimation { duration: 180 } }
         }
 
-        Rectangle {
-            objectName: "media-card-pointer-scrim"
-            anchors.fill: parent
-            radius: artwork.radius
-            color: root.pointerPressed ? "#22000000" : "transparent"
+        // Flatten the image and its darkening overlays before the hover
+        // transform. Scaling separately rendered rounded layers can sample an
+        // undarkened edge texel and expose it as a bright one-pixel seam.
+        Item {
+            id: artworkBackdrop
+            objectName: "media-card-backdrop-layer"
+            x: -artwork.texturePadding
+            y: -artwork.texturePadding
+            width: artwork.width + artwork.texturePadding * 2
+            height: artwork.height + artwork.texturePadding * 2
+            layer.enabled: true
+            layer.smooth: true
+            layer.effect: MultiEffect {
+                maskEnabled: true
+                maskSource: artworkMask
+                maskThresholdMin: 0.5
+                maskSpreadAtMin: 1.0
+            }
 
-            Behavior on color { ColorAnimation { duration: 110 } }
+            RoundedImage {
+                id: episodeImage
+                anchors.fill: parent
+                anchors.margins: artwork.texturePadding
+                source: root.imageUrl
+                radius: 0
+                asynchronous: true
+                cache: true
+                fillMode: Image.PreserveAspectCrop
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: artwork.texturePadding
+                opacity: 1
+                gradient: Gradient {
+                    orientation: Gradient.Vertical
+                    GradientStop { position: 0; color: "#08000000" }
+                    GradientStop { position: 0.55; color: "#28000000" }
+                    GradientStop { position: 1; color: "#E6080A0F" }
+                }
+                Behavior on opacity { NumberAnimation { duration: 180 } }
+            }
+
+            Rectangle {
+                objectName: "media-card-pointer-scrim"
+                anchors.fill: parent
+                anchors.margins: artwork.texturePadding
+                color: root.pointerPressed ? "#22000000" : "transparent"
+
+                Behavior on color { ColorAnimation { duration: 110 } }
+            }
         }
 
         Column {

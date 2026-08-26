@@ -126,22 +126,64 @@ impl EmbyClient {
         limit: u32,
         group_items: bool,
     ) -> Result<Vec<BaseItem>, EmbyError> {
+        self.latest_items_query(None, include_item_types, limit, group_items, None)
+            .await
+    }
+
+    /// Returns the server-owned Latest Media row for one user library.
+    ///
+    /// Keeping `IncludeItemTypes` unset is intentional: the library view owns
+    /// its media types, while `GroupItems=true` lets Emby return a Series
+    /// container for newly-added episodes instead of individual Episode DTOs.
+    pub async fn latest_items_for_parent(
+        &self,
+        parent_id: &str,
+        limit: u32,
+        hide_played: bool,
+    ) -> Result<Vec<BaseItem>, EmbyError> {
+        self.latest_items_query(
+            Some(parent_id),
+            &[],
+            limit,
+            true,
+            hide_played.then_some(false),
+        )
+        .await
+    }
+
+    async fn latest_items_query(
+        &self,
+        parent_id: Option<&str>,
+        include_item_types: &[&str],
+        limit: u32,
+        group_items: bool,
+        is_played: Option<bool>,
+    ) -> Result<Vec<BaseItem>, EmbyError> {
         let user_id = self.user_id.as_deref().unwrap_or_default();
+        let mut parameters = vec![
+            ("Limit", limit.max(1).to_string()),
+            ("Fields", BROWSE_FIELDS.to_owned()),
+            ("GroupItems", group_items.to_string()),
+            ("EnableImages", "true".to_owned()),
+            ("ImageTypeLimit", "1".to_owned()),
+            ("EnableImageTypes", "Primary,Thumb,Backdrop".to_owned()),
+            ("EnableUserData", "true".to_owned()),
+        ];
+        if let Some(parent_id) = parent_id {
+            parameters.push(("ParentId", parent_id.to_owned()));
+        }
+        if !include_item_types.is_empty() {
+            parameters.push(("IncludeItemTypes", include_item_types.join(",")));
+        }
+        if let Some(is_played) = is_played {
+            parameters.push(("IsPlayed", is_played.to_string()));
+        }
         let response = self
             .request(
                 reqwest::Method::GET,
                 &format!("Users/{user_id}/Items/Latest"),
             )
-            .query(&[
-                ("Limit", limit.max(1).to_string()),
-                ("Fields", BROWSE_FIELDS.to_owned()),
-                ("IncludeItemTypes", include_item_types.join(",")),
-                ("GroupItems", group_items.to_string()),
-                ("EnableImages", "true".to_owned()),
-                ("ImageTypeLimit", "1".to_owned()),
-                ("EnableImageTypes", "Primary,Thumb,Backdrop".to_owned()),
-                ("EnableUserData", "true".to_owned()),
-            ])
+            .query(&parameters)
             .send()
             .await?;
         decode(response).await
@@ -201,6 +243,7 @@ impl EmbyClient {
             ("Fields", BROWSE_FIELDS.to_owned()),
             ("EnableImages", "true".to_owned()),
             ("ImageTypeLimit", "1".to_owned()),
+            ("EnableImageTypes", "Primary,Thumb,Backdrop".to_owned()),
             ("EnableUserData", "true".to_owned()),
         ]);
         if let Some(series_id) = series_id {

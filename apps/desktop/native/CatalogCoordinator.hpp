@@ -7,6 +7,7 @@
 
 #include <QElapsedTimer>
 #include <QFutureWatcher>
+#include <QSet>
 #include <QThreadPool>
 
 #include <array>
@@ -118,6 +119,7 @@ public:
 
     RequestDisposition loadLibrary() override;
     void invalidateActivity() override;
+    void invalidateSeriesContinue(const QString &seriesId) override;
     RequestDisposition ensureActivityFresh() override;
     RequestDisposition refreshActivity() override;
     RequestDisposition loadFavorites() override;
@@ -226,6 +228,10 @@ private:
     bool applyActivityQueries(
         const QJsonObject &object,
         quint64 activityRevision);
+    bool applyLatestMediaQueries(
+        const QJsonObject &object,
+        qint64 fetchedAtMs);
+    void markLatestMediaQueriesStale();
 
     bool loadLibraryCache();
     void saveLibraryCache() const;
@@ -262,6 +268,7 @@ private:
     QString m_collectionTargetId;
     QString m_collectionDisplayedId;
     QString m_collectionErrorId;
+    QSet<QString> m_latestMediaScopeIds;
     qint64 m_lastFullLibraryRefreshMs = 0;
     qint64 m_lastFavoritesRefreshMs = 0;
     qint64 m_activityRetryAfterMs = 0;

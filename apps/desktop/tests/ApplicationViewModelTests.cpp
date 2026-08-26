@@ -83,12 +83,14 @@ public:
     QVariantMap collectionParent() const override { return parentItem; }
     RequestDisposition loadLibrary() override { ++loadLibraryCalls; return libraryDisposition; }
     void invalidateActivity() override { ++invalidateActivityCalls; }
+    void invalidateSeriesContinue(const QString &seriesId) override
+    { invalidatedSeriesContinue.push_back(seriesId); }
     RequestDisposition ensureActivityFresh() override { ++ensureActivityFreshCalls; return activityDisposition; }
     RequestDisposition refreshActivity() override { ++refreshActivityCalls; return activityDisposition; }
     RequestDisposition loadFavorites() override { ++loadFavoritesCalls; return favoritesDisposition; }
     RequestDisposition refreshFavorites() override { ++refreshFavoritesCalls; return favoritesDisposition; }
     RequestDisposition loadCollection(const QString &parentId) override { loadedCollection = parentId; return collectionDisposition; }
-    RequestDisposition refreshCollection(const QString &parentId) override { refreshedCollection = parentId; return collectionDisposition; }
+    RequestDisposition refreshCollection(const QString &parentId) override { ++refreshCollectionCalls; refreshedCollection = parentId; return collectionDisposition; }
 
     bool libraryBusy = false;
     bool activityBusy = false;
@@ -104,10 +106,12 @@ public:
     QVariantMap parentItem;
     int loadLibraryCalls = 0;
     int invalidateActivityCalls = 0;
+    QStringList invalidatedSeriesContinue;
     int ensureActivityFreshCalls = 0;
     int refreshActivityCalls = 0;
     int loadFavoritesCalls = 0;
     int refreshFavoritesCalls = 0;
+    int refreshCollectionCalls = 0;
     QString loadedCollection;
     QString refreshedCollection;
     RequestDisposition libraryDisposition = RequestDisposition::Accepted;
@@ -1537,6 +1541,12 @@ private slots:
     {
         Fixture fixture;
         ApplicationViewModel viewModel(fixture.ports());
+        fixture.catalog.displayedId = QStringLiteral("series-a");
+        fixture.catalog.targetId = QStringLiteral("series-a");
+        fixture.catalog.parentItem = {
+            {QStringLiteral("id"), QStringLiteral("series-a")},
+            {QStringLiteral("itemType"), QStringLiteral("Series")},
+        };
 
         emit fixture.playback.stoppedReported();
         QTest::qWait(100);
@@ -1546,10 +1556,100 @@ private slots:
         QTest::qWait(850);
         QCOMPARE(fixture.catalog.ensureActivityFreshCalls, 1);
         QCOMPARE(fixture.catalog.refreshActivityCalls, 0);
+        QCOMPARE(fixture.catalog.refreshCollectionCalls, 1);
+        QCOMPARE(fixture.catalog.refreshedCollection, QStringLiteral("series-a"));
 
         QTest::qWait(2400);
         QCOMPARE(fixture.catalog.ensureActivityFreshCalls, 1);
         QCOMPARE(fixture.catalog.refreshActivityCalls, 1);
+    }
+
+    void playbackStopInvalidatesSeriesContinueOutsideSeriesRoute()
+    {
+        Fixture fixture;
+        ApplicationViewModel viewModel(fixture.ports());
+        fixture.catalog.displayedId = QStringLiteral("season-a");
+        fixture.catalog.targetId = QStringLiteral("season-a");
+        fixture.catalog.parentItem = {
+            {QStringLiteral("id"), QStringLiteral("season-a")},
+            {QStringLiteral("itemType"), QStringLiteral("Season")},
+            {QStringLiteral("seriesId"), QStringLiteral("series-a")},
+        };
+        const QVariantMap playbackContext {
+            {QStringLiteral("kind"), QStringLiteral("series")},
+            {QStringLiteral("sourceId"), QStringLiteral("series-a")},
+        };
+        viewModel.playback()->prepareInContext(
+            QStringLiteral("episode-a"), playbackContext);
+        emit fixture.playback.ready(
+            fixture.playback.preparedRequestId,
+            {{QStringLiteral("itemId"), QStringLiteral("episode-a")},
+             {QStringLiteral("playbackContext"), playbackContext}});
+
+        emit fixture.playback.stoppedReported();
+
+        QCOMPARE(fixture.catalog.invalidatedSeriesContinue,
+            QStringList {QStringLiteral("series-a")});
+        QTest::qWait(850);
+        QCOMPARE(fixture.catalog.refreshCollectionCalls, 0);
+    }
+
+    void playedMutationInvalidatesEveryAffectedSeriesContinueScope()
+    {
+        Fixture fixture;
+        ApplicationViewModel viewModel(fixture.ports());
+        viewModel.mediaActions()->setPlayed(QStringLiteral("episode-a"), true);
+        const MediaCall mutation = fixture.media.calls.constLast();
+
+        emit fixture.media.operationCompleted(
+            mutation.requestId,
+            QStringLiteral("episode-a"),
+            MediaPort::Operation::SetPlayed,
+            {
+                {QStringLiteral("requestedPlayed"), true},
+                {QStringLiteral("reconcileComplete"), true},
+                {QStringLiteral("affectedItems"), QVariantList {
+                    QVariantMap {
+                        {QStringLiteral("id"), QStringLiteral("episode-a")},
+                        {QStringLiteral("seriesId"), QStringLiteral("series-a")},
+                    },
+                    QVariantMap {
+                        {QStringLiteral("id"), QStringLiteral("series-b")},
+                        {QStringLiteral("seriesId"), QStringLiteral("series-b")},
+                    },
+                }},
+            });
+
+        QCOMPARE(fixture.catalog.invalidatedSeriesContinue.size(), 2);
+        QVERIFY(fixture.catalog.invalidatedSeriesContinue.contains(
+            QStringLiteral("series-a")));
+        QVERIFY(fixture.catalog.invalidatedSeriesContinue.contains(
+            QStringLiteral("series-b")));
+    }
+
+    void playbackSeriesRefreshDoesNotCrossRoute()
+    {
+        Fixture fixture;
+        ApplicationViewModel viewModel(fixture.ports());
+        fixture.catalog.displayedId = QStringLiteral("series-a");
+        fixture.catalog.targetId = QStringLiteral("series-a");
+        fixture.catalog.parentItem = {
+            {QStringLiteral("id"), QStringLiteral("series-a")},
+            {QStringLiteral("itemType"), QStringLiteral("Series")},
+        };
+
+        emit fixture.playback.stoppedReported();
+        fixture.catalog.displayedId = QStringLiteral("series-b");
+        fixture.catalog.targetId = QStringLiteral("series-b");
+        fixture.catalog.parentItem = {
+            {QStringLiteral("id"), QStringLiteral("series-b")},
+            {QStringLiteral("itemType"), QStringLiteral("Series")},
+        };
+
+        QTest::qWait(850);
+        QCOMPARE(fixture.catalog.ensureActivityFreshCalls, 1);
+        QCOMPARE(fixture.catalog.refreshCollectionCalls, 0);
+        QVERIFY(fixture.catalog.refreshedCollection.isEmpty());
     }
 };
 

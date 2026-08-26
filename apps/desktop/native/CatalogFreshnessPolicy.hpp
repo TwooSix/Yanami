@@ -16,11 +16,11 @@ public:
 
     static bool activityIsFresh(
         const CatalogQueryFreshness &resume,
-        const CatalogQueryFreshness &recent,
+        const CatalogQueryFreshness &latestSections,
         qint64 nowMs)
     {
         return queryIsFresh(resume, nowMs)
-            && queryIsFresh(recent, nowMs);
+            && queryIsFresh(latestSections, nowMs);
     }
 
     static bool activitySnapshotMayCommit(

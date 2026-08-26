@@ -1552,7 +1552,7 @@ fn catalog_search_outcome(
         limit: SEARCH_RESULT_LIMIT,
     };
     decode_catalog_outcome(normalized_query_payload(
-        vec![("search", query.to_owned(), cards, None)],
+        vec![("search".to_owned(), query.to_owned(), cards, None)],
         json!({ "searchStatus": status }),
     )?)
 }

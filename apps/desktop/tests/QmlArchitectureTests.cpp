@@ -539,6 +539,127 @@ private slots:
             "Returning from details must preserve the parent library position");
     }
 
+    void homePageAutoPositionsASeasonAtItsFirstUnplayedEpisode()
+    {
+        const QString path = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))
+            .filePath(QStringLiteral("pages/HomePage.qml"));
+        const QString content = source(path);
+        QVERIFY2(!content.isEmpty(), qPrintable(path));
+
+        QVERIFY(content.contains(QStringLiteral("EpisodeScrollPolicy {")));
+        QVERIFY(content.contains(QStringLiteral(
+            "activeScopeId: root.depth === 3 ? root.seasonId : \"\"")));
+        QVERIFY(content.contains(QStringLiteral("view: episodesList")));
+        QVERIFY(content.contains(QStringLiteral(
+            "refreshing: root.depth === 3 && root.collectionRefreshing")));
+
+        const qsizetype requestStart = content.indexOf(
+            QStringLiteral("function requestEpisodeScroll(targetId)"));
+        const qsizetype requestEnd = content.indexOf(
+            QStringLiteral("function goHome()"), requestStart);
+        QVERIFY(requestStart >= 0 && requestEnd > requestStart);
+        const QString request = content.mid(
+            requestStart, requestEnd - requestStart);
+        QVERIFY(request.contains(QStringLiteral(
+            "episodeScrollPolicy.request(normalizedId)")));
+        QVERIFY(!content.contains(QStringLiteral("function positionEpisodeList(")));
+
+        const QString policyPath = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))
+            .filePath(QStringLiteral("components/EpisodeScrollPolicy.qml"));
+        const QString policy = source(policyPath);
+        QVERIFY2(!policy.isEmpty(), qPrintable(policyPath));
+        QVERIFY(policy.contains(QStringLiteral("property int generation")));
+        QVERIFY(policy.contains(QStringLiteral(
+            "expectedGeneration !== root.generation")));
+        QVERIFY(policy.contains(QStringLiteral(
+            "root.view.positionViewAtIndex(index, ListView.Beginning)")));
+        QVERIFY(policy.contains(QStringLiteral(
+            "root.view.currentIndex = index")));
+        QVERIFY(policy.contains(QStringLiteral(
+            "function onUserScrollStarted() { root.notifyUserScroll() }")));
+
+        const QString listPath = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))
+            .filePath(QStringLiteral("components/SmoothHorizontalList.qml"));
+        const QString list = source(listPath);
+        QVERIFY2(!list.isEmpty(), qPrintable(listPath));
+        QVERIFY(list.contains(QStringLiteral("signal userScrollStarted()")));
+        QVERIFY(list.contains(QStringLiteral("onDraggingChanged:")));
+        QVERIFY(list.contains(QStringLiteral("Keys.onPressed: event =>")));
+        QVERIFY(list.contains(QStringLiteral("Qt.Key_Left")));
+        QVERIFY(list.contains(QStringLiteral("Qt.Key_Right")));
+        QVERIFY(list.contains(QStringLiteral("onPressedChanged:")));
+        QVERIFY(list.contains(QStringLiteral("onWheel: event =>")));
+        QVERIFY(list.count(QStringLiteral("root.userScrollStarted()")) >= 3);
+
+        const qsizetype openSeasonStart = content.indexOf(
+            QStringLiteral("function openSeason(item)"));
+        const qsizetype openExternalSeasonStart = content.indexOf(
+            QStringLiteral("function openExternalSeason(item, returnPage)"),
+            openSeasonStart);
+        const qsizetype goBackStart = content.indexOf(
+            QStringLiteral("function goBack()"), openExternalSeasonStart);
+        QVERIFY(openSeasonStart >= 0
+            && openExternalSeasonStart > openSeasonStart
+            && goBackStart > openExternalSeasonStart);
+        QVERIFY(content.mid(openSeasonStart,
+                    openExternalSeasonStart - openSeasonStart)
+                    .contains(QStringLiteral(
+                        "root.requestEpisodeScroll(root.seasonId)")));
+        QVERIFY(content.mid(openExternalSeasonStart,
+                    goBackStart - openExternalSeasonStart)
+                    .contains(QStringLiteral(
+                        "root.requestEpisodeScroll(root.seasonId)")));
+
+        const qsizetype depthThreeStart = content.indexOf(
+            QStringLiteral("else if (root.depth === 3)"), goBackStart);
+        const qsizetype depthTwoStart = content.indexOf(
+            QStringLiteral("else if (root.depth === 2"), depthThreeStart);
+        QVERIFY(depthThreeStart >= 0 && depthTwoStart > depthThreeStart);
+        QVERIFY(content.mid(depthThreeStart, depthTwoStart - depthThreeStart)
+                    .contains(QStringLiteral("episodeScrollPolicy.cancel()")));
+    }
+
+    void seriesDetailsExposeContinueQueueBeforeSeasons()
+    {
+        const QString path = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))
+            .filePath(QStringLiteral("pages/HomePage.qml"));
+        const QString content = source(path);
+        QVERIFY2(!content.isEmpty(), qPrintable(path));
+        QVERIFY(content.contains(QStringLiteral(
+            "queryModel(\"seriesContinue\", root.seriesId)")));
+        QVERIFY(content.contains(QStringLiteral(
+            "playButtonVisible: root.depth !== 2")));
+
+        const qsizetype continueStart = content.indexOf(
+            QStringLiteral("id: seriesContinueList"));
+        const qsizetype seasonsStart = content.indexOf(
+            QStringLiteral("text: qsTr(\"Seasons and specials\")"));
+        QVERIFY(continueStart >= 0 && seasonsStart > continueStart);
+        const QString continueSection = content.mid(
+            continueStart, seasonsStart - continueStart);
+        QVERIFY(continueSection.contains(QStringLiteral(
+            "model: animatedSeriesContinueModel")));
+        QVERIFY(continueSection.contains(QStringLiteral(
+            "delegate: RecentEpisodeCard")));
+        QVERIFY(continueSection.contains(QStringLiteral(
+            "subtitle: LocaleText.mediaSubtitle(modelData)")));
+        QVERIFY(continueSection.contains(QStringLiteral(
+            "animatedSeriesContinueModel.count > 0")));
+        QVERIFY(continueSection.contains(QStringLiteral(
+            "modelData.id, modelData.title")));
+        QVERIFY(continueSection.contains(QStringLiteral(
+            "root.seriesPlaybackContext()")));
+
+        const QString heroPath = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))
+            .filePath(QStringLiteral("components/DetailHero.qml"));
+        const QString heroContent = source(heroPath);
+        QVERIFY2(!heroContent.isEmpty(), qPrintable(heroPath));
+        QVERIFY(heroContent.contains(QStringLiteral(
+            "property bool playButtonVisible: true")));
+        QVERIFY(heroContent.contains(QStringLiteral(
+            "visible: root.playButtonVisible")));
+    }
+
     void asyncImageKeysStayInsideTheCacheRoot()
     {
         QTemporaryDir temporaryDirectory;

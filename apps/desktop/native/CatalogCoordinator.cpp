@@ -19,6 +19,7 @@ const QString activityRequestKey = QStringLiteral("activity");
 const QString favoritesRequestKey = QStringLiteral("favorites");
 const QString libraryNavigationLaneKey = QStringLiteral("navigation.library");
 const QString collectionNavigationLaneKey = QStringLiteral("navigation.collection");
+const QString seriesContinueKind = QStringLiteral("seriesContinue");
 
 QString collectionRequestKey(const QString &parentId)
 {
@@ -256,9 +257,22 @@ void CatalogCoordinator::invalidateActivity()
     if (!activeSession())
         return;
     m_mediaStore->markQueryStale(QStringLiteral("resume"));
-    m_mediaStore->markQueryStale(QStringLiteral("recent"));
+    markLatestMediaQueriesStale();
     m_requests.invalidate({activityRequestKey});
     m_activityRetryAfterMs = 0;
+    emit stateChanged();
+}
+
+void CatalogCoordinator::invalidateSeriesContinue(const QString &seriesId)
+{
+    const QString normalizedSeriesId = seriesId.trimmed();
+    if (!activeSession() || normalizedSeriesId.isEmpty())
+        return;
+    m_mediaStore->markQueryStale(seriesContinueKind, normalizedSeriesId);
+    // Fence a collection response that may have started before Emby accepted
+    // the playback-state change. The next visit will fetch one atomic Series
+    // collection + continuation snapshot.
+    m_requests.invalidate({collectionRequestKey(normalizedSeriesId)});
     emit stateChanged();
 }
 
@@ -296,7 +310,7 @@ CatalogPort::RequestDisposition CatalogCoordinator::requestActivityRefresh(
         };
         if (CatalogFreshnessPolicy::activityIsFresh(
                 freshness(QStringLiteral("resume")),
-                freshness(QStringLiteral("recent")), now)) {
+                freshness(QStringLiteral("latestSections")), now)) {
             return RequestDisposition::AlreadyCurrent;
         }
     }
@@ -418,6 +432,15 @@ CatalogPort::RequestDisposition CatalogCoordinator::requestCollection(
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const bool hasCachedCollection = m_mediaStore->hasQuery(
         QStringLiteral("collection"), parentId);
+    const QVariantMap cachedParent = m_mediaStore->queryParent(
+        QStringLiteral("collection"), parentId);
+    const bool cachedSeries = cachedParent
+        .value(QStringLiteral("itemType")).toString() == QStringLiteral("Series");
+    const bool hasFreshSeriesContinue = !cachedSeries
+        || (m_mediaStore->hasQuery(seriesContinueKind, parentId)
+            && !m_mediaStore->queryStale(seriesContinueKind, parentId)
+            && now - m_mediaStore->queryFetchedAtMs(seriesContinueKind, parentId)
+                < collectionCacheTtlMs);
     qInfo().noquote()
         << "collection_request"
         << "parent=" << parentId
@@ -431,7 +454,8 @@ CatalogPort::RequestDisposition CatalogCoordinator::requestCollection(
                 QStringLiteral("collection"), parentId)
             && now - m_mediaStore->queryFetchedAtMs(
                 QStringLiteral("collection"), parentId)
-                < collectionCacheTtlMs) {
+                < collectionCacheTtlMs
+            && hasFreshSeriesContinue) {
             // This is the only path that does not register a request. Publish
             // the cached target now so presentation may settle immediately.
             emit stateChanged();
@@ -446,6 +470,8 @@ CatalogPort::RequestDisposition CatalogCoordinator::requestCollection(
         if (forceRefresh) {
             m_mediaStore->markQueryStale(
                 QStringLiteral("collection"), parentId);
+            if (cachedSeries)
+                m_mediaStore->markQueryStale(seriesContinueKind, parentId);
         }
         return RequestDisposition::Accepted;
     }
@@ -468,6 +494,8 @@ CatalogPort::RequestDisposition CatalogCoordinator::requestCollection(
         // ask presentation to settle the refresh operation.
         m_mediaStore->markQueryStale(
             QStringLiteral("collection"), parentId);
+        if (cachedSeries)
+            m_mediaStore->markQueryStale(seriesContinueKind, parentId);
     }
     return RequestDisposition::Accepted;
 }
@@ -530,6 +558,7 @@ void CatalogCoordinator::resetCommittedState(bool removeDiskCache)
     m_collectionTargetId.clear();
     m_collectionDisplayedId.clear();
     m_collectionErrorId.clear();
+    m_latestMediaScopeIds.clear();
     m_capabilities = {};
     m_lastFullLibraryRefreshMs = 0;
     m_lastFavoritesRefreshMs = 0;
