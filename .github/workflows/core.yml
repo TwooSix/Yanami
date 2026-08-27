@@ -85,6 +85,8 @@ jobs:
           test "${#shell_files[@]}" -gt 0
           bash -n "${shell_files[@]}"
           shellcheck --severity=warning "${shell_files[@]}"
+          # The single-quoted command intentionally preserves PowerShell's $ variables.
+          # shellcheck disable=SC2016
           pwsh -NoLogo -NoProfile -Command '
             $parseErrors = @(
               Get-ChildItem .github/scripts,scripts -Recurse -File -Filter *.ps1 |
