@@ -43,7 +43,7 @@ if (-not $cargoBlock -or -not $actionsBlock) {
 Assert-Count "configured ecosystems" '(?m)^\s*- package-ecosystem:' 2
 Assert-Count "monthly schedules" '(?m)^\s*interval:\s*monthly\s*$' 2
 Assert-Count "single-open-PR limits" '(?m)^\s*open-pull-requests-limit:\s*1\s*$' 2
-Assert-Match "Cargo compatible-range strategy" $cargoBlock '(?m)^\s*versioning-strategy:\s*increase-if-necessary\s*$'
+Assert-Match "Cargo supported automatic strategy" $cargoBlock '(?m)^\s*versioning-strategy:\s*auto\s*$'
 Assert-Count "minor grouping" '(?m)^\s*- minor\s*$' 2
 Assert-Count "patch grouping" '(?m)^\s*- patch\s*$' 2
 Assert-Count "semver minor allow rules" 'version-update:semver-minor' 2

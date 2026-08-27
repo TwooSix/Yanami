@@ -8,9 +8,9 @@ updates:
       timezone: Asia/Shanghai
     # Dependabot's Cargo classifier treats changes to the leftmost non-zero
     # component as major, so minor/patch here stays within Cargo-compatible
-    # ranges. Security updates ignore allow.update-types and may still widen
-    # Cargo.toml when a fix requires it.
-    versioning-strategy: increase-if-necessary
+    # ranges. The Cargo-supported auto strategy also lets security updates
+    # widen Cargo.toml when a fix requires it.
+    versioning-strategy: auto
     open-pull-requests-limit: 1
     groups:
       rust-routine:
