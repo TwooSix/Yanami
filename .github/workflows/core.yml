@@ -10,8 +10,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Only supersede stale runs for the same pull request. Every main push must
+  # finish because its before..HEAD routing decision drives release packaging.
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   scope:
@@ -41,6 +43,7 @@ jobs:
           & .\.github\scripts\Classify-CI.ps1
           -BaseSha $env:BASE_SHA
           -HeadSha $env:HEAD_SHA
+          -UseMergeBase:($env:GITHUB_EVENT_NAME -eq 'pull_request')
           -ResultPath build\ci-scope\scope.json
       - name: Upload the release routing decision
         if: github.event_name == 'push'
@@ -50,10 +53,10 @@ jobs:
           path: build/ci-scope/scope.json
           if-no-files-found: error
           overwrite: true
-          retention-days: 2
+          retention-days: 30
 
   workflow-lint:
-    name: Static analysis (workflows)
+    name: Static analysis (CI and tooling)
     needs: scope
     if: needs.scope.outputs.workflows == 'true'
     runs-on: ubuntu-24.04
@@ -65,6 +68,45 @@ jobs:
       - name: Test the CI classifier
         shell: pwsh
         run: .\.github\scripts\Test-Classify-CI.ps1
+      - name: Test the Dependabot maintenance policy
+        shell: pwsh
+        run: .\.github\scripts\Test-DependabotMaintenance.ps1
+      - name: Test the release artifact contract
+        shell: pwsh
+        run: .\.github\scripts\Test-ReleaseWorkflow.ps1
+      - name: Test the packaging contract
+        shell: pwsh
+        run: .\.github\scripts\Test-PackagingPolicy.ps1
+      - name: Validate repository script syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t shell_files < <(find scripts -type f -name '*.sh' -print | sort)
+          test "${#shell_files[@]}" -gt 0
+          bash -n "${shell_files[@]}"
+          shellcheck --severity=warning "${shell_files[@]}"
+          pwsh -NoLogo -NoProfile -Command '
+            $parseErrors = @(
+              Get-ChildItem .github/scripts,scripts -Recurse -File -Filter *.ps1 |
+                ForEach-Object {
+                  $tokens = $null
+                  $errors = $null
+                  [void][Management.Automation.Language.Parser]::ParseFile(
+                    $_.FullName, [ref]$tokens, [ref]$errors)
+                  $errors
+                }
+            )
+            if ($parseErrors.Count -gt 0) {
+              $parseErrors | Format-List | Out-String | Write-Error
+              throw "PowerShell syntax validation failed."
+            }
+          '
+          python3 - <<'PY'
+          from pathlib import Path
+
+          for path in sorted(Path("scripts").rglob("*.py")):
+              compile(path.read_bytes(), str(path), "exec")
+          PY
       - name: Validate YAML syntax
         shell: bash
         run: |
@@ -84,7 +126,60 @@ jobs:
           echo '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  '"$archive" \
             | sha256sum --check
           tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
-          "$RUNNER_TEMP/actionlint" -color .github/workflows/*.yml
+          mapfile -t workflow_files < <(find .github/workflows -maxdepth 1 -type f \
+            \( -name '*.yml' -o -name '*.yaml' \) -print | sort)
+          test "${#workflow_files[@]}" -gt 0
+          "$RUNNER_TEMP/actionlint" -color "${workflow_files[@]}"
+
+  rust-licenses:
+    name: Rust license inventory
+    needs: [scope, workflow-lint]
+    if: >-
+      !cancelled() &&
+      needs.scope.result == 'success' &&
+      needs.scope.outputs.package == 'true' &&
+      (needs.scope.outputs.rust == 'true' ||
+       needs.scope.outputs.desktop == 'true') &&
+      (needs.scope.outputs.workflows == 'false' ||
+       needs.workflow-lint.result == 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable as of 2026-08-16
+      - name: Cache Cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-registry-v1-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-registry-v1-${{ runner.os }}-
+      - name: Cache the pinned license tool
+        id: license-tool
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-about
+          key: rust-license-tool-v1-cargo-about-0.9.1
+      - name: Install the pinned license tool
+        if: steps.license-tool.outputs.cache-hit != 'true'
+        run: cargo install cargo-about --version 0.9.1 --locked --features cli
+      - name: Generate and validate the locked Rust license inventory
+        shell: bash
+        run: >-
+          bash scripts/generate-rust-license-inventory.sh
+          build/generated-licenses/THIRD_PARTY_LICENSES.html
+      - name: Upload the generated Rust license inventory
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rust-license-${{ github.run_id }}
+          path: build/generated-licenses/THIRD_PARTY_LICENSES.html
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
 
   rust:
     name: Rust quality (Linux)
@@ -119,15 +214,11 @@ jobs:
         id: rust-tools
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            ~/.cargo/bin/cargo-about
-            ~/.cargo/bin/cargo-audit
-          key: rust-ci-tools-v1-cargo-about-0.9.1-cargo-audit-0.22.2
+          path: ~/.cargo/bin/cargo-audit
+          key: rust-ci-tools-v2-cargo-audit-0.22.2
       - name: Install pinned Rust CI tools
         if: steps.rust-tools.outputs.cache-hit != 'true'
-        run: |
-          cargo install cargo-about --version 0.9.1 --locked --features cli
-          cargo install cargo-audit --version 0.22.2 --locked
+        run: cargo install cargo-audit --version 0.22.2 --locked
       - name: Validate development version source
         shell: bash
         run: |
@@ -141,16 +232,6 @@ jobs:
         run: cargo fmt --all -- --check
       - name: RustSec advisory audit
         run: cargo audit --file Cargo.lock
-      - name: Rust license inventory is complete and current
-        run: |
-          mkdir -p build/license-check
-          cargo about generate --workspace --locked \
-            --target x86_64-pc-windows-gnu --fail \
-            licenses/rust/about.hbs \
-            -o build/license-check/THIRD_PARTY_LICENSES.html
-          cmp --silent \
-            licenses/rust/THIRD_PARTY_LICENSES.html \
-            build/license-check/THIRD_PARTY_LICENSES.html
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Tests
@@ -158,13 +239,15 @@ jobs:
 
   desktop-linux:
     name: Desktop (Linux x86_64)
-    needs: [scope, workflow-lint, rust]
+    needs: [scope, workflow-lint, rust-licenses, rust]
     if: >-
       !cancelled() &&
       needs.scope.result == 'success' &&
       needs.scope.outputs.desktop == 'true' &&
       (needs.scope.outputs.workflows == 'false' ||
        needs.workflow-lint.result == 'success') &&
+      (needs.scope.outputs.package == 'false' ||
+       needs.rust-licenses.result == 'success') &&
       (needs.scope.outputs.rust == 'false' ||
        needs.rust.result == 'success')
     runs-on: ubuntu-24.04
@@ -176,6 +259,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Download the generated Rust license inventory
+        if: needs.scope.outputs.package == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rust-license-${{ github.run_id }}
+          path: build/generated-licenses
       - name: Initialize CodeQL for native code
         if: needs.scope.outputs.native_analysis == 'true'
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
@@ -222,6 +311,7 @@ jobs:
             -DYANAMI_ENABLE_DEV_HOOKS=OFF \
             -DYANAMI_BUILD_COMMIT=${{ github.sha }} \
             -DYANAMI_BUILD_RUN_ID=${{ github.run_id }} \
+            -DYANAMI_RUST_LICENSE_INVENTORY="$GITHUB_WORKSPACE/build/generated-licenses/THIRD_PARTY_LICENSES.html" \
             -DYANAMI_PACKAGE_ARCHITECTURE=x86_64
           cmake --build build/ci-linux --parallel
           ctest --test-dir build/ci-linux --output-on-failure
@@ -240,7 +330,7 @@ jobs:
 
   desktop-windows:
     name: Desktop (Windows x86_64)
-    needs: [scope, workflow-lint, rust]
+    needs: [scope, workflow-lint, rust-licenses, rust]
     if: >-
       !cancelled() &&
       needs.scope.result == 'success' &&
@@ -248,6 +338,8 @@ jobs:
        needs.scope.outputs.performance == 'true') &&
       (needs.scope.outputs.workflows == 'false' ||
        needs.workflow-lint.result == 'success') &&
+      (needs.scope.outputs.package == 'false' ||
+       needs.rust-licenses.result == 'success') &&
       (needs.scope.outputs.rust == 'false' ||
        needs.rust.result == 'success')
     runs-on: windows-2022
@@ -262,6 +354,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Download the generated Rust license inventory
+        if: needs.scope.outputs.package == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rust-license-${{ github.run_id }}
+          path: build/generated-licenses
       - name: Install the MSYS2 UCRT64 desktop toolchain
         id: msys2
         uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
@@ -307,6 +405,7 @@ jobs:
             -DYANAMI_ENABLE_DEV_HOOKS=OFF `
             "-DYANAMI_BUILD_COMMIT=${{ github.sha }}" `
             "-DYANAMI_BUILD_RUN_ID=${{ github.run_id }}" `
+            "-DYANAMI_RUST_LICENSE_INVENTORY=${{ github.workspace }}\build\generated-licenses\THIRD_PARTY_LICENSES.html" `
             -DYANAMI_PACKAGE_ARCHITECTURE=x86_64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$ucrtBin\cmake.exe" --build build/ci-windows --parallel
@@ -377,13 +476,15 @@ jobs:
 
   desktop-macos:
     name: Desktop (macOS ${{ matrix.architecture }})
-    needs: [scope, workflow-lint, rust]
+    needs: [scope, workflow-lint, rust-licenses, rust]
     if: >-
       !cancelled() &&
       needs.scope.result == 'success' &&
       needs.scope.outputs.desktop == 'true' &&
       (needs.scope.outputs.workflows == 'false' ||
        needs.workflow-lint.result == 'success') &&
+      (needs.scope.outputs.package == 'false' ||
+       needs.rust-licenses.result == 'success') &&
       (needs.scope.outputs.rust == 'false' ||
        needs.rust.result == 'success')
     strategy:
@@ -400,6 +501,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Download the generated Rust license inventory
+        if: needs.scope.outputs.package == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rust-license-${{ github.run_id }}
+          path: build/generated-licenses
       - name: Install native dependencies
         run: brew install jq mpv pkg-config
       - name: Install Qt 6.8.3
@@ -438,6 +545,7 @@ jobs:
             -DYANAMI_ENABLE_DEV_HOOKS=OFF \
             -DYANAMI_BUILD_COMMIT=${{ github.sha }} \
             -DYANAMI_BUILD_RUN_ID=${{ github.run_id }} \
+            -DYANAMI_RUST_LICENSE_INVENTORY="$GITHUB_WORKSPACE/build/generated-licenses/THIRD_PARTY_LICENSES.html" \
             -DYANAMI_PACKAGE_ARCHITECTURE=${{ matrix.architecture }}
           cmake --build build/ci-macos --parallel
           ctest --test-dir build/ci-macos --output-on-failure
@@ -451,7 +559,7 @@ jobs:
 
   required:
     name: CI / Required
-    needs: [scope, workflow-lint, rust, desktop-linux, desktop-windows, desktop-macos]
+    needs: [scope, workflow-lint, rust-licenses, rust, desktop-linux, desktop-windows, desktop-macos]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -477,6 +585,11 @@ jobs:
             (if .scope.outputs.workflows == "true"
              then ."workflow-lint".result == "success"
              else ."workflow-lint".result == "skipped" end) and
+            (if (.scope.outputs.package == "true" and
+                 (.scope.outputs.rust == "true" or
+                  .scope.outputs.desktop == "true"))
+             then ."rust-licenses".result == "success"
+             else ."rust-licenses".result == "skipped" end) and
             (if .scope.outputs.desktop == "true"
              then (."desktop-linux".result == "success" and
                    ."desktop-macos".result == "success")

@@ -20,6 +20,10 @@ set(YANAMI_BUILD_RUN_ID "local" CACHE STRING
     "CI workflow run ID used for this build")
 set(YANAMI_RUNTIME_LICENSE_DIR "" CACHE PATH
     "Optional generated platform runtime license inventory")
+set(YANAMI_RUST_LICENSE_INVENTORY
+    "${CMAKE_CURRENT_BINARY_DIR}/generated-licenses/THIRD_PARTY_LICENSES.html"
+    CACHE FILEPATH
+    "Generated Rust third-party license inventory installed in packages")
 if(NOT YANAMI_BUILD_VERSION MATCHES
         "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?(\\+[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$")
     message(FATAL_ERROR
@@ -521,11 +525,15 @@ install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/BUILD_INFO.json"
     DESTINATION .
 )
-install(FILES "${YANAMI_WORKSPACE}/licenses/RUST_DEPENDENCIES.md"
-    DESTINATION licenses
+configure_file(
+    cmake/VerifyRustLicenseInventory.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/VerifyRustLicenseInventory.cmake"
+    @ONLY
 )
-install(FILES "${YANAMI_WORKSPACE}/licenses/rust/THIRD_PARTY_LICENSES.html"
+install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/VerifyRustLicenseInventory.cmake")
+install(FILES "${YANAMI_RUST_LICENSE_INVENTORY}"
     DESTINATION licenses/rust
+    RENAME THIRD_PARTY_LICENSES.html
 )
 if(YANAMI_RUNTIME_LICENSE_DIR)
     if(NOT IS_DIRECTORY "${YANAMI_RUNTIME_LICENSE_DIR}")
@@ -600,6 +608,21 @@ endif()
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.8 REQUIRED COMPONENTS QuickTest Test)
+
+    if(EXISTS "${YANAMI_RUST_LICENSE_INVENTORY}")
+        add_test(
+            NAME yanami-rust-license-inventory-policy-tests
+            COMMAND "${CMAKE_COMMAND}"
+                "-DYANAMI_VALID_INVENTORY=${YANAMI_RUST_LICENSE_INVENTORY}"
+                "-DYANAMI_VERIFIER=${CMAKE_CURRENT_BINARY_DIR}/VerifyRustLicenseInventory.cmake"
+                "-DYANAMI_WORKSPACE=${YANAMI_WORKSPACE}"
+                "-DYANAMI_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/rust-license-inventory-policy-test"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/RustLicenseInventoryPolicyTests.cmake"
+        )
+        set_tests_properties(
+            yanami-rust-license-inventory-policy-tests
+            PROPERTIES LABELS "package;policy" TIMEOUT 15)
+    endif()
 
     add_test(
         NAME yanami-package-manifest-policy-tests

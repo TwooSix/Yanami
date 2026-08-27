@@ -54,7 +54,6 @@ set(required_common_files
     THIRD_PARTY_NOTICES.md
     BUILD_INFO.json
     SHA256SUMS.txt
-    licenses/RUST_DEPENDENCIES.md
     licenses/rust/THIRD_PARTY_LICENSES.html
     "${YANAMI_EXECUTABLE_RELATIVE}"
     "${YANAMI_BRIDGE_RELATIVE}")

@@ -34,6 +34,20 @@ if [[ ! "$build_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$ ]]; then
 fi
 
 mkdir -p "$build_dir"
+rust_license_inventory="${YANAMI_RUST_LICENSE_INVENTORY:-}"
+if [[ -n "$rust_license_inventory" ]]; then
+    if [[ ! -f "$rust_license_inventory" ]]; then
+        echo "YANAMI_RUST_LICENSE_INVENTORY does not exist: $rust_license_inventory" >&2
+        exit 1
+    fi
+else
+    rust_license_inventory="$build_dir/generated-licenses/THIRD_PARTY_LICENSES.html"
+    if [[ "$(cargo about --version 2>/dev/null || true)" != "cargo-about 0.9.1" ]]; then
+        cargo install cargo-about --version 0.9.1 --locked --features cli --force
+    fi
+    bash "$script_dir/generate-rust-license-inventory.sh" "$rust_license_inventory"
+fi
+
 runtime_license_dir="$(mktemp -d "$build_dir/runtime-licenses.XXXXXX")"
 formula_list="$runtime_license_dir/formulae.txt"
 printf '%s\n' mpv > "$formula_list"
@@ -103,6 +117,7 @@ cmake -S "$workspace/apps/desktop" -B "$build_dir" -G Ninja \
     -DYANAMI_BUILD_VERSION="$build_version" \
     -DYANAMI_BUILD_COMMIT="$build_commit" \
     -DYANAMI_BUILD_RUN_ID="$build_run_id" \
+    -DYANAMI_RUST_LICENSE_INVENTORY="$rust_license_inventory" \
     -DYANAMI_RUNTIME_LICENSE_DIR="$runtime_license_dir" \
     -DYANAMI_PACKAGE_ARCHITECTURE="$package_architecture"
 cmake --build "$build_dir" --parallel
