@@ -52,5 +52,11 @@ Assert-Match "Linux first-screen auto-exit has an explicit trace" `
     '(?ms)LD_DEBUG=libs timeout 12s "\$entrypoint" \\\r?\n\s*--performance-trace "\$first_screen_trace" \\\r?\n\s*--performance-runtime-auto-exit \\$'
 Assert-Match "Linux first-screen smoke verifies the settled milestone" `
     'grep -q ''"milestone":"startup_settled"'' "\$first_screen_trace"'
+Assert-Match "macOS resolves PowerShell before isolating PATH" `
+    '(?m)^\s*pwsh_path="\$\(command -v pwsh\)"\r?\n\s*test -x "\$pwsh_path"$'
+Assert-Match "macOS bootstrap smoke uses the resolved PowerShell path" `
+    '(?ms)PATH=/usr/bin:/bin:/usr/sbin:/sbin \\\r?\n\s*QT_QUICK_BACKEND=software \\\r?\n\s*"\$pwsh_path" -NoLogo -NoProfile -File \\'
+Assert-Absent "macOS isolated bootstrap smoke does not search for bare PowerShell" `
+    '(?ms)PATH=/usr/bin:/bin:/usr/sbin:/sbin \\\r?\n\s*QT_QUICK_BACKEND=software \\\r?\n\s*pwsh -NoLogo -NoProfile -File \\'
 
 Write-Host "Release workflow contract tests passed ($assertions assertions)."
