@@ -6,6 +6,11 @@ updates:
       interval: monthly
       time: "09:00"
       timezone: Asia/Shanghai
+    # Dependabot's Cargo classifier treats changes to the leftmost non-zero
+    # component as major, so minor/patch here stays within Cargo-compatible
+    # ranges. Security updates ignore allow.update-types and may still widen
+    # Cargo.toml when a fix requires it.
+    versioning-strategy: increase-if-necessary
     open-pull-requests-limit: 1
     groups:
       rust-routine:
@@ -20,7 +25,7 @@ updates:
         patterns:
           - "*"
     allow:
-      - dependency-name: "*"
+      - dependency-type: all
         update-types:
           - "version-update:semver-minor"
           - "version-update:semver-patch"
