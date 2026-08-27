@@ -8,6 +8,11 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#ifdef Q_OS_WIN
+#include <cstdlib>
+#include <string>
+#endif
+
 namespace {
 
 bool isWithin(const QString &root, const QString &candidate)
@@ -16,6 +21,18 @@ bool isWithin(const QString &root, const QString &candidate)
     return relative != QStringLiteral("..")
         && !relative.startsWith(QStringLiteral("../"))
         && !QFileInfo(relative).isAbsolute();
+}
+
+bool setEnvironmentVariable(const char *name, const QString &value)
+{
+#ifdef Q_OS_WIN
+    const std::wstring variableName =
+        QString::fromLatin1(name).toStdWString();
+    const std::wstring nativeValue = value.toStdWString();
+    return ::_wputenv_s(variableName.c_str(), nativeValue.c_str()) == 0;
+#else
+    return qputenv(name, QFile::encodeName(value));
+#endif
 }
 
 } // namespace
@@ -53,9 +70,13 @@ private slots:
         QVERIFY(temporary.isValid());
         const QString profileRoot = temporary.filePath(
             QStringLiteral("cold-profile-全新"));
-        QVERIFY(qputenv(
+        QVERIFY(setEnvironmentVariable(
             ApplicationPaths::isolatedProfileEnvironment,
-            QFile::encodeName(profileRoot)));
+            profileRoot));
+        QCOMPARE(
+            qEnvironmentVariable(
+                ApplicationPaths::isolatedProfileEnvironment),
+            profileRoot);
 
         QCoreApplication::setApplicationName(
             QStringLiteral("YanamiApplicationPathsTests"));
@@ -76,6 +97,9 @@ private slots:
         QVERIFY(isWithin(
             configured.profileRoot,
             ApplicationPaths::logFilePath()));
+        QCOMPARE(
+            qEnvironmentVariable("TEMP"),
+            temporary.filePath(QStringLiteral("cold-profile-全新/temp")));
 
         QCOMPARE(QSettings::defaultFormat(), QSettings::IniFormat);
         QSettings settings;

@@ -10,11 +10,12 @@ if(NOT EXISTS "${installed_bridge}")
     message(FATAL_ERROR "Installed Rust bridge is missing: ${installed_bridge}")
 endif()
 
-# The generated Qt deployment script runs before this script. It deploys the
-# Qt/QML runtime and rewrites the complete linked dependency graph, including
-# libmpv. Do not pass that already-relocated graph through BundleUtilities a
-# second time: BundleUtilities treats valid @loader_path references as source
-# paths and fails to resolve them. Verify every Mach-O reference instead.
+# The real libmpv file is installed before the generated Qt deployment script.
+# macdeployqt then deploys the Qt/QML runtime and rewrites the complete linked
+# dependency graph of both the desktop executable and that bundled libmpv.
+# Do not pass the relocated graph through BundleUtilities a second time:
+# BundleUtilities treats valid @loader_path references as source paths and
+# fails to resolve them. Verify every Mach-O reference instead.
 execute_process(
     COMMAND /bin/bash
         "@YANAMI_WORKSPACE@/scripts/verify-macos-bundle.sh"

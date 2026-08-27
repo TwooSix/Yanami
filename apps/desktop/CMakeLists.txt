@@ -723,11 +723,24 @@ if(WIN32)
 endif()
 
 if(APPLE)
+    # The Homebrew development link is usually a symlink. Install the real
+    # dylib under the loader name compiled into Yanami so the bundle remains
+    # self-contained after the build machine is gone.
+    get_filename_component(
+        YANAMI_MPV_RUNTIME_REALPATH "${MPV_RUNTIME_LIBRARY}" REALPATH)
+    install(FILES "${YANAMI_MPV_RUNTIME_REALPATH}"
+        DESTINATION "Yanami.app/Contents/Frameworks"
+        RENAME "${YANAMI_MPV_RUNTIME_FILENAME}"
+    )
+
     qt_generate_deploy_qml_app_script(
         TARGET yanami-desktop
         OUTPUT_SCRIPT YANAMI_QT_DEPLOY_SCRIPT
         NO_TRANSLATIONS
-        POST_INCLUDE_FILES "${MPV_RUNTIME_LIBRARY}"
+        # CFBundleExecutable is the native bootstrap. Tell macdeployqt to scan
+        # the real Qt desktop executable as an additional Mach-O input.
+        DEPLOY_TOOL_OPTIONS
+            "-executable=Yanami.app/Contents/MacOS/Yanami"
     )
     install(SCRIPT "${YANAMI_QT_DEPLOY_SCRIPT}")
 

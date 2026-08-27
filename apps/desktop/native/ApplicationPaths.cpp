@@ -7,6 +7,11 @@
 #include <QStandardPaths>
 #include <QStringList>
 
+#ifdef Q_OS_WIN
+#include <cstdlib>
+#include <string>
+#endif
+
 namespace ApplicationPaths {
 namespace {
 
@@ -42,11 +47,30 @@ QString childPath(const QString &root, const QString &relative)
 
 bool setEnvironmentPath(const char *name, const QString &path, QString *error)
 {
+#ifdef Q_OS_WIN
+    const std::wstring variableName =
+        QString::fromLatin1(name).toStdWString();
+    const std::wstring nativePath = path.toStdWString();
+    const int nativeError =
+        ::_wputenv_s(variableName.c_str(), nativePath.c_str());
+    if (nativeError == 0) {
+        return true;
+    }
+#else
     if (qputenv(name, QFile::encodeName(path)))
         return true;
+#endif
     if (error) {
+#ifdef Q_OS_WIN
+        *error = QStringLiteral(
+                     "Unable to set isolated environment variable %1 "
+                     "(Windows runtime error %2).")
+                     .arg(QString::fromLatin1(name),
+                          QString::number(nativeError));
+#else
         *error = QStringLiteral("Unable to set isolated environment variable %1.")
                      .arg(QString::fromLatin1(name));
+#endif
     }
     return false;
 }
