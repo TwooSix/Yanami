@@ -3,31 +3,58 @@ updates:
   - package-ecosystem: cargo
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "09:00"
       timezone: Asia/Shanghai
-    open-pull-requests-limit: 5
+    # Dependabot's Cargo classifier treats changes to the leftmost non-zero
+    # component as major, so minor/patch here stays within Cargo-compatible
+    # ranges. The Cargo-supported auto strategy also lets security updates
+    # widen Cargo.toml when a fix requires it.
+    versioning-strategy: auto
+    open-pull-requests-limit: 1
     groups:
-      rust-minor-and-patch:
+      rust-routine:
+        applies-to: version-updates
+        patterns:
+          - "*"
         update-types:
           - minor
           - patch
+      rust-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    allow:
+      - dependency-type: all
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
     commit-message:
       prefix: "chore(deps)"
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "09:15"
       timezone: Asia/Shanghai
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 1
     groups:
-      actions-minor-and-patch:
+      actions-routine:
+        applies-to: version-updates
+        patterns:
+          - "*"
         update-types:
           - minor
           - patch
+      actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
     commit-message:
       prefix: "chore(deps)"

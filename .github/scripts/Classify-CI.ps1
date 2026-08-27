@@ -2,6 +2,7 @@
 param(
     [string]$BaseSha,
     [string]$HeadSha,
+    [switch]$UseMergeBase,
     [string[]]$ChangedPath,
     [string]$OutputPath = $env:GITHUB_OUTPUT,
     [string]$SummaryPath = $env:GITHUB_STEP_SUMMARY,
@@ -28,7 +29,18 @@ if ($PSBoundParameters.ContainsKey('ChangedPath')) {
         $baseExists = $LASTEXITCODE -eq 0
     }
     if ($baseExists) {
-        $changed = @(git diff --name-only --diff-filter=ACDMRTUXB $BaseSha $HeadSha)
+        $diffBase = $BaseSha
+        if ($UseMergeBase) {
+            $diffBase = (git merge-base $BaseSha $HeadSha).Trim()
+            if ($LASTEXITCODE -ne 0 -or $diffBase -notmatch '^[0-9a-fA-F]{40}$') {
+                throw "Unable to resolve the pull request merge base."
+            }
+        }
+        # Disable rename folding so both the removed and added paths are
+        # classified. A product file moved under docs must still run its old
+        # path's quality gates.
+        $changed = @(git diff --no-renames --name-only `
+            --diff-filter=ACDMRTUXB $diffBase $HeadSha)
         if ($LASTEXITCODE -ne 0) { throw "Unable to diff the CI classification range." }
     } else {
         # New branches have no usable before SHA. Inspect every tracked file
@@ -44,11 +56,10 @@ $changed = @($changed | Where-Object {
 
 $workflowFiles = @($changed | Where-Object { $_ -match '^\.github/' })
 $rustFiles = @($changed | Where-Object {
-    $_ -match '^(crates/|Cargo\.(toml|lock)$|rust-toolchain(?:\.toml)?$|VERSION$|about\.toml$|licenses/rust/)'
+    $_ -match '^(crates/|Cargo\.(toml|lock)$|rust-toolchain(?:\.toml)?$|VERSION$|about\.toml$|licenses/rust/|scripts/generate-rust-license-inventory\.sh$)'
 })
 $desktopFiles = @($changed | Where-Object {
-    $_ -match '^(apps/desktop/|crates/(?!yanami-performance-probe/)|Cargo\.(toml|lock)$|rust-toolchain(?:\.toml)?$|VERSION$)' -or
-    ($_ -match '^scripts/' -and $_ -notmatch '^scripts/performance/')
+    $_ -match '^(apps/desktop/|crates/(?!yanami-performance-probe/)|Cargo\.(toml|lock)$|rust-toolchain(?:\.toml)?$|VERSION$)'
 })
 
 # Paths explicitly owned by documentation, repository metadata, release-only
@@ -61,23 +72,29 @@ $unknownProductFiles = @($changed | Where-Object {
 
 $runRust = $rustFiles.Count -gt 0 -or $unknownProductFiles.Count -gt 0
 $runDesktop = $desktopFiles.Count -gt 0 -or $unknownProductFiles.Count -gt 0
-$runWorkflows = $workflowFiles.Count -gt 0 -or
-    $changed -contains 'scripts/performance/Select-Suites.ps1'
+$toolingFiles = @($changed | Where-Object {
+    $_ -match '^scripts/' -or $_ -eq '.gitattributes'
+})
+$runWorkflows = $workflowFiles.Count -gt 0 -or $toolingFiles.Count -gt 0
 $nativeFiles = @($changed | Where-Object {
     $_ -match '(^|/)CMakeLists\.txt$' -or
     $_ -match '^apps/desktop/cmake/' -or
     $_ -match '^apps/desktop/(native|tests)/.*\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$'
 })
 $runNativeAnalysis = $nativeFiles.Count -gt 0 -or $unknownProductFiles.Count -gt 0
-$nonPackagePattern = '^(docs/|perf/|scripts/performance/|crates/yanami-performance-probe/|\.git(?:ignore|attributes)$|\.github/dependabot\.yml$|\.github/scripts/|\.github/workflows/core\.yml$)'
-$packageFiles = @($changed | Where-Object { $_ -notmatch $nonPackagePattern })
+$packageInputPattern = '^(apps/desktop/|crates/(?!yanami-performance-probe/)|Cargo\.(toml|lock)$|rust-toolchain(?:\.toml)?$|VERSION$|about\.toml$|licenses/|README\.md$|README\.zh-CN\.md$|LICENSE$|THIRD_PARTY_NOTICES\.md$|\.gitattributes$|\.github/workflows/release\.yml$|scripts/(?:collect-linux-runtime-licenses|generate-rust-license-inventory|package-linux|package-macos|verify-macos-bundle)\.sh$)'
+$packageFiles = @($changed | Where-Object { $_ -match $packageInputPattern })
+$runPackage = $packageFiles.Count -gt 0 -or $unknownProductFiles.Count -gt 0
 
-# Exercise every Core suite when its router changes.
+# Exercise every Core suite and the complete package wiring when its router or
+# classifier changes. Otherwise those changes could pass without generating the
+# license artifact or running the install-tree smoke test they control.
 if ($changed -contains '.github/workflows/core.yml' -or
     $changed -contains '.github/scripts/Classify-CI.ps1') {
     $runRust = $true
     $runDesktop = $true
     $runNativeAnalysis = $true
+    $runPackage = $true
 }
 
 $performanceClassifier = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot `
@@ -97,7 +114,7 @@ $result = [pscustomobject][ordered]@{
     nativeAnalysis = $runNativeAnalysis
     performance = [bool]$performanceResult.relevant
     performanceSuites = [string]$performanceResult.suites
-    package = $packageFiles.Count -gt 0
+    package = $runPackage
     changedCount = $changed.Count
     unknownProductCount = $unknownProductFiles.Count
 }
@@ -121,7 +138,7 @@ if ($SummaryPath) {
         "- Changed files: $($result.changedCount)"
         "- Rust quality: $($result.rust)"
         "- Desktop matrix: $($result.desktop)"
-        "- Workflow lint: $($result.workflows)"
+        "- CI/tooling static analysis: $($result.workflows)"
         "- Native CodeQL analysis: $($result.nativeAnalysis)"
         "- Hosted performance suites: $(if ($result.performanceSuites) { $result.performanceSuites.Replace(',', ', ') } else { 'none' })"
         "- Desktop packaging relevant: $($result.package)"

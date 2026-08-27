@@ -136,12 +136,59 @@ jobs:
             echo "- This workflow uploads artifacts only; it never creates a Release."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  rust-licenses:
+    name: Generate the Rust license inventory
+    needs: metadata
+    if: needs.metadata.outputs.package-relevant == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable as of 2026-08-16
+      - name: Cache Cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-registry-v1-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-registry-v1-${{ runner.os }}-
+      - name: Cache the pinned license tool
+        id: license-tool
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-about
+          key: rust-license-tool-v1-cargo-about-0.9.1
+      - name: Install the pinned license tool
+        if: steps.license-tool.outputs.cache-hit != 'true'
+        run: cargo install cargo-about --version 0.9.1 --locked --features cli
+      - name: Generate and validate the locked Rust license inventory
+        shell: bash
+        run: >-
+          bash scripts/generate-rust-license-inventory.sh
+          build/generated-licenses/THIRD_PARTY_LICENSES.html
+      - name: Upload the generated inventory for every platform package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rust-license-${{ github.run_id }}
+          path: build/generated-licenses/THIRD_PARTY_LICENSES.html
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
+
   windows-package:
     name: Build, audit, and verify the unsigned Windows package
-    needs: [metadata, linux-package]
+    needs: [metadata, rust-licenses, linux-package]
     if: >-
       needs.metadata.outputs.scope == 'all' &&
       needs.metadata.outputs.package-relevant == 'true' &&
+      needs.rust-licenses.result == 'success' &&
       needs.linux-package.result == 'success'
     runs-on: windows-2022
     timeout-minutes: 90
@@ -165,6 +212,12 @@ jobs:
           ref: ${{ needs.metadata.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Download the generated Rust license inventory
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rust-license-${{ github.run_id }}
+          path: build/generated-licenses
 
       - name: Install the MSYS2 UCRT64 desktop toolchain
         id: msys2
@@ -222,16 +275,6 @@ jobs:
           cargo +stable-x86_64-pc-windows-gnu fmt --all -- --check
           cargo +stable-x86_64-pc-windows-gnu clippy --workspace --all-targets --locked -- -D warnings
           cargo +stable-x86_64-pc-windows-gnu test --workspace --all-targets --locked
-          cargo +stable-x86_64-pc-windows-gnu install cargo-about `
-            --version 0.9.1 --locked --features cli
-          $generatedLicenses = Join-Path $env:RUNNER_TEMP "THIRD_PARTY_LICENSES.html"
-          cargo +stable-x86_64-pc-windows-gnu about generate `
-            --workspace --locked --target x86_64-pc-windows-gnu --fail `
-            licenses/rust/about.hbs -o $generatedLicenses
-          if ((Get-FileHash $generatedLicenses -Algorithm SHA256).Hash -ne
-              (Get-FileHash licenses/rust/THIRD_PARTY_LICENSES.html -Algorithm SHA256).Hash) {
-            throw "The checked-in Rust license report is stale."
-          }
 
       - name: Build and test the complete Release desktop
         shell: pwsh
@@ -256,6 +299,7 @@ jobs:
             "-DYANAMI_BUILD_VERSION=$env:YANAMI_RELEASE_VERSION" `
             "-DYANAMI_BUILD_COMMIT=$env:YANAMI_RELEASE_SHA" `
             "-DYANAMI_BUILD_RUN_ID=$env:GITHUB_RUN_ID" `
+            "-DYANAMI_RUST_LICENSE_INVENTORY=${{ github.workspace }}\build\generated-licenses\THIRD_PARTY_LICENSES.html" `
             -DYANAMI_PACKAGE_ARCHITECTURE=x86_64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$ucrtBin\cmake.exe" --build build/release-windows --parallel
@@ -321,7 +365,6 @@ jobs:
               "THIRD_PARTY_NOTICES.md",
               "BUILD_INFO.json",
               "SHA256SUMS.txt",
-              "licenses\RUST_DEPENDENCIES.md",
               "licenses\rust\THIRD_PARTY_LICENSES.html",
               "licenses\ffmpeg\GPL-3.0-or-later.txt",
               "licenses\libass\ISC.txt",
@@ -500,9 +543,10 @@ jobs:
 
   linux-package:
     name: Build, audit, and verify the Linux AppImage
-    needs: metadata
+    needs: [metadata, rust-licenses]
     if: >-
       needs.metadata.outputs.package-relevant == 'true' &&
+      needs.rust-licenses.result == 'success' &&
       (needs.metadata.outputs.scope == 'all' ||
        needs.metadata.outputs.scope == 'linux-only')
     runs-on: ubuntu-24.04
@@ -521,6 +565,11 @@ jobs:
           ref: ${{ needs.metadata.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Download the generated Rust license inventory
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rust-license-${{ github.run_id }}
+          path: build/generated-licenses
       - name: Install native dependencies
         run: |
           sudo apt-get update
@@ -562,6 +611,7 @@ jobs:
           YANAMI_BUILD_RUN_ID: ${{ github.run_id }}
           YANAMI_BUILD_DIR: ${{ github.workspace }}/build/release-linux
           YANAMI_OUTPUT_DIR: ${{ github.workspace }}/build/release-assets
+          YANAMI_RUST_LICENSE_INVENTORY: ${{ github.workspace }}/build/generated-licenses/THIRD_PARTY_LICENSES.html
         run: |
           set -euo pipefail
           test -n "$YANAMI_DANDANPLAY_APP_ID"
@@ -592,7 +642,6 @@ jobs:
           for required in \
               LICENSE README.md README.zh-CN.md THIRD_PARTY_NOTICES.md \
               BUILD_INFO.json SHA256SUMS.txt \
-              licenses/RUST_DEPENDENCIES.md \
               licenses/rust/THIRD_PARTY_LICENSES.html \
               licenses/linux/PACKAGE_METADATA.txt; do
             test -f "$package_root/$required"
@@ -676,10 +725,11 @@ jobs:
 
   macos-package:
     name: Build, audit, and verify macOS (${{ matrix.architecture }})
-    needs: [metadata, linux-package]
+    needs: [metadata, rust-licenses, linux-package]
     if: >-
       needs.metadata.outputs.scope == 'all' &&
       needs.metadata.outputs.package-relevant == 'true' &&
+      needs.rust-licenses.result == 'success' &&
       needs.linux-package.result == 'success'
     strategy:
       fail-fast: false
@@ -705,6 +755,11 @@ jobs:
           ref: ${{ needs.metadata.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Download the generated Rust license inventory
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rust-license-${{ github.run_id }}
+          path: build/generated-licenses
       - name: Install native dependencies
         run: brew install jq mpv pkg-config
       - name: Install Qt 6.8.3
@@ -740,6 +795,7 @@ jobs:
           YANAMI_BUILD_RUN_ID: ${{ github.run_id }}
           YANAMI_BUILD_DIR: ${{ github.workspace }}/build/release-macos-${{ matrix.architecture }}
           YANAMI_OUTPUT_DIR: ${{ github.workspace }}/build/release-assets
+          YANAMI_RUST_LICENSE_INVENTORY: ${{ github.workspace }}/build/generated-licenses/THIRD_PARTY_LICENSES.html
         run: |
           set -euo pipefail
           test -n "$YANAMI_DANDANPLAY_APP_ID"
@@ -770,7 +826,6 @@ jobs:
           for required in \
               LICENSE README.md README.zh-CN.md THIRD_PARTY_NOTICES.md \
               BUILD_INFO.json SHA256SUMS.txt \
-              licenses/RUST_DEPENDENCIES.md \
               licenses/rust/THIRD_PARTY_LICENSES.html \
               licenses/runtime/HOMEBREW_PACKAGE_METADATA.json; do
             test -f "$mount_dir/$required"

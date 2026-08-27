@@ -21,10 +21,9 @@ The package contains the following principal runtime components:
 Every package includes:
 
 - `LICENSE`, the complete GPL version 3 text for Yanami and GPLv3 components;
-- `licenses/RUST_DEPENDENCIES.md`, the complete locked Rust package, version,
-  SPDX-expression and source inventory;
 - `licenses/rust/THIRD_PARTY_LICENSES.html`, the complete license and copyright
-  text generated from that locked Rust graph with cargo-about;
+  text plus package/version overview generated from that locked Rust graph with
+  cargo-about during CI and packaging;
 - `BUILD_INFO.json`, the immutable source and workflow identity;
 - `SHA256SUMS.txt`, a hash and size manifest of every staged file.
 

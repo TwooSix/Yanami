@@ -1,0 +1,69 @@
+if(DEFINED YANAMI_RUST_LICENSE_INVENTORY_OVERRIDE)
+    set(inventory "${YANAMI_RUST_LICENSE_INVENTORY_OVERRIDE}")
+else()
+    set(inventory [==[@YANAMI_RUST_LICENSE_INVENTORY@]==])
+endif()
+if(NOT EXISTS "${inventory}" OR IS_DIRECTORY "${inventory}")
+    message(FATAL_ERROR
+        "Generated Rust license inventory is missing: ${inventory}. "
+        "Run scripts/generate-rust-license-inventory.sh or pass "
+        "-DYANAMI_RUST_LICENSE_INVENTORY=<generated HTML> before installing.")
+endif()
+
+file(SIZE "${inventory}" inventory_size)
+if(inventory_size LESS 32768 OR inventory_size GREATER 2097152)
+    message(FATAL_ERROR
+        "Generated Rust license inventory has an unexpected size: "
+        "${inventory_size} bytes")
+endif()
+
+file(READ "${inventory}" inventory_header LIMIT 16384)
+if(NOT inventory_header MATCHES
+        "<title>Yanami Rust third-party licenses</title>")
+    message(FATAL_ERROR
+        "Generated Rust license inventory has an unexpected document header")
+endif()
+if(NOT inventory_header MATCHES
+        "<meta name=\"yanami-license-generator\" content=\"cargo-about 0\\.9\\.1\">")
+    message(FATAL_ERROR
+        "Generated Rust license inventory has an unexpected generator")
+endif()
+if(NOT inventory_header MATCHES
+        "Generated from the locked Cargo dependency graph for all packaged platforms\\.")
+    message(FATAL_ERROR
+        "Generated Rust license inventory does not cover every packaged platform")
+endif()
+
+set(license_inputs
+    "@YANAMI_WORKSPACE@/Cargo.lock"
+    "@YANAMI_WORKSPACE@/about.toml"
+    "@YANAMI_WORKSPACE@/licenses/rust/about.hbs"
+    "@YANAMI_WORKSPACE@/scripts/generate-rust-license-inventory.sh"
+    "@YANAMI_WORKSPACE@/Cargo.toml")
+file(GLOB_RECURSE workspace_manifests LIST_DIRECTORIES false
+    "@YANAMI_WORKSPACE@/crates/*/Cargo.toml")
+list(APPEND license_inputs ${workspace_manifests})
+list(REMOVE_DUPLICATES license_inputs)
+list(SORT license_inputs)
+foreach(input IN LISTS license_inputs)
+    if(NOT EXISTS "${input}" OR IS_DIRECTORY "${input}")
+        message(FATAL_ERROR "Rust license inventory input is missing: ${input}")
+    endif()
+    file(SHA256 "${input}" input_hash)
+    file(RELATIVE_PATH relative_input "@YANAMI_WORKSPACE@" "${input}")
+    file(TO_CMAKE_PATH "${relative_input}" relative_input)
+    set(input_marker
+        "<meta name=\"yanami-license-input-sha256\" data-path=\"${relative_input}\" content=\"${input_hash}\">")
+    string(FIND "${inventory_header}" "${input_marker}" marker_offset)
+    if(marker_offset EQUAL -1)
+        message(FATAL_ERROR
+            "Generated Rust license inventory is stale for ${relative_input}")
+    endif()
+endforeach()
+
+file(READ "${inventory}" inventory_content)
+string(TOLOWER "${inventory_content}" inventory_content_lower)
+if(inventory_content_lower MATCHES "<[ \\t]*(script|iframe|object|embed)([ \\t>])")
+    message(FATAL_ERROR
+        "Generated Rust license inventory unexpectedly contains active HTML")
+endif()

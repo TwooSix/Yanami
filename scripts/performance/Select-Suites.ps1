@@ -33,7 +33,8 @@ function Get-ChangedPath {
         $baseExists = $LASTEXITCODE -eq 0
     }
     if ($baseExists) {
-        $paths = @(& git diff --name-only --diff-filter=ACDMRTUXB $BaseSha $HeadSha)
+        $paths = @(& git diff --no-renames --name-only `
+            --diff-filter=ACDMRTUXB $BaseSha $HeadSha)
         if ($LASTEXITCODE -ne 0) { throw "Unable to diff performance classification range." }
         return @($paths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
     }
@@ -46,7 +47,7 @@ function Get-ChangedPath {
 }
 
 $changed = @(Get-ChangedPath)
-$nonProductPattern = '^(docs/|licenses/|LICENSE(?:$|\.)|README(?:\.|$)|THIRD_PARTY_NOTICES\.md$|\.git(?:ignore|attributes)$|\.github/dependabot\.yml$|\.github/workflows/release\.yml$|.*\.md$)'
+$nonProductPattern = '^(docs/|licenses/|LICENSE(?:$|\.)|README(?:\.|$)|THIRD_PARTY_NOTICES\.md$|\.git(?:ignore|attributes)$|\.github/(?!workflows/core\.yml$)|scripts/(?!performance/)|.*\.md$)'
 $relevantFiles = @($changed | Where-Object { $_.Replace('\', '/') -notmatch $nonProductPattern })
 $suiteOrder = @("Search", "Backend", "Interaction", "Playback", "Danmaku", "Upscaling", "Startup")
 $selected = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -54,8 +55,18 @@ $selected = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal
 foreach ($path in $relevantFiles) {
     $normalized = $path.Replace('\', '/')
 
+    if ($normalized -match '^(Cargo\.toml|Cargo\.lock)$' -or
+        $normalized -match '^crates/yanami-performance-probe/') {
+        # Dependency-only updates already run workspace Rust checks and the
+        # cross-platform desktop matrix. Keep deterministic production probes
+        # without routing every native/offscreen suite.
+        [void]$selected.Add("Search")
+        [void]$selected.Add("Backend")
+        continue
+    }
+
     if ($normalized -match '^(perf/|scripts/performance/|\.github/workflows/)' -or
-        $normalized -match '^(Cargo\.toml|Cargo\.lock|VERSION)$' -or
+        $normalized -match '^VERSION$' -or
         $normalized -match '(^|/)CMakeLists\.txt$' -or
         $normalized -match '^crates/(yanami-core|yanami-application|yanami-desktop-bridge)/' -or
         $normalized -match '^apps/desktop/native/(ApplicationViewModel|DesktopBackendServices|RustBridgeRuntime)') {

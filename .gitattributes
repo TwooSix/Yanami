@@ -1,6 +1,5 @@
 * text=auto eol=lf
 
-# These files are audited by their exact SHA-256 bytes. Do not normalize the
-# upstream line endings or the generated cargo-about report during checkout.
+# These files are audited by their exact SHA-256 bytes. Do not normalize their
+# upstream line endings during checkout.
 licenses/msys2-fallback/** -text whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
-licenses/rust/THIRD_PARTY_LICENSES.html -text whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab

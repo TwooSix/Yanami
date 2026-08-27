@@ -24,12 +24,26 @@ if [[ ! "$build_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$ ]]; then
     exit 1
 fi
 
-for command_name in cmake ctest curl sha256sum; do
+for command_name in cargo cmake ctest curl sha256sum; do
     command -v "$command_name" >/dev/null 2>&1 || {
         echo "required command is missing: $command_name" >&2
         exit 1
     }
 done
+
+rust_license_inventory="${YANAMI_RUST_LICENSE_INVENTORY:-}"
+if [[ -n "$rust_license_inventory" ]]; then
+    if [[ ! -f "$rust_license_inventory" ]]; then
+        echo "YANAMI_RUST_LICENSE_INVENTORY does not exist: $rust_license_inventory" >&2
+        exit 1
+    fi
+else
+    rust_license_inventory="$build_dir/generated-licenses/THIRD_PARTY_LICENSES.html"
+    if [[ "$(cargo about --version 2>/dev/null || true)" != "cargo-about 0.9.1" ]]; then
+        cargo install cargo-about --version 0.9.1 --locked --features cli --force
+    fi
+    bash "$script_dir/generate-rust-license-inventory.sh" "$rust_license_inventory"
+fi
 
 cmake -S "$workspace/apps/desktop" -B "$build_dir" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
@@ -39,6 +53,7 @@ cmake -S "$workspace/apps/desktop" -B "$build_dir" -G Ninja \
     -DYANAMI_BUILD_VERSION="$build_version" \
     -DYANAMI_BUILD_COMMIT="$build_commit" \
     -DYANAMI_BUILD_RUN_ID="$build_run_id" \
+    -DYANAMI_RUST_LICENSE_INVENTORY="$rust_license_inventory" \
     -DYANAMI_PACKAGE_ARCHITECTURE=x86_64
 cmake --build "$build_dir" --parallel
 unset YANAMI_DANDANPLAY_APP_ID YANAMI_DANDANPLAY_APP_SECRET || true
