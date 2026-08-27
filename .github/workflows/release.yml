@@ -953,11 +953,13 @@ jobs:
           smoke_home="$(mktemp -d "$RUNNER_TEMP/yanami-smoke-home.XXXXXX")"
           forbidden_screenshot="$RUNNER_TEMP/yanami-forbidden-${{ matrix.architecture }}.png"
           forbidden_log="$RUNNER_TEMP/yanami-forbidden-${{ matrix.architecture }}.log"
+          pwsh_path="$(command -v pwsh)"
+          test -x "$pwsh_path"
           env \
             HOME="$smoke_home" \
             PATH=/usr/bin:/bin:/usr/sbin:/sbin \
             QT_QUICK_BACKEND=software \
-            pwsh -NoLogo -NoProfile -File \
+            "$pwsh_path" -NoLogo -NoProfile -File \
               scripts/performance/Test-BootstrapPackage.ps1 \
               -Platform macOS \
               -EntryPointPath "$launcher" \
