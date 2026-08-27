@@ -22,7 +22,9 @@ private slots:
         QVERIFY(runtime.isLoaded());
         QCOMPARE(runtime.functions(), functions);
         QVERIFY(!runtime.loadedFileName().isEmpty());
-        QVERIFY(QFileInfo::exists(runtime.loadedFileName()));
+        const QFileInfo loadedFile(runtime.loadedFileName());
+        if (loadedFile.isAbsolute())
+            QVERIFY(loadedFile.exists());
 
         // The centralized resolver is fail-closed: reaching this point means
         // every function used by MpvVideoItem was present. Exercise the first

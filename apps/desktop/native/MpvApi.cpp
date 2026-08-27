@@ -173,7 +173,13 @@ const MpvFunctions *MpvApi::load(QString *errorMessage)
             continue;
         }
 
-        m_loadedFileName = QFileInfo(library->fileName()).absoluteFilePath();
+        const QFileInfo loadedFile(library->fileName());
+        // QLibrary preserves a bare name when the Unix system loader resolves
+        // it through its configured search paths. Do not reinterpret that
+        // identifier as a nonexistent file in the process working directory.
+        m_loadedFileName = loadedFile.isAbsolute()
+            ? loadedFile.absoluteFilePath()
+            : library->fileName();
         m_functions = resolved;
         m_library = std::move(library);
         m_loaded.store(true, std::memory_order_release);
