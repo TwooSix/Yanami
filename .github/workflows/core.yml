@@ -337,6 +337,7 @@ jobs:
           & .\scripts\performance\Test-PerfGate.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run hosted pull-request performance gates
+        id: performance-gate
         if: needs.scope.outputs.performance == 'true'
         shell: pwsh
         env:
@@ -362,7 +363,10 @@ jobs:
             Get-Content -LiteralPath $summary -Raw >> $env:GITHUB_STEP_SUMMARY
           }
       - name: Upload hosted performance results
-        if: always() && needs.scope.outputs.performance == 'true'
+        if: >-
+          !cancelled() &&
+          needs.scope.outputs.performance == 'true' &&
+          steps.performance-gate.outcome != 'skipped'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: performance-hosted-${{ github.run_id }}-${{ github.run_attempt }}
