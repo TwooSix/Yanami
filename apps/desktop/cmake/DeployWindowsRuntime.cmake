@@ -109,12 +109,15 @@ file(WRITE "${app_dir}/qt.conf"
     "[Paths]\nPrefix=.\nPlugins=.\nQmlImports=qml\n")
 
 # windeployqt deploys Qt itself but the MSYS2 build does not copy the GNU
-# runtime or the codec libraries used transitively by libmpv. Resolve the
-# complete dependency closure of the executable and every deployed plugin.
+# runtime or the codec libraries used transitively by libmpv. libmpv is loaded
+# on demand and therefore is deliberately absent from the executable's PE
+# import table; keep it as an explicit dependency root so its FFmpeg/placebo
+# closure remains part of both build-tree and install-tree packages.
 yanami_collect_deployed_runtime_libraries(deployed_libraries "${app_dir}")
+list(REMOVE_ITEM deployed_libraries "${app_dir}/${mpv_name}")
 file(GET_RUNTIME_DEPENDENCIES
     EXECUTABLES "${YANAMI_EXECUTABLE}"
-    LIBRARIES ${deployed_libraries}
+    LIBRARIES "${app_dir}/${mpv_name}" ${deployed_libraries}
     DIRECTORIES "${app_dir}" "${YANAMI_QT_PREFIX}/bin"
     RESOLVED_DEPENDENCIES_VAR resolved_dependencies
     UNRESOLVED_DEPENDENCIES_VAR unresolved_dependencies

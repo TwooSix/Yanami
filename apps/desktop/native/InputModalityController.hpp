@@ -143,6 +143,11 @@ public:
 
     Q_DISABLE_COPY_MOVE(InputModalityService)
 
+    // Controller backends may touch SDL, XInput, and device enumeration. Keep
+    // that work out of singleton construction so pointer/keyboard input is
+    // available while the first shell frame is being prepared.
+    void initializeControllerNavigation();
+
     [[nodiscard]] InputModalityController::Modality modality() const;
     [[nodiscard]] bool focusNavigationActive() const;
     [[nodiscard]] bool controllerConnected() const;

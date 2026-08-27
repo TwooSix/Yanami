@@ -62,7 +62,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Desktop build failed."
 }
 
-$executable = Join-Path $buildDir "yanami-desktop.exe"
+$executable = Join-Path $buildDir "Yanami.exe"
 Write-Host "Built $executable"
 if (-not $BuildOnly) {
     & $executable

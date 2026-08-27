@@ -238,8 +238,6 @@ InputModalityService &InputModalityService::instance()
 
 InputModalityService::InputModalityService(QObject *parent)
     : QObject(parent)
-    , m_controllerNavigation(
-          std::make_unique<ControllerNavigationSource>())
     , m_lastPointerPosition(QCursor::pos())
     , m_pointerPositionKnown(true)
 {
@@ -265,6 +263,17 @@ InputModalityService::InputModalityService(QObject *parent)
         }
 #endif
     }
+}
+
+void InputModalityService::initializeControllerNavigation()
+{
+    if (QThread::currentThread() != thread()) {
+        qFatal("Controller navigation must be initialized on the application thread");
+    }
+    if (m_controllerNavigation)
+        return;
+
+    m_controllerNavigation = std::make_unique<ControllerNavigationSource>();
     connect(m_controllerNavigation.get(),
             &ControllerNavigationSource::actionPressed,
             this,
@@ -281,6 +290,12 @@ InputModalityService::InputModalityService(QObject *parent)
             &ControllerNavigationSource::backendChanged,
             this,
             &InputModalityService::controllerBackendChanged);
+
+    // Before initialization the public facade deliberately reports "none".
+    // Publish the selected SDL/XInput backend after the source is connected;
+    // the source's first poll will publish any initially attached devices.
+    if (m_controllerNavigation->backend() != QStringLiteral("none"))
+        emit controllerBackendChanged();
 }
 
 InputModalityService::~InputModalityService()
@@ -346,12 +361,14 @@ QString InputModalityService::activeSupportTier() const
 
 QString InputModalityService::controllerBackend() const
 {
-    return m_controllerNavigation->backend();
+    return m_controllerNavigation
+        ? m_controllerNavigation->backend() : QStringLiteral("none");
 }
 
 QVariantList InputModalityService::connectedDevices() const
 {
-    return m_controllerNavigation->connectedDevices();
+    return m_controllerNavigation
+        ? m_controllerNavigation->connectedDevices() : QVariantList{};
 }
 
 QString InputModalityService::lastActionName() const
@@ -617,8 +634,9 @@ bool InputModalityService::nativeEventFilter(const QByteArray &eventType,
 
     const quintptr handle = reinterpret_cast<quintptr>(
         rawInput->header.hDevice);
-    const QString remoteDeviceId =
-        m_controllerNavigation->remoteDeviceIdForNativeHandle(handle);
+    const QString remoteDeviceId = m_controllerNavigation
+        ? m_controllerNavigation->remoteDeviceIdForNativeHandle(handle)
+        : QString{};
     if (remoteDeviceId.isEmpty()) {
         // A real keyboard event is authoritative evidence for an immediate
         // modality handoff. It must also invalidate an earlier remote event
@@ -702,6 +720,8 @@ void InputModalityService::handleControllerActionPressed(
         return;
     }
     const Action semanticAction = static_cast<Action>(action);
+    const QVariantMap device = m_controllerNavigation
+        ? m_controllerNavigation->deviceDescriptor(deviceId) : QVariantMap{};
     const auto capturedIterator = m_capturedControllerActions.constFind(
         deviceId);
     if (capturedIterator != m_capturedControllerActions.cend()
@@ -710,7 +730,7 @@ void InputModalityService::handleControllerActionPressed(
             (void) routeActionPressed(
                 semanticAction,
                 repeated,
-                m_controllerNavigation->deviceDescriptor(deviceId),
+                device,
                 Modality::Controller);
         }
         return;
@@ -719,7 +739,7 @@ void InputModalityService::handleControllerActionPressed(
     const bool captured = routeActionPressed(
         semanticAction,
         repeated,
-        m_controllerNavigation->deviceDescriptor(deviceId),
+        device,
         Modality::Controller);
     if (captured) {
         m_capturedControllerActions[deviceId].insert(action);
@@ -892,9 +912,10 @@ QVariantMap InputModalityService::remoteDescriptorForKeyEvent(
 #ifdef Q_OS_WIN
     const bool isPress = event.type() == QEvent::KeyPress;
     const quint32 nativeVirtualKey = event.nativeVirtualKey();
-    const QString candidateDeviceId =
-        m_controllerNavigation->remoteDeviceIdForNativeHandle(
-            m_lastRawDeviceHandle);
+    const QString candidateDeviceId = m_controllerNavigation
+        ? m_controllerNavigation->remoteDeviceIdForNativeHandle(
+              m_lastRawDeviceHandle)
+        : QString{};
     if (rawKeyEventMatchesRemote(
             candidateDeviceId,
             m_lastRawVirtualKey,
@@ -908,7 +929,7 @@ QVariantMap InputModalityService::remoteDescriptorForKeyEvent(
     // This prevents a later equal VKey from inheriting stale device identity.
     clearRawKeyCorrelation();
 #endif
-    if (!correlatedDeviceId.isEmpty()) {
+    if (!correlatedDeviceId.isEmpty() && m_controllerNavigation) {
         return m_controllerNavigation->deviceDescriptor(correlatedDeviceId);
     }
 

@@ -49,7 +49,7 @@ whose platform and CPU architecture match your computer.
 1. Download the Windows ZIP from
    [Releases](https://github.com/TwooSix/Yanami/releases).
 2. Extract the ZIP, open the extracted folder, and run
-   `bin\yanami-desktop.exe`.
+   `bin\Yanami.exe`.
 
 ### Linux (experimental and untested)
 
@@ -147,7 +147,7 @@ cmake -S apps/desktop -B build/desktop-linux -G Ninja \
   -DCMAKE_PREFIX_PATH="$YANAMI_QT_ROOT" \
   -DBUILD_TESTING=OFF
 cmake --build build/desktop-linux --parallel
-./build/desktop-linux/yanami-desktop
+./build/desktop-linux/yanami
 ```
 
 ### macOS (experimental and untested)

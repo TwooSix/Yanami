@@ -319,6 +319,149 @@ private slots:
             QStringLiteral("pools.searchHydration(),")));
     }
 
+    void controllerRuntimeInitializationStaysAfterFirstShellFrame()
+    {
+        const QString inputModality = source(
+            QDir(m_nativeRoot).filePath(
+                QStringLiteral("InputModalityController.cpp")));
+        const QString main = source(
+            QDir(m_nativeRoot).filePath(QStringLiteral("main.cpp")));
+        QVERIFY(!inputModality.isEmpty());
+        QVERIFY(!main.isEmpty());
+
+        const qsizetype constructorStart = inputModality.indexOf(
+            QStringLiteral("InputModalityService::InputModalityService("));
+        const qsizetype initializerStart = inputModality.indexOf(
+            QStringLiteral(
+                "void InputModalityService::initializeControllerNavigation()"));
+        const qsizetype destructorStart = inputModality.indexOf(
+            QStringLiteral("InputModalityService::~InputModalityService()"));
+        QVERIFY(constructorStart >= 0);
+        QVERIFY(initializerStart > constructorStart);
+        QVERIFY(destructorStart > initializerStart);
+
+        const QString constructor = inputModality.mid(
+            constructorStart, initializerStart - constructorStart);
+        const QString initializer = inputModality.mid(
+            initializerStart, destructorStart - initializerStart);
+        QVERIFY2(!constructor.contains(
+                     QStringLiteral("ControllerNavigationSource")),
+                 "InputModalityService construction must not create the SDL/XInput source");
+        QVERIFY(initializer.contains(QStringLiteral(
+            "std::make_unique<ControllerNavigationSource>()")));
+
+        const qsizetype firstShellMilestone = main.indexOf(
+            QStringLiteral("first_shell_present"));
+        const qsizetype controllerBegin = main.indexOf(
+            QStringLiteral("controller_navigation_init_begin"));
+        const qsizetype frameHook = main.lastIndexOf(
+            QStringLiteral("&QQuickWindow::frameSwapped"), controllerBegin);
+        const qsizetype queuedInitialization = main.indexOf(
+            QStringLiteral("QTimer::singleShot(0"), frameHook);
+        const qsizetype initializeCall = main.indexOf(
+            QStringLiteral("initializeControllerNavigation()"),
+            queuedInitialization);
+        const qsizetype controllerEnd = main.indexOf(
+            QStringLiteral("controller_navigation_init_end"), initializeCall);
+        const qsizetype singleShotConnection = main.indexOf(
+            QStringLiteral("Qt::SingleShotConnection"), frameHook);
+        QVERIFY(firstShellMilestone >= 0);
+        QVERIFY(controllerBegin > firstShellMilestone);
+        QVERIFY(frameHook > firstShellMilestone);
+        QVERIFY(queuedInitialization > frameHook);
+        QVERIFY(controllerBegin > queuedInitialization);
+        QVERIFY(initializeCall > controllerBegin);
+        QVERIFY(controllerEnd > initializeCall);
+        QVERIFY(singleShotConnection > controllerEnd);
+        QCOMPARE(main.count(QStringLiteral(
+                     "initializeControllerNavigation()")), 1);
+        QCOMPARE(main.count(QStringLiteral(
+                     "controller_navigation_init_begin")), 1);
+        QCOMPARE(main.count(QStringLiteral(
+                     "controller_navigation_init_end")), 1);
+    }
+
+    void bootstrapHandoffUsesPortableAtomicReadyFileAfterVisibleTransitionFrame()
+    {
+        const QString main = source(
+            QDir(m_nativeRoot).filePath(QStringLiteral("main.cpp")));
+        QVERIFY(!main.isEmpty());
+
+        QVERIFY(main.contains(QStringLiteral(
+            "--yanami-bootstrap-ready-file")));
+        QVERIFY(main.contains(QStringLiteral(
+            "QDir::isAbsolutePath(candidate)")));
+        QVERIFY(main.contains(QStringLiteral(
+            "BootstrapReadyFileName = \"desktop-ready.json\"")));
+        QVERIFY(main.contains(QStringLiteral(
+            "QStringLiteral(\"YanamiBootstrap-\")")));
+        QVERIFY(main.contains(QStringLiteral(
+            "QFileInfo(QDir::tempPath()).canonicalFilePath()")));
+        QVERIFY(main.contains(QStringLiteral("QSaveFile readyFile(path)")));
+        QVERIFY(main.contains(QStringLiteral(
+            "readyFile.setDirectWriteFallback(false)")));
+        QVERIFY(main.contains(QStringLiteral(
+            "QStringLiteral(\"schemaVersion\"), QStringLiteral(\"1.0\")")));
+        QVERIFY(main.contains(QStringLiteral(
+            "QStringLiteral(\"state\"), QStringLiteral(\"desktop_ready\")")));
+        QVERIFY(main.contains(QStringLiteral(
+            "QCoreApplication::applicationPid()")));
+
+        const QStringList forbiddenPlatformApis {
+            QStringLiteral("windows.h"),
+            QStringLiteral("CreateEvent"),
+            QStringLiteral("OpenEvent"),
+            QStringLiteral("SetForegroundWindow"),
+        };
+        for (const QString &api : forbiddenPlatformApis) {
+            QVERIFY2(!main.contains(api), qPrintable(
+                QStringLiteral("main.cpp must keep bootstrap IPC portable: %1")
+                    .arg(api)));
+        }
+
+        const qsizetype contextProperty = main.indexOf(QStringLiteral(
+            "QStringLiteral(\"bootstrapHandoffRequested\")"));
+        const qsizetype qmlLoad = main.indexOf(QStringLiteral(
+            "engine.loadFromModule(\"Yanami\", \"Main\")"));
+        QVERIFY(contextProperty >= 0 && qmlLoad > contextProperty);
+        QVERIFY(main.contains(QStringLiteral(
+            "bootstrapHandoff.usable() ? 2 : 1")));
+        QVERIFY(main.contains(QStringLiteral(
+            "startupFrames->swappedFrameCount")));
+        QVERIFY(main.contains(QStringLiteral(
+            ">= startupFrames->firstShellFrame")));
+
+        const qsizetype handoffState = main.indexOf(QStringLiteral(
+            "struct BootstrapHandoffFrameState"));
+        const qsizetype transparentGateCleared = main.indexOf(QStringLiteral(
+            "\"bootstrapHandoffPending\", false"), handoffState);
+        const qsizetype secondFrameRequested = main.indexOf(QStringLiteral(
+            "quickWindow->requestUpdate()"), transparentGateCleared);
+        const qsizetype secondFrameGuard = main.indexOf(QStringLiteral(
+            "handoffFrames->swappedFrames < 2"), secondFrameRequested);
+        const qsizetype desktopReady = main.indexOf(QStringLiteral(
+            "QStringLiteral(\"desktop_ready\")"), secondFrameGuard);
+        const qsizetype readyCommit = main.indexOf(QStringLiteral(
+            "publishBootstrapReadyFile("), desktopReady);
+        const qsizetype qmlRelease = main.indexOf(QStringLiteral(
+            "root->setProperty(\"bootstrapHandoffReady\", true)"),
+            readyCommit);
+        const qsizetype commitMilestone = main.indexOf(QStringLiteral(
+            "QStringLiteral(\"desktop_ready_file_committed\")"),
+            qmlRelease);
+        QVERIFY(handoffState >= 0);
+        QVERIFY(transparentGateCleared > handoffState);
+        QVERIFY(secondFrameRequested > transparentGateCleared);
+        QVERIFY(secondFrameGuard > secondFrameRequested);
+        QVERIFY(desktopReady > secondFrameGuard);
+        QVERIFY(readyCommit > desktopReady);
+        QVERIFY(qmlRelease > readyCommit);
+        QVERIFY(commitMilestone > qmlRelease);
+        QVERIFY2(!main.contains(QStringLiteral(
+                     "QStringLiteral(\"handoff_complete\")")),
+            "Only the launcher may claim handoff_complete after hiding its splash");
+    }
+
 private:
     QString m_nativeRoot;
 };

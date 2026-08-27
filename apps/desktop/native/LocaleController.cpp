@@ -46,8 +46,13 @@ void LocaleController::applyLanguage(const QString &language, bool persist)
     }
 
     m_language = effectiveLanguage;
-    if (persist)
-        QSettings().setValue(QStringLiteral("ui/language"), m_language);
+    if (persist) {
+        QSettings settings;
+        settings.setValue(QStringLiteral("ui/language"), m_language);
+        // The native launcher starts before Qt and reads this same preference.
+        // Flush it now so an immediate close/relaunch cannot observe stale text.
+        settings.sync();
+    }
     emit languageChanged();
     if (m_engine)
         m_engine->retranslate();

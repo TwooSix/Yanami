@@ -2,6 +2,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEvent>
+#include <QFileInfo>
 #include <QIcon>
 #include <QInputMethodEvent>
 #include <QJsonDocument>
@@ -11,27 +12,36 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickWindow>
+#include <QSaveFile>
 #include <QSGRendererInterface>
-#include <QStandardPaths>
 #include <QSysInfo>
 #include <QTimer>
 #include <QVector>
 
 #include <algorithm>
+#include <clocale>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <utility>
 
-#include "MpvVideoItem.hpp"
+#include "ApplicationPaths.hpp"
 #include "ApplicationViewModel.hpp"
 #include "AsyncOperationState.hpp"
 #include "AsyncResourceState.hpp"
+#include "BootstrapReadySignal.hpp"
 #include "AsyncImageProvider.hpp"
 #include "DesktopBackendServices.hpp"
+#ifdef Q_OS_WIN
+#include "DesktopEntryGuard.hpp"
+#endif
 #include "DevelopmentHooks.hpp"
 #include "InputModalityController.hpp"
 #include "MediaStore.hpp"
 #include "LocaleController.hpp"
+#include "MpvApi.hpp"
+#include "MpvVideoItem.hpp"
 #include "PerformanceTrace.hpp"
 #include "RuntimeLogger.hpp"
 #include "WindowController.hpp"
@@ -39,6 +49,170 @@
 namespace {
 Q_LOGGING_CATEGORY(applicationLog, "yanami.application")
 using DevelopmentHook = DevelopmentHooks::Variable;
+
+constexpr auto BootstrapReadyOption = "--yanami-bootstrap-ready-file";
+constexpr auto BootstrapReadyFileName = "desktop-ready.json";
+
+struct BootstrapHandoffRequest {
+    bool supplied = false;
+    QString readyFilePath;
+    QString rejectionReason;
+    BootstrapReadySignal readySignal;
+
+    bool usable() const
+    {
+        return supplied && rejectionReason.isEmpty()
+            && !readyFilePath.isEmpty() && readySignal.valid;
+    }
+};
+
+BootstrapHandoffRequest bootstrapHandoffFromArguments(
+    const QStringList &arguments)
+{
+    BootstrapHandoffRequest request;
+    request.readySignal = bootstrapReadySignalFromArguments(arguments);
+    const QString option = QString::fromLatin1(BootstrapReadyOption);
+    const QString prefix = option + QLatin1Char('=');
+    QStringList values;
+    for (const QString &argument : arguments) {
+        if (argument == option) {
+            request.supplied = true;
+            values.push_back(QString());
+        } else if (argument.startsWith(prefix)) {
+            request.supplied = true;
+            values.push_back(argument.mid(prefix.size()));
+        }
+    }
+
+    if (request.readySignal.supplied) {
+        request.supplied = true;
+        if (!request.readySignal.valid) {
+            request.rejectionReason = request.readySignal.rejectionReason;
+            return request;
+        }
+    }
+
+    if (!request.supplied)
+        return request;
+    if (values.size() != 1) {
+        request.rejectionReason = QStringLiteral("option_count");
+        return request;
+    }
+    const QString candidate = values.constFirst();
+    if (candidate.isEmpty()) {
+        request.rejectionReason = QStringLiteral("empty_path");
+        return request;
+    }
+    if (!QDir::isAbsolutePath(candidate)) {
+        request.rejectionReason = QStringLiteral("path_not_absolute");
+        return request;
+    }
+
+    const QFileInfo readyFile(QDir::cleanPath(candidate));
+    if (readyFile.fileName() != QString::fromLatin1(BootstrapReadyFileName)) {
+        request.rejectionReason = QStringLiteral("unexpected_file_name");
+        return request;
+    }
+    if (readyFile.exists()) {
+        request.rejectionReason = QStringLiteral("target_already_exists");
+        return request;
+    }
+
+    const QFileInfo parentDirectory(readyFile.absolutePath());
+    if (!parentDirectory.exists() || !parentDirectory.isDir()
+        || parentDirectory.isSymLink()) {
+        request.rejectionReason = QStringLiteral("parent_not_private_directory");
+        return request;
+    }
+    if (!parentDirectory.fileName().startsWith(
+            QStringLiteral("YanamiBootstrap-"))) {
+        request.rejectionReason = QStringLiteral("unexpected_parent_name");
+        return request;
+    }
+
+    const QString canonicalTempRoot =
+        QFileInfo(QDir::tempPath()).canonicalFilePath();
+    const QString canonicalParent = parentDirectory.canonicalFilePath();
+    if (canonicalTempRoot.isEmpty() || canonicalParent.isEmpty()) {
+        request.rejectionReason = QStringLiteral("canonical_path_unavailable");
+        return request;
+    }
+    const QString relativeParent =
+        QDir(canonicalTempRoot).relativeFilePath(canonicalParent);
+    if (relativeParent == QLatin1String(".")
+        || relativeParent == QLatin1String("..")
+        || relativeParent.startsWith(QLatin1String("../"))
+        || QDir::isAbsolutePath(relativeParent)) {
+        request.rejectionReason = QStringLiteral("parent_outside_temp");
+        return request;
+    }
+
+    request.readyFilePath = readyFile.absoluteFilePath();
+    return request;
+}
+
+bool publishBootstrapReadyFile(const QString &path, QString *errorCode)
+{
+    if (QFileInfo::exists(path)) {
+        if (errorCode)
+            *errorCode = QStringLiteral("target_created_before_publish");
+        return false;
+    }
+
+    QJsonObject payload;
+    payload.insert(QStringLiteral("schemaVersion"), QStringLiteral("1.0"));
+    payload.insert(QStringLiteral("state"), QStringLiteral("desktop_ready"));
+    payload.insert(
+        QStringLiteral("processId"),
+        static_cast<double>(QCoreApplication::applicationPid()));
+    QByteArray serialized =
+        QJsonDocument(payload).toJson(QJsonDocument::Compact);
+    serialized.append('\n');
+
+    QSaveFile readyFile(path);
+    readyFile.setDirectWriteFallback(false);
+    if (!readyFile.open(QIODevice::WriteOnly)) {
+        if (errorCode)
+            *errorCode = QStringLiteral("open_failed");
+        return false;
+    }
+    if (readyFile.write(serialized) != serialized.size()) {
+        readyFile.cancelWriting();
+        if (errorCode)
+            *errorCode = QStringLiteral("write_failed");
+        return false;
+    }
+    if (!readyFile.commit()) {
+        if (errorCode)
+            *errorCode = QStringLiteral("commit_failed");
+        return false;
+    }
+    return true;
+}
+
+int runMpvRuntimeSmokeTest()
+{
+    if (!std::setlocale(LC_NUMERIC, "C")) {
+        qCritical("mpv runtime smoke could not select the C numeric locale");
+        return EXIT_FAILURE;
+    }
+    QString error;
+    const MpvFunctions *functions = MpvApi::instance().load(&error);
+    if (!functions) {
+        qCritical().noquote() << "mpv runtime smoke failed:" << error;
+        return EXIT_FAILURE;
+    }
+    mpv_handle *handle = functions->create();
+    if (!handle) {
+        qCritical("mpv runtime smoke could not create a client handle");
+        return EXIT_FAILURE;
+    }
+    functions->terminateDestroy(handle);
+    qInfo().noquote()
+        << "mpv_runtime_smoke_passed path="
+        << QDir::toNativeSeparators(MpvApi::instance().loadedFileName());
+    return EXIT_SUCCESS;
+}
 
 double percentile(QVector<double> values, double quantile)
 {
@@ -388,6 +562,16 @@ int main(int argc, char *argv[])
     QGuiApplication::setOrganizationName(QStringLiteral("Yanami"));
     QGuiApplication::setOrganizationDomain(QStringLiteral("yanami.local"));
 
+    const ApplicationPaths::ConfigurationResult profileConfiguration =
+        ApplicationPaths::configureFromEnvironment();
+    if (!profileConfiguration.succeeded) {
+        fprintf(
+            stderr,
+            "Yanami isolated profile configuration failed: %s\n",
+            profileConfiguration.error.toUtf8().constData());
+        return EXIT_FAILURE;
+    }
+
     // libmpv's render API is OpenGL. Keeping Qt on the same graphics API avoids
     // cross-API copies and lets controls and video share one scene graph.
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
@@ -397,10 +581,50 @@ int main(int argc, char *argv[])
     YanamiPerformance::PerformanceTrace::mark(QStringLiteral("qt_app_ready"));
     const bool runtimeSmokeTest = app.arguments().contains(
         QStringLiteral("--runtime-smoke-test"));
+    const bool mpvRuntimeSmokeTest = app.arguments().contains(
+        QStringLiteral("--mpv-runtime-smoke-test"));
     const bool performanceRuntimeProbe = app.arguments().contains(
         QStringLiteral("--performance-runtime-probe"));
     const bool performanceRuntimeAutoExit = app.arguments().contains(
         QStringLiteral("--performance-runtime-auto-exit"));
+    if (mpvRuntimeSmokeTest)
+        return runMpvRuntimeSmokeTest();
+    const BootstrapHandoffRequest bootstrapHandoff =
+        bootstrapHandoffFromArguments(app.arguments());
+#ifdef Q_OS_WIN
+    const bool explicitDirectDesktop = app.arguments().contains(
+        QString::fromLatin1(DesktopEntryGuard::DirectDesktopOption))
+        || qEnvironmentVariableIntValue(
+            DesktopEntryGuard::DirectDesktopEnvironment) == 1;
+    const bool diagnosticOrPerformanceMode = runtimeSmokeTest
+        || mpvRuntimeSmokeTest
+        || performanceRuntimeProbe
+        || performanceRuntimeAutoExit
+        || YanamiPerformance::PerformanceTrace::enabled();
+    if (DesktopEntryGuard::routeForLaunch({
+            bootstrapHandoff.usable(),
+            explicitDirectDesktop,
+            diagnosticOrPerformanceMode,
+        }) == DesktopEntryGuard::Route::RedirectToBootstrap) {
+        const DesktopEntryGuard::RedirectResult redirect =
+            DesktopEntryGuard::redirectToSiblingBootstrap(app.arguments());
+        if (redirect.status == DesktopEntryGuard::RedirectStatus::Started)
+            return EXIT_SUCCESS;
+
+        // A direct build tree or partially copied developer artifact may not
+        // contain the user-facing launcher. Keep the internal executable
+        // usable as a recovery path instead of turning packaging damage into
+        // a hard startup failure.
+        fprintf(
+            stderr,
+            "Yanami launcher redirect unavailable (%s); continuing the "
+            "internal desktop entry.\n",
+            redirect.detail.toUtf8().constData());
+    }
+#endif
+    // Install the saved translator before any backend or view-model constructor
+    // can materialize a user-visible status string.
+    LocaleController localeController(nullptr);
     const bool runtimeLoggerInstalled = RuntimeLogger::install();
     YanamiPerformance::PerformanceTrace::mark(
         QStringLiteral("logger_ready"),
@@ -422,6 +646,15 @@ int main(int argc, char *argv[])
             << "application_logging_unavailable"
             << "reason=runtime_logger_install_failed";
     }
+    if (bootstrapHandoff.supplied && !bootstrapHandoff.usable()) {
+        qCWarning(applicationLog).noquote()
+            << "bootstrap_handoff_rejected"
+            << "reason=" << bootstrapHandoff.rejectionReason;
+        YanamiPerformance::PerformanceTrace::mark(
+            QStringLiteral("bootstrap_handoff_rejected"),
+            {{QStringLiteral("reason"),
+              bootstrapHandoff.rejectionReason}});
+    }
     app.setWindowIcon(QIcon(QStringLiteral(
         ":/qt/qml/Yanami/Ui/qml/assets/yanami-logo.png")));
     qmlRegisterType<MpvVideoItem>("Yanami.Native", 1, 0, "MpvVideoItem");
@@ -434,13 +667,14 @@ int main(int argc, char *argv[])
     qmlRegisterUncreatableType<AsyncOperationState>(
         "Yanami.Native", 1, 0, "AsyncOperationState",
         QStringLiteral("AsyncOperationState instances are owned by feature view models."));
-    DesktopBackendServices backendServices;
+    DesktopBackendServices backendServices(
+        ApplicationPaths::dataRoot(),
+        ApplicationPaths::isolated());
     YanamiPerformance::PerformanceTrace::mark(
         QStringLiteral("backend_services_ready"));
     ApplicationViewModel applicationViewModel(backendServices.portSet());
     YanamiPerformance::PerformanceTrace::mark(
         QStringLiteral("view_models_ready"));
-    LocaleController localeController(nullptr);
     WindowController windowController;
     QQmlApplicationEngine engine;
     // windeployqt stages Qt's runtime QML modules beside the executable.
@@ -453,9 +687,7 @@ int main(int argc, char *argv[])
         engine.addImportPath(applicationQmlPath);
     engine.addImageProvider(
         QStringLiteral("yanami"),
-        new AsyncImageProvider(QDir(
-            QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
-            .filePath(QStringLiteral("cache"))));
+        new AsyncImageProvider(ApplicationPaths::cacheRoot()));
     localeController.setEngine(&engine);
 #ifdef YANAMI_ENABLE_DEV_HOOKS
     const QString autoplayItemId = DevelopmentHooks::value(DevelopmentHook::AutoplayItemId);
@@ -573,6 +805,9 @@ int main(int argc, char *argv[])
         QStringLiteral("app"), &applicationViewModel);
     engine.rootContext()->setContextProperty(QStringLiteral("i18n"), &localeController);
     engine.rootContext()->setContextProperty(QStringLiteral("windowShell"), &windowController);
+    engine.rootContext()->setContextProperty(
+        QStringLiteral("bootstrapHandoffRequested"),
+        bootstrapHandoff.usable());
     QObject::connect(
         &engine,
         &QQmlApplicationEngine::objectCreationFailed,
@@ -610,12 +845,16 @@ int main(int argc, char *argv[])
                     qint64 firstFrameNs = 0;
                     qint64 lastFrameNs = 0;
                     QVector<double> frameIntervalsMs;
+                    int swappedFrameCount = 0;
+                    int firstShellFrame = 1;
                     bool cachedContentAvailable = false;
                     bool cachedContentMarked = false;
                     bool exposureMarked = false;
                     bool settledMarked = false;
                 };
                 const auto startupFrames = std::make_shared<StartupFrameState>();
+                startupFrames->firstShellFrame =
+                    bootstrapHandoff.usable() ? 2 : 1;
                 startupFrames->cachedContentAvailable =
                     hasCachedHomeContent(applicationViewModel);
                 const auto publishStartupSettled =
@@ -697,6 +936,7 @@ int main(int argc, char *argv[])
                             return;
                         const qint64 now =
                             YanamiPerformance::PerformanceTrace::monotonicNanoseconds();
+                        ++startupFrames->swappedFrameCount;
                         // A first swap can race the 5 ms exposure poll. Keep the
                         // trace causally ordered without treating this internal
                         // Qt signal as external Present evidence.
@@ -706,7 +946,9 @@ int main(int argc, char *argv[])
                             YanamiPerformance::PerformanceTrace::mark(
                                 QStringLiteral("window_exposed"));
                         }
-                        if (startupFrames->firstFrameNs == 0) {
+                        if (startupFrames->firstFrameNs == 0
+                            && startupFrames->swappedFrameCount
+                                >= startupFrames->firstShellFrame) {
                             startupFrames->firstFrameNs = now;
                             YanamiPerformance::PerformanceTrace::mark(
                                 QStringLiteral("first_shell_present"));
@@ -714,22 +956,141 @@ int main(int argc, char *argv[])
                                 1'000, quickWindow, publishStartupSettled);
                         }
                         if (!startupFrames->cachedContentMarked
+                            && startupFrames->firstFrameNs != 0
                             && startupFrames->cachedContentAvailable) {
                             startupFrames->cachedContentMarked = true;
                             YanamiPerformance::PerformanceTrace::mark(
                                 QStringLiteral("first_cached_content_present"));
                         }
-                        if (startupFrames->lastFrameNs != 0) {
-                            startupFrames->frameIntervalsMs.push_back(
-                                (now - startupFrames->lastFrameNs) / 1'000'000.0);
+                        if (startupFrames->firstFrameNs != 0) {
+                            if (startupFrames->lastFrameNs != 0) {
+                                startupFrames->frameIntervalsMs.push_back(
+                                    (now - startupFrames->lastFrameNs)
+                                    / 1'000'000.0);
+                            }
+                            startupFrames->lastFrameNs = now;
                         }
-                        startupFrames->lastFrameNs = now;
                     });
                 QTimer::singleShot(0, quickWindow, [] {
                     YanamiPerformance::PerformanceTrace::mark(
                         QStringLiteral("event_loop_ready"));
                 });
             }
+        }
+        if (bootstrapHandoff.usable()) {
+            if (auto *quickWindow = qobject_cast<QQuickWindow *>(root)) {
+                struct BootstrapHandoffFrameState {
+                    int swappedFrames = 0;
+                    bool publicationAttempted = false;
+                    QMetaObject::Connection connection;
+                };
+                const auto handoffFrames =
+                    std::make_shared<BootstrapHandoffFrameState>();
+                const QString readyFilePath = bootstrapHandoff.readyFilePath;
+                const BootstrapReadySignal readySignal =
+                    bootstrapHandoff.readySignal;
+                handoffFrames->connection = QObject::connect(
+                    quickWindow,
+                    &QQuickWindow::frameSwapped,
+                    quickWindow,
+                    [handoffFrames, quickWindow, root, readyFilePath,
+                     readySignal] {
+                        ++handoffFrames->swappedFrames;
+                        if (handoffFrames->swappedFrames == 1) {
+                            // The first swap only proves that the transition
+                            // scene exists. Reveal that scene and request one
+                            // more frame before notifying the launcher.
+                            if (!root->setProperty(
+                                    "bootstrapHandoffPending", false)) {
+                                quickWindow->setOpacity(1.0);
+                            }
+                            quickWindow->requestUpdate();
+                            return;
+                        }
+                        if (handoffFrames->swappedFrames < 2
+                            || handoffFrames->publicationAttempted) {
+                            return;
+                        }
+                        handoffFrames->publicationAttempted = true;
+                        QObject::disconnect(handoffFrames->connection);
+
+                        // This second swap contains the visible QML brand
+                        // transition. The launcher may retire its own splash
+                        // only after the atomic ready file appears.
+                        YanamiPerformance::PerformanceTrace::mark(
+                            QStringLiteral("desktop_ready"),
+                            {{QStringLiteral("visibleTransitionFrame"), true},
+                             {QStringLiteral("swappedFrameCount"),
+                              handoffFrames->swappedFrames}});
+                        QString errorCode;
+                        const bool readyFileCommitted =
+                            publishBootstrapReadyFile(
+                                readyFilePath, &errorCode);
+                        QString readySignalError;
+                        const bool nativeReadySignaled = readyFileCommitted
+                            && signalBootstrapReady(
+                                readySignal, &readySignalError);
+                        if (!readyFileCommitted) {
+                            readySignalError = QStringLiteral(
+                                "ready_file_not_committed");
+                        }
+                        root->setProperty("bootstrapHandoffReady", true);
+                        YanamiPerformance::PerformanceTrace::mark(
+                            QStringLiteral("desktop_ready_file_committed"),
+                            {{QStringLiteral("readyFileCommitted"),
+                              readyFileCommitted},
+                             {QStringLiteral("errorCode"), errorCode},
+                             {QStringLiteral("nativeReadySignaled"),
+                              nativeReadySignaled},
+                             {QStringLiteral("readySignalError"),
+                              readySignalError}});
+                        YanamiPerformance::PerformanceTrace::flush();
+                        if (readyFileCommitted) {
+                            qCInfo(applicationLog)
+                                << "bootstrap_desktop_ready_published";
+                        } else {
+                            qCWarning(applicationLog).noquote()
+                                << "bootstrap_desktop_ready_publish_failed"
+                                << "reason=" << errorCode;
+                        }
+                    });
+            } else {
+                // A malformed root must never leave the desktop transparent,
+                // even though the launcher will independently time out or
+                // observe process exit when no ready file is published.
+                root->setProperty("bootstrapHandoffPending", false);
+                root->setProperty("bootstrapHandoffReady", true);
+                qCWarning(applicationLog)
+                    << "bootstrap_handoff_root_is_not_quick_window";
+            }
+        }
+        if (auto *quickWindow = qobject_cast<QQuickWindow *>(root)) {
+            // SDL/XInput discovery is intentionally outside the construction
+            // path of the QML singleton. Wait for the first completed shell
+            // frame, then queue initialization so no controller work runs in
+            // the frameSwapped delivery itself.
+            QObject::connect(
+                quickWindow,
+                &QQuickWindow::frameSwapped,
+                quickWindow,
+                [quickWindow] {
+                    QTimer::singleShot(0, quickWindow, [] {
+                        YanamiPerformance::PerformanceTrace::mark(
+                            QStringLiteral("controller_navigation_init_begin"));
+                        InputModalityService &inputModality =
+                            InputModalityService::instance();
+                        inputModality.initializeControllerNavigation();
+                        YanamiPerformance::PerformanceTrace::mark(
+                            QStringLiteral("controller_navigation_init_end"),
+                            {
+                                {QStringLiteral("backend"),
+                                 inputModality.controllerBackend()},
+                                {QStringLiteral("connectedDeviceCount"),
+                                 inputModality.connectedDevices().size()},
+                            });
+                    });
+                },
+                Qt::SingleShotConnection);
         }
 #ifdef YANAMI_ENABLE_DEV_HOOKS
         if (DevelopmentHooks::isSet(DevelopmentHook::RenderDiagnostics)) {

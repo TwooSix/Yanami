@@ -55,11 +55,74 @@ endif()
 
 if(WIN32)
     enable_language(RC)
+elseif(APPLE)
+    enable_language(OBJCXX)
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
+
+set(YANAMI_BOOTSTRAP_SOURCES
+    bootstrap/BootstrapProtocol.cpp
+    bootstrap/BootstrapProtocol.hpp
+)
+if(WIN32)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    configure_file(
+        resources/windows/yanami-bootstrap.rc
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/yanami-bootstrap.rc"
+        @ONLY
+    )
+    add_executable(yanami-bootstrap WIN32
+        ${YANAMI_BOOTSTRAP_SOURCES}
+        bootstrap/BootstrapLocale.cpp
+        bootstrap/BootstrapLocale.hpp
+        bootstrap/BootstrapWindows.cpp
+        bootstrap/BootstrapWindowsAnimation.hpp
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/yanami-bootstrap.rc"
+        resources/windows/yanami.ico
+        resources/windows/yanami-splash.ico
+    )
+    set_target_properties(yanami-bootstrap PROPERTIES OUTPUT_NAME "Yanami")
+    target_link_libraries(yanami-bootstrap PRIVATE
+        advapi32 gdi32 shell32 user32)
+    if(MINGW)
+        target_link_options(yanami-bootstrap PRIVATE
+            -municode -static -static-libgcc -static-libstdc++)
+    elseif(MSVC)
+        set_property(TARGET yanami-bootstrap PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
+elseif(APPLE)
+    add_executable(yanami-bootstrap
+        ${YANAMI_BOOTSTRAP_SOURCES}
+        bootstrap/BootstrapMac.mm
+    )
+    set_target_properties(yanami-bootstrap PROPERTIES
+        OUTPUT_NAME "yanami-bootstrap"
+        OBJCXX_STANDARD 20
+        OBJCXX_STANDARD_REQUIRED ON
+    )
+    target_compile_options(yanami-bootstrap PRIVATE
+        $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    target_link_libraries(yanami-bootstrap PRIVATE
+        "-framework AppKit" "-framework QuartzCore")
+else()
+    add_executable(yanami-bootstrap
+        ${YANAMI_BOOTSTRAP_SOURCES}
+        bootstrap/BootstrapLinux.cpp
+    )
+    set_target_properties(yanami-bootstrap PROPERTIES OUTPUT_NAME "yanami")
+    find_package(X11 QUIET)
+    if(X11_FOUND)
+        target_compile_definitions(yanami-bootstrap PRIVATE
+            YANAMI_BOOTSTRAP_HAS_X11=1)
+        target_include_directories(yanami-bootstrap PRIVATE ${X11_INCLUDE_DIR})
+        target_link_libraries(yanami-bootstrap PRIVATE ${X11_LIBRARIES})
+    endif()
+endif()
+target_include_directories(yanami-bootstrap PRIVATE bootstrap)
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Gui Network Quick QuickControls2 OpenGL LinguistTools)
 get_filename_component(YANAMI_QT_PREFIX "${Qt6_DIR}/../../.." ABSOLUTE)
@@ -82,15 +145,6 @@ if(WIN32)
     find_path(MPV_INCLUDE_DIR
         NAMES mpv/client.h
         REQUIRED
-    )
-    find_library(MPV_LIBRARY
-        NAMES mpv
-        REQUIRED
-    )
-    add_library(MPV::MPV UNKNOWN IMPORTED)
-    set_target_properties(MPV::MPV PROPERTIES
-        IMPORTED_LOCATION "${MPV_LIBRARY}"
-        INTERFACE_INCLUDE_DIRECTORIES "${MPV_INCLUDE_DIR}"
     )
 
     find_program(WINDEPLOYQT_EXECUTABLE
@@ -128,8 +182,39 @@ if(WIN32)
     )
 else()
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv)
-    add_library(MPV::MPV ALIAS PkgConfig::MPV)
+    pkg_check_modules(MPV REQUIRED mpv)
+    find_library(MPV_RUNTIME_LIBRARY
+        NAMES mpv libmpv
+        HINTS ${MPV_LIBRARY_DIRS}
+        REQUIRED
+    )
+endif()
+
+# MpvVideoItem uses libmpv's public C types but resolves every function at
+# runtime. This header-only target intentionally carries no link library, so a
+# future target cannot accidentally restore libmpv to the desktop PE import
+# table by inheriting MPV::MPV.
+add_library(yanami-mpv-headers INTERFACE)
+if(WIN32)
+    get_filename_component(
+        YANAMI_MPV_RUNTIME_FILENAME "${MPV_RUNTIME_DLL}" NAME)
+    target_include_directories(
+        yanami-mpv-headers INTERFACE "${MPV_INCLUDE_DIR}")
+    target_compile_definitions(yanami-mpv-headers INTERFACE
+        YANAMI_MPV_RUNTIME_FILENAME="${YANAMI_MPV_RUNTIME_FILENAME}"
+    )
+else()
+    target_include_directories(
+        yanami-mpv-headers INTERFACE ${MPV_INCLUDE_DIRS})
+    target_compile_options(
+        yanami-mpv-headers INTERFACE ${MPV_CFLAGS_OTHER})
+    if(APPLE)
+        get_filename_component(
+            YANAMI_MPV_RUNTIME_FILENAME "${MPV_RUNTIME_LIBRARY}" NAME)
+        target_compile_definitions(yanami-mpv-headers INTERFACE
+            YANAMI_MPV_RUNTIME_FILENAME="${YANAMI_MPV_RUNTIME_FILENAME}"
+        )
+    endif()
 endif()
 find_program(CARGO_EXECUTABLE cargo
     HINTS "$ENV{USERPROFILE}/.cargo/bin" "$ENV{HOME}/.cargo/bin"
@@ -194,6 +279,8 @@ qt_standard_project_setup(
 
 qt_add_executable(yanami-desktop
     native/main.cpp
+    native/ApplicationPaths.cpp
+    native/ApplicationPaths.hpp
     native/ApplicationViewModel.cpp
     native/ApplicationViewModel.hpp
     native/BackendPorts.hpp
@@ -202,6 +289,8 @@ qt_add_executable(yanami-desktop
     native/AsyncImageProvider.hpp
     native/AsyncResourceState.cpp
     native/AsyncResourceState.hpp
+    native/BootstrapReadySignal.cpp
+    native/BootstrapReadySignal.hpp
     native/AsyncOperationState.cpp
     native/AsyncOperationState.hpp
     native/BackendInfrastructure.cpp
@@ -245,6 +334,8 @@ qt_add_executable(yanami-desktop
     native/RequestCoordinator.hpp
     native/LocaleController.cpp
     native/LocaleController.hpp
+    native/MpvApi.cpp
+    native/MpvApi.hpp
     native/MpvVideoItem.cpp
     native/MpvVideoItem.hpp
     native/PlaybackCompletionGate.hpp
@@ -292,6 +383,8 @@ if(WIN32)
         @ONLY
     )
     target_sources(yanami-desktop PRIVATE
+        native/DesktopEntryGuard.cpp
+        native/DesktopEntryGuard.hpp
         "${CMAKE_CURRENT_BINARY_DIR}/generated/yanami.rc"
         resources/windows/yanami.ico
     )
@@ -303,10 +396,26 @@ elseif(APPLE)
         MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.TwooSix.Yanami"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_INFO_PLIST
+            "${CMAKE_CURRENT_SOURCE_DIR}/resources/macos/Yanami.Info.plist.in"
         OUTPUT_NAME "Yanami"
     )
 endif()
 add_dependencies(yanami-desktop yanami-rust-bridge)
+add_dependencies(yanami-desktop yanami-bootstrap)
+if(APPLE)
+    add_custom_command(TARGET yanami-desktop POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "$<TARGET_FILE:yanami-bootstrap>"
+            "$<TARGET_BUNDLE_DIR:yanami-desktop>/Contents/MacOS/yanami-bootstrap"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+            "$<TARGET_BUNDLE_DIR:yanami-desktop>/Contents/Resources"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/resources/linux/io.github.TwooSix.Yanami.png"
+            "$<TARGET_BUNDLE_DIR:yanami-desktop>/Contents/Resources/yanami-logo.png"
+        VERBATIM
+    )
+endif()
 target_compile_definitions(yanami-desktop PRIVATE
     QT_MESSAGELOGCONTEXT
     YANAMI_VERSION="${YANAMI_BUILD_VERSION}"
@@ -439,6 +548,7 @@ qt_add_translations(
     LUPDATE_OPTIONS -no-obsolete
     LUPDATE_TARGET yanami-update-translations
     LRELEASE_TARGET yanami-release-translations
+    LRELEASE_OPTIONS -fail-on-unfinished -fail-on-invalid
 )
 
 target_link_libraries(yanami-desktop PRIVATE
@@ -449,7 +559,7 @@ target_link_libraries(yanami-desktop PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::OpenGL
-    MPV::MPV
+    yanami-mpv-headers
 )
 
 if(WIN32)
@@ -486,10 +596,18 @@ install(TARGETS yanami-desktop
     RUNTIME DESTINATION bin
 )
 if(APPLE)
+    install(TARGETS yanami-bootstrap
+        RUNTIME DESTINATION "Yanami.app/Contents/MacOS"
+    )
+    install(FILES resources/linux/io.github.TwooSix.Yanami.png
+        DESTINATION "Yanami.app/Contents/Resources"
+        RENAME yanami-logo.png
+    )
     install(FILES "${YANAMI_RUST_BRIDGE}"
         DESTINATION "Yanami.app/Contents/MacOS"
     )
 else()
+    install(TARGETS yanami-bootstrap RUNTIME DESTINATION bin)
     install(FILES "${YANAMI_RUST_BRIDGE}"
         DESTINATION bin
     )
@@ -585,6 +703,7 @@ if(APPLE)
         TARGET yanami-desktop
         OUTPUT_SCRIPT YANAMI_QT_DEPLOY_SCRIPT
         NO_TRANSLATIONS
+        POST_INCLUDE_FILES "${MPV_RUNTIME_LIBRARY}"
     )
     install(SCRIPT "${YANAMI_QT_DEPLOY_SCRIPT}")
 
@@ -608,6 +727,127 @@ endif()
 include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.8 REQUIRED COMPONENTS QuickTest Test)
+
+    add_executable(yanami-bootstrap-protocol-tests
+        tests/BootstrapProtocolTests.cpp
+        bootstrap/BootstrapProtocol.cpp
+        bootstrap/BootstrapProtocol.hpp
+    )
+    target_include_directories(
+        yanami-bootstrap-protocol-tests PRIVATE bootstrap)
+    add_test(
+        NAME yanami-bootstrap-protocol-tests
+        COMMAND $<TARGET_FILE:yanami-bootstrap-protocol-tests>
+    )
+
+    add_test(
+        NAME yanami-translation-catalog-freshness
+        COMMAND "${CMAKE_COMMAND}"
+            "-DYANAMI_LUPDATE=$<TARGET_FILE:Qt6::lupdate>"
+            "-DYANAMI_LRELEASE=$<TARGET_FILE:Qt6::lrelease>"
+            "-DYANAMI_TRANSLATION=${CMAKE_CURRENT_SOURCE_DIR}/i18n/yanami_zh_CN.ts"
+            "-DYANAMI_SOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+            "-DYANAMI_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/translation-catalog-freshness"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/TranslationCatalogFreshness.cmake"
+    )
+    set_tests_properties(
+        yanami-translation-catalog-freshness PROPERTIES LABELS "i18n")
+
+    add_executable(yanami-bootstrap-smoke-child
+        tests/BootstrapSmokeChild.cpp
+        bootstrap/BootstrapProtocol.hpp
+    )
+    target_include_directories(
+        yanami-bootstrap-smoke-child PRIVATE bootstrap)
+    if(MINGW)
+        target_link_options(yanami-bootstrap-smoke-child PRIVATE
+            -static -static-libgcc -static-libstdc++)
+    elseif(MSVC)
+        set_property(TARGET yanami-bootstrap-smoke-child PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
+
+    if(WIN32)
+        add_executable(yanami-bootstrap-locale-tests
+            tests/BootstrapLocaleTests.cpp
+            bootstrap/BootstrapLocale.cpp
+            bootstrap/BootstrapLocale.hpp
+        )
+        target_include_directories(
+            yanami-bootstrap-locale-tests PRIVATE bootstrap)
+        target_link_libraries(
+            yanami-bootstrap-locale-tests PRIVATE advapi32)
+        add_test(
+            NAME yanami-bootstrap-locale-tests
+            COMMAND $<TARGET_FILE:yanami-bootstrap-locale-tests>
+        )
+
+        add_executable(yanami-bootstrap-windows-animation-tests
+            tests/BootstrapWindowsAnimationTests.cpp
+            bootstrap/BootstrapWindowsAnimation.hpp
+        )
+        target_include_directories(
+            yanami-bootstrap-windows-animation-tests PRIVATE bootstrap)
+        target_compile_definitions(
+            yanami-bootstrap-windows-animation-tests PRIVATE
+            YANAMI_SPLASH_ICON_PATH="${CMAKE_CURRENT_SOURCE_DIR}/resources/windows/yanami-splash.ico"
+        )
+        add_test(
+            NAME yanami-bootstrap-windows-animation-tests
+            COMMAND $<TARGET_FILE:yanami-bootstrap-windows-animation-tests>
+        )
+
+        add_executable(yanami-bootstrap-ready-signal-tests
+            tests/BootstrapReadySignalTests.cpp
+            native/BootstrapReadySignal.cpp
+            native/BootstrapReadySignal.hpp
+        )
+        target_include_directories(
+            yanami-bootstrap-ready-signal-tests PRIVATE native)
+        target_link_libraries(
+            yanami-bootstrap-ready-signal-tests PRIVATE Qt6::Core Qt6::Test)
+        add_test(
+            NAME yanami-bootstrap-ready-signal-tests
+            COMMAND $<TARGET_FILE:yanami-bootstrap-ready-signal-tests>
+        )
+
+        add_executable(yanami-desktop-entry-guard-tests
+            tests/DesktopEntryGuardTests.cpp
+            native/DesktopEntryGuard.cpp
+            native/DesktopEntryGuard.hpp
+        )
+        target_include_directories(
+            yanami-desktop-entry-guard-tests PRIVATE native)
+        target_compile_definitions(yanami-desktop-entry-guard-tests PRIVATE
+            YANAMI_MAIN_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/native/main.cpp"
+        )
+        target_link_libraries(
+            yanami-desktop-entry-guard-tests PRIVATE Qt6::Core Qt6::Test)
+        add_test(
+            NAME yanami-desktop-entry-guard-tests
+            COMMAND $<TARGET_FILE:yanami-desktop-entry-guard-tests>
+        )
+
+        add_test(
+            NAME yanami-bootstrap-static-imports
+            COMMAND "${CMAKE_COMMAND}"
+                "-DYANAMI_BOOTSTRAP=$<TARGET_FILE:yanami-bootstrap>"
+                "-DYANAMI_OBJDUMP=${CMAKE_OBJDUMP}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/BootstrapStaticImports.cmake"
+        )
+        add_test(
+            NAME yanami-bootstrap-launch-smoke
+            COMMAND "${CMAKE_COMMAND}"
+                "-DYANAMI_BOOTSTRAP=$<TARGET_FILE:yanami-bootstrap>"
+                "-DYANAMI_SMOKE_CHILD=$<TARGET_FILE:yanami-bootstrap-smoke-child>"
+                "-DYANAMI_STAGE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/bootstrap-launch-smoke"
+                "-DYANAMI_BUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}"
+                "-DYANAMI_BOOTSTRAP_FILE_NAME=Yanami.exe"
+                "-DYANAMI_DESKTOP_FILE_NAME=yanami-desktop.exe"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/BootstrapLaunchSmoke.cmake"
+        )
+        set_tests_properties(yanami-bootstrap-launch-smoke PROPERTIES TIMEOUT 30)
+    endif()
 
     if(EXISTS "${YANAMI_RUST_LICENSE_INVENTORY}")
         add_test(
@@ -638,16 +878,20 @@ if(BUILD_TESTING)
 
     if(NOT YANAMI_ENABLE_DEV_HOOKS)
         if(WIN32)
-            set(YANAMI_INSTALL_SMOKE_EXECUTABLE "bin/yanami-desktop.exe")
+            set(YANAMI_INSTALL_SMOKE_EXECUTABLE "bin/Yanami.exe")
+            set(YANAMI_INSTALL_SMOKE_DESKTOP "bin/yanami-desktop.exe")
             set(YANAMI_INSTALL_SMOKE_BRIDGE
                 "bin/${YANAMI_RUST_BRIDGE_NAME}")
         elseif(APPLE)
             set(YANAMI_INSTALL_SMOKE_EXECUTABLE
+                "Yanami.app/Contents/MacOS/yanami-bootstrap")
+            set(YANAMI_INSTALL_SMOKE_DESKTOP
                 "Yanami.app/Contents/MacOS/Yanami")
             set(YANAMI_INSTALL_SMOKE_BRIDGE
                 "Yanami.app/Contents/MacOS/${YANAMI_RUST_BRIDGE_NAME}")
         else()
-            set(YANAMI_INSTALL_SMOKE_EXECUTABLE "bin/yanami-desktop")
+            set(YANAMI_INSTALL_SMOKE_EXECUTABLE "bin/yanami")
+            set(YANAMI_INSTALL_SMOKE_DESKTOP "bin/yanami-desktop")
             set(YANAMI_INSTALL_SMOKE_BRIDGE
                 "bin/${YANAMI_RUST_BRIDGE_NAME}")
         endif()
@@ -658,6 +902,7 @@ if(BUILD_TESTING)
                 "-DYANAMI_CONFIG=$<CONFIG>"
                 "-DYANAMI_PLATFORM=${YANAMI_PACKAGE_PLATFORM}"
                 "-DYANAMI_EXECUTABLE_RELATIVE=${YANAMI_INSTALL_SMOKE_EXECUTABLE}"
+                "-DYANAMI_DESKTOP_RELATIVE=${YANAMI_INSTALL_SMOKE_DESKTOP}"
                 "-DYANAMI_BRIDGE_RELATIVE=${YANAMI_INSTALL_SMOKE_BRIDGE}"
                 "-DYANAMI_QT_PREFIX=${YANAMI_QT_PREFIX}"
                 "-DYANAMI_EXPECTED_VERSION=${YANAMI_BUILD_VERSION}"
@@ -667,7 +912,7 @@ if(BUILD_TESTING)
                 "-DYANAMI_EXPECTED_ARCHITECTURE=${YANAMI_PACKAGE_ARCHITECTURE}"
                 "-DYANAMI_CMAKE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake"
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/InstallTreeSmoke.cmake"
-            DEPENDS yanami-desktop yanami-deploy-rust-bridge
+            DEPENDS yanami-bootstrap yanami-desktop yanami-deploy-rust-bridge
             COMMENT "Auditing and launching the isolated PR install tree"
             VERBATIM
         )
@@ -702,6 +947,8 @@ if(BUILD_TESTING)
 
     add_executable(yanami-runtime-logger-tests
         tests/RuntimeLoggerTests.cpp
+        native/ApplicationPaths.cpp
+        native/ApplicationPaths.hpp
         native/DevelopmentHooks.cpp
         native/DevelopmentHooks.hpp
         native/RuntimeLogger.cpp
@@ -720,6 +967,82 @@ if(BUILD_TESTING)
     add_test(
         NAME yanami-runtime-logger-tests
         COMMAND $<TARGET_FILE:yanami-runtime-logger-tests>
+    )
+
+    add_executable(yanami-application-paths-tests
+        tests/ApplicationPathsTests.cpp
+        native/ApplicationPaths.cpp
+        native/ApplicationPaths.hpp
+    )
+    target_include_directories(
+        yanami-application-paths-tests PRIVATE native)
+    target_link_libraries(yanami-application-paths-tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+    )
+    add_test(
+        NAME yanami-application-paths-tests
+        COMMAND $<TARGET_FILE:yanami-application-paths-tests>
+    )
+    add_executable(yanami-mpv-api-tests
+        tests/MpvApiTests.cpp
+        native/MpvApi.cpp
+        native/MpvApi.hpp
+    )
+    target_include_directories(yanami-mpv-api-tests PRIVATE native)
+    target_link_libraries(yanami-mpv-api-tests PRIVATE
+        Qt6::Core
+        Qt6::Test
+        yanami-mpv-headers
+    )
+    if(WIN32)
+        add_dependencies(
+            yanami-mpv-api-tests yanami-deploy-windows-runtime)
+    endif()
+    add_test(
+        NAME yanami-mpv-api-tests
+        COMMAND $<TARGET_FILE:yanami-mpv-api-tests>
+    )
+
+    add_executable(yanami-mpv-unavailable-tests
+        tests/MpvUnavailableTests.cpp
+        native/ApplicationPaths.cpp
+        native/ApplicationPaths.hpp
+        native/DevelopmentHooks.cpp
+        native/DevelopmentHooks.hpp
+        native/MpvApi.cpp
+        native/MpvApi.hpp
+        native/MpvVideoItem.cpp
+        native/MpvVideoItem.hpp
+        native/PerformanceTrace.cpp
+        native/PerformanceTrace.hpp
+        native/PlaybackCompletionGate.hpp
+        native/PlaybackStallWatchdog.hpp
+        native/UpscalingPerformancePolicy.cpp
+        native/UpscalingPerformancePolicy.hpp
+        native/UpscalingRuntimeConfig.cpp
+        native/UpscalingRuntimeConfig.hpp
+    )
+    target_compile_definitions(yanami-mpv-unavailable-tests PRIVATE
+        YANAMI_MPV_RUNTIME_TEST_MISSING=1
+        YANAMI_PLAYER_PAGE_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/qml/pages/PlayerPage.qml"
+    )
+    target_include_directories(yanami-mpv-unavailable-tests PRIVATE native)
+    target_link_libraries(yanami-mpv-unavailable-tests PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Quick
+        Qt6::OpenGL
+        Qt6::Test
+        yanami-mpv-headers
+    )
+    add_test(
+        NAME yanami-mpv-unavailable-tests
+        COMMAND $<TARGET_FILE:yanami-mpv-unavailable-tests>
+    )
+    set_tests_properties(yanami-mpv-unavailable-tests PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
     )
     add_executable(yanami-development-hooks-disabled-tests
         tests/DevelopmentHooksTests.cpp
@@ -802,6 +1125,15 @@ if(BUILD_TESTING)
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/ProductionArtifactPolicy.cmake"
         )
     endif()
+    if(WIN32)
+        add_test(
+            NAME yanami-mpv-lazy-import-policy
+            COMMAND "${CMAKE_COMMAND}"
+                "-DYANAMI_EXECUTABLE=$<TARGET_FILE:yanami-desktop>"
+                "-DYANAMI_OBJDUMP=${CMAKE_OBJDUMP}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/MpvLazyImportPolicy.cmake"
+        )
+    endif()
     add_executable(yanami-media-store-tests
         tests/MediaStoreTests.cpp
         native/MediaStore.cpp
@@ -882,11 +1214,15 @@ if(BUILD_TESTING)
     )
     add_executable(yanami-playback-reporter-tests
         tests/PlaybackReporterTests.cpp
+        native/ApplicationPaths.cpp
+        native/ApplicationPaths.hpp
         native/BackendPorts.hpp
         native/PlaybackReporter.cpp
         native/PlaybackReporter.hpp
         native/PlaybackTrackMapper.cpp
         native/PlaybackTrackMapper.hpp
+        native/MpvApi.cpp
+        native/MpvApi.hpp
         native/MpvVideoItem.cpp
         native/MpvVideoItem.hpp
         native/PlaybackCompletionGate.hpp
@@ -907,7 +1243,7 @@ if(BUILD_TESTING)
         Qt6::Quick
         Qt6::OpenGL
         Qt6::Test
-        MPV::MPV
+        yanami-mpv-headers
     )
     add_test(
         NAME yanami-playback-reporter-tests
@@ -1093,6 +1429,8 @@ if(BUILD_TESTING)
     )
     add_executable(yanami-application-view-model-tests
         tests/ApplicationViewModelTests.cpp
+        native/ApplicationPaths.cpp
+        native/ApplicationPaths.hpp
         native/ApplicationViewModel.cpp
         native/ApplicationViewModel.hpp
         native/BackendPorts.hpp
@@ -1267,8 +1605,12 @@ if(BUILD_TESTING)
     add_executable(yanami-upscaling-mpv-smoke
         tests/integration/UpscalingMpvSmoke.cpp
         tests/integration/OfflineNetworkAccessManager.hpp
+        native/ApplicationPaths.cpp
+        native/ApplicationPaths.hpp
         native/DevelopmentHooks.cpp
         native/DevelopmentHooks.hpp
+        native/MpvApi.cpp
+        native/MpvApi.hpp
         native/MpvVideoItem.cpp
         native/MpvVideoItem.hpp
         native/PerformanceTrace.cpp
@@ -1294,7 +1636,7 @@ if(BUILD_TESTING)
         Qt6::Network
         Qt6::OpenGL
         Qt6::Quick
-        MPV::MPV
+        yanami-mpv-headers
     )
     add_test(
         NAME yanami-upscaling-mpv-offline-smoke

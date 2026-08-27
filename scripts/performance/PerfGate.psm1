@@ -1108,7 +1108,8 @@ function Convert-YanamiTraceToManifest {
         [long]$ExpectedProcessId = -1,
         [ValidateSet("collect", "debt", "enforce")][string]$Mode = "collect",
         [string]$EnvironmentFingerprint = "runtime-smoke-unclassified",
-        [bool]$ReferenceMatch = $false
+        [bool]$ReferenceMatch = $false,
+        [switch]$RequireBootstrapHandshake
     )
 
     if (-not (Test-Path -LiteralPath $TracePath -PathType Leaf)) { throw "Performance trace was not produced: $TracePath" }
@@ -1136,6 +1137,7 @@ function Convert-YanamiTraceToManifest {
         if (-not $byMilestone.ContainsKey($milestone)) { $byMilestone[$milestone] = $event }
     }
     $requiredMilestones = @("main_entered", "qt_app_ready", "logger_ready", "backend_services_ready", "view_models_ready", "qml_root_ready", "window_exposed", "first_shell_present", "event_loop_ready", "startup_settled")
+    if ($RequireBootstrapHandshake) { $requiredMilestones += "desktop_ready" }
     $orderValid = $monotonic
     $missing = New-Object System.Collections.Generic.List[string]
     $duplicate = New-Object System.Collections.Generic.List[string]
@@ -1191,6 +1193,14 @@ function Convert-YanamiTraceToManifest {
         @("window_exposed", "first_shell_present"),
         @("first_shell_present", "startup_settled")
     )
+    if ($RequireBootstrapHandshake) {
+        $orderingEdges += ,@("first_shell_present", "desktop_ready")
+        $orderingEdges += ,@("desktop_ready", "startup_settled")
+        if ($byMilestone.ContainsKey("handoff_complete")) {
+            $metadataErrors.Add("Desktop runtime trace must not emit 'handoff_complete'; that boundary belongs to the launcher after its handoff animation finishes.")
+            $orderValid = $false
+        }
+    }
     foreach ($edge in $orderingEdges) {
         if (-not $byMilestone.ContainsKey($edge[0]) -or -not $byMilestone.ContainsKey($edge[1])) { continue }
         if ([long]$byMilestone[$edge[0]].monotonicNs -gt [long]$byMilestone[$edge[1]].monotonicNs) { $orderValid = $false }
@@ -1224,6 +1234,7 @@ function Convert-YanamiTraceToManifest {
             processIds = $processIds
             monotonic = $monotonic
             eventCount = $events.Count
+            bootstrapHandshakeRequired = [bool]$RequireBootstrapHandshake
             evidence = "internal-jsonl"
         }
     })
@@ -1360,11 +1371,259 @@ function Convert-YanamiTraceToManifest {
         profile = $Profile
         mode = $Mode
         startedAtUtc = [DateTime]::UtcNow.ToString("o")
-        environment = [pscustomobject][ordered]@{ fingerprint = $EnvironmentFingerprint; referenceMatch = $ReferenceMatch; mismatchReasons = @("Runtime JSONL smoke does not provide external Present evidence.") }
+        environment = [pscustomobject][ordered]@{ fingerprint = $EnvironmentFingerprint; referenceMatch = $ReferenceMatch; mismatchReasons = @("Qt frameSwapped and bootstrap ready-file signals are internal candidates; runtime JSONL does not prove an external compositor Present.") }
         fixtures = @()
         suites = $suites.ToArray()
         metrics = $metrics.ToArray()
         invariants = $invariants.ToArray()
+    }
+}
+
+function Convert-YanamiBootstrapTraceToManifest {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$TracePath,
+        [Parameter(Mandatory = $true)][ValidateSet("PullRequest", "Lab", "Nightly", "Weekly", "Release")][string]$Profile,
+        [Parameter(Mandatory = $true)][string]$RunId,
+        [long]$ExpectedProcessId = -1,
+        [ValidateSet("collect", "debt", "enforce")][string]$Mode = "collect",
+        [string]$EnvironmentFingerprint = "runtime-smoke-unclassified",
+        [bool]$ReferenceMatch = $false
+    )
+
+    if (-not (Test-Path -LiteralPath $TracePath -PathType Leaf)) {
+        throw "Bootstrap performance sidecar was not produced: $TracePath"
+    }
+    $events = New-Object System.Collections.Generic.List[object]
+    $lineNumber = 0
+    foreach ($line in Get-Content -LiteralPath $TracePath -Encoding UTF8) {
+        $lineNumber++
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        try { $event = $line | ConvertFrom-Json }
+        catch { throw "Invalid bootstrap JSONL at ${TracePath}:${lineNumber}: $($_.Exception.Message)" }
+        if ([string]$event.schemaVersion -ne "1.0") {
+            throw "Unsupported bootstrap PerfEvent schemaVersion at ${TracePath}:$lineNumber."
+        }
+        $events.Add($event)
+    }
+    if ($events.Count -eq 0) { throw "Bootstrap performance sidecar is empty: $TracePath" }
+
+    $byMilestone = @{}
+    $milestoneCounts = @{}
+    $previousNs = [long]-1
+    $monotonic = $true
+    foreach ($event in $events) {
+        $timestamp = [long]$event.monotonicNs
+        if ($timestamp -lt $previousNs) { $monotonic = $false }
+        $previousNs = $timestamp
+        $milestone = [string]$event.milestone
+        if (-not $milestoneCounts.ContainsKey($milestone)) {
+            $milestoneCounts[$milestone] = 0
+        }
+        $milestoneCounts[$milestone]++
+        if (-not $byMilestone.ContainsKey($milestone)) {
+            $byMilestone[$milestone] = $event
+        }
+    }
+
+    $requiredMilestones = @(
+        "bootstrap_first_visible",
+        "desktop_ready",
+        "handoff_complete"
+    )
+    $missing = New-Object System.Collections.Generic.List[string]
+    $duplicate = New-Object System.Collections.Generic.List[string]
+    $metadataErrors = New-Object System.Collections.Generic.List[string]
+    $runIds = @($events | ForEach-Object { [string]$_.runId } | Select-Object -Unique)
+    $processIds = @($events | ForEach-Object {
+        if ($null -ne $_.PSObject.Properties["processId"]) {
+            [string]$_.processId
+        } else {
+            "<missing>"
+        }
+    } | Select-Object -Unique)
+    $valid = $monotonic
+    if ($runIds.Count -ne 1 -or $runIds[0] -ne $RunId) {
+        $metadataErrors.Add("Bootstrap sidecar must contain exactly the expected runId '$RunId'.")
+        $valid = $false
+    }
+    if ($processIds.Count -ne 1 -or $processIds[0] -eq "<missing>") {
+        $metadataErrors.Add("Bootstrap sidecar must contain exactly one launcher processId.")
+        $valid = $false
+    } elseif ($ExpectedProcessId -ge 0 -and [long]$processIds[0] -ne $ExpectedProcessId) {
+        $metadataErrors.Add("Bootstrap sidecar processId must equal the launched process '$ExpectedProcessId'.")
+        $valid = $false
+    }
+    foreach ($event in $events) {
+        if ([string]$event.suite -ne "startup") {
+            $metadataErrors.Add("Bootstrap milestone '$($event.milestone)' must use suite 'startup'.")
+            $valid = $false
+        }
+        if ([string]$event.scenarioId -ne "desktop.bootstrap") {
+            $metadataErrors.Add("Bootstrap milestone '$($event.milestone)' must use scenarioId 'desktop.bootstrap'.")
+            $valid = $false
+        }
+        if ([long]$event.generation -ne 0) {
+            $metadataErrors.Add("Bootstrap milestone '$($event.milestone)' must use generation 0.")
+            $valid = $false
+        }
+    }
+    foreach ($milestone in $requiredMilestones) {
+        if (-not $byMilestone.ContainsKey($milestone)) {
+            $missing.Add($milestone)
+            $valid = $false
+        } elseif ([int]$milestoneCounts[$milestone] -ne 1) {
+            $duplicate.Add($milestone)
+            $valid = $false
+        }
+    }
+    foreach ($optionalMilestone in @("bootstrap_entered", "bootstrap_desktop_spawned")) {
+        if ($milestoneCounts.ContainsKey($optionalMilestone) -and
+            [int]$milestoneCounts[$optionalMilestone] -ne 1) {
+            $duplicate.Add($optionalMilestone)
+            $valid = $false
+        }
+    }
+
+    $orderingEdges = @(
+        @("bootstrap_first_visible", "desktop_ready"),
+        @("desktop_ready", "handoff_complete")
+    )
+    if ($byMilestone.ContainsKey("bootstrap_entered")) {
+        $orderingEdges += ,@("bootstrap_entered", "bootstrap_first_visible")
+    }
+    if ($byMilestone.ContainsKey("bootstrap_desktop_spawned")) {
+        $orderingEdges += ,@("bootstrap_first_visible", "bootstrap_desktop_spawned")
+        $orderingEdges += ,@("bootstrap_desktop_spawned", "desktop_ready")
+    }
+    foreach ($edge in $orderingEdges) {
+        if (-not $byMilestone.ContainsKey($edge[0]) -or
+            -not $byMilestone.ContainsKey($edge[1])) { continue }
+        if ([long]$byMilestone[$edge[0]].monotonicNs -gt
+            [long]$byMilestone[$edge[1]].monotonicNs) {
+            $valid = $false
+        }
+    }
+
+    $firstVisibleAttributes = if ($byMilestone.ContainsKey("bootstrap_first_visible")) {
+        $byMilestone["bootstrap_first_visible"].attributes
+    } else { [pscustomobject]@{} }
+    $desktopReadyAttributes = if ($byMilestone.ContainsKey("desktop_ready")) {
+        $byMilestone["desktop_ready"].attributes
+    } else { [pscustomobject]@{} }
+    $handoffAttributes = if ($byMilestone.ContainsKey("handoff_complete")) {
+        $byMilestone["handoff_complete"].attributes
+    } else { [pscustomobject]@{} }
+
+    $firstReadiness = Get-ObjectPropertyValue $firstVisibleAttributes "readiness" $null
+    $desktopReadiness = Get-ObjectPropertyValue $desktopReadyAttributes "readiness" $null
+    $handoffReadiness = Get-ObjectPropertyValue $handoffAttributes "readiness" $null
+    $progressSemantic = [string](Get-ObjectPropertyValue $firstVisibleAttributes "progressSemantic" "")
+    $childProcessId = [long]-1
+    $handoffChildProcessId = [long]-1
+    $childProcessIdValid = [long]::TryParse(
+        [string](Get-ObjectPropertyValue $desktopReadyAttributes "childProcessId" ""),
+        [ref]$childProcessId) -and $childProcessId -gt 0
+    $handoffChildProcessIdValid = [long]::TryParse(
+        [string](Get-ObjectPropertyValue $handoffAttributes "childProcessId" ""),
+        [ref]$handoffChildProcessId) -and $handoffChildProcessId -gt 0
+    $readinessSemanticsValid =
+        $firstReadiness -is [bool] -and -not [bool]$firstReadiness -and
+        $desktopReadiness -is [bool] -and [bool]$desktopReadiness -and
+        $handoffReadiness -is [bool] -and [bool]$handoffReadiness -and
+        $progressSemantic -eq "indeterminate" -and
+        $childProcessIdValid -and $handoffChildProcessIdValid -and
+        $childProcessId -eq $handoffChildProcessId
+    if (-not $readinessSemanticsValid) { $valid = $false }
+
+    $falseProgressFields = New-Object System.Collections.Generic.List[string]
+    foreach ($event in $events) {
+        foreach ($property in @($event.attributes.PSObject.Properties)) {
+            if ($property.Name -match '(?i)(percent(age)?|progress(percent|percentage|value|ratio))' -or
+                ($property.Value -is [string] -and [string]$property.Value -match '%')) {
+                $falseProgressFields.Add("$($event.milestone).$($property.Name)")
+            }
+        }
+    }
+    $noFalseProgress = $progressSemantic -eq "indeterminate" -and
+        $falseProgressFields.Count -eq 0
+
+    $metrics = New-Object System.Collections.Generic.List[object]
+    function Add-BootstrapDurationMetric {
+        param([string]$Id, [string]$Start, [string]$End, [string]$Boundary)
+        if (-not $byMilestone.ContainsKey($Start) -or
+            -not $byMilestone.ContainsKey($End)) { return }
+        $durationNs = [long]$byMilestone[$End].monotonicNs -
+            [long]$byMilestone[$Start].monotonicNs
+        if ($durationNs -lt 0) { return }
+        $metrics.Add([pscustomobject][ordered]@{
+            id = $Id
+            unit = "ms"
+            samples = @($durationNs / 1000000.0)
+            attributes = [pscustomobject][ordered]@{
+                evidence = "launcher-internal-clock"
+                strictPresent = $false
+                boundary = $Boundary
+            }
+        })
+    }
+    Add-BootstrapDurationMetric -Id "startup.internal.bootstrap_visible_to_desktop_ready_candidate_ms" -Start "bootstrap_first_visible" -End "desktop_ready" -Boundary "content-ready-candidate"
+    Add-BootstrapDurationMetric -Id "startup.internal.desktop_ready_to_handoff_animation_ms" -Start "desktop_ready" -End "handoff_complete" -Boundary "handoff-animation-only"
+    Add-BootstrapDurationMetric -Id "startup.internal.bootstrap_visible_to_handoff_ms" -Start "bootstrap_first_visible" -End "handoff_complete" -Boundary "diagnostic-total-not-ttfp"
+    Add-BootstrapDurationMetric -Id "startup.internal.bootstrap_entered_to_first_visible_candidate_ms" -Start "bootstrap_entered" -End "bootstrap_first_visible" -Boundary "launcher-first-visible-candidate"
+
+    $invariants = @(
+        [pscustomobject][ordered]@{
+            id = "startup.bootstrap_handoff_valid"
+            passed = $valid
+            details = [pscustomobject][ordered]@{
+                missing = $missing.ToArray()
+                duplicate = $duplicate.ToArray()
+                metadataErrors = $metadataErrors.ToArray()
+                runIds = $runIds
+                processIds = $processIds
+                monotonic = $monotonic
+                eventCount = $events.Count
+                childProcessId = $childProcessId
+                readinessSemanticsValid = $readinessSemanticsValid
+                desktopReadyIsContentBoundary = $true
+                handoffIsAnimationBoundary = $true
+                strictExternalPresent = $false
+                evidence = "bootstrap-ready-file-sidecar"
+            }
+        },
+        [pscustomobject][ordered]@{
+            id = "startup.no_false_progress_indicator"
+            passed = $noFalseProgress
+            details = [pscustomobject][ordered]@{
+                progressSemantic = $progressSemantic
+                forbiddenFields = $falseProgressFields.ToArray()
+                bootstrapVisibleIsReadiness = $false
+                evidence = "bootstrap-ready-file-sidecar"
+            }
+        }
+    )
+    return [pscustomobject][ordered]@{
+        schemaVersion = "1.0"
+        # The sidecar and desktop JSONL intentionally share the external trace
+        # runId, but merge provenance requires each producer manifest to keep a
+        # distinct identity.
+        runId = "$RunId-bootstrap"
+        profile = $Profile
+        mode = $Mode
+        startedAtUtc = [DateTime]::UtcNow.ToString("o")
+        environment = [pscustomobject][ordered]@{
+            fingerprint = $EnvironmentFingerprint
+            referenceMatch = $ReferenceMatch
+            mismatchReasons = @(
+                "Bootstrap visibility and desktop ready-file events are internal candidates, not DWM, WindowServer, or compositor Present evidence.",
+                "SmartScreen, Gatekeeper, quarantine, download, extraction, and installer delays are outside this process trace."
+            )
+        }
+        fixtures = @()
+        suites = @("startup")
+        metrics = $metrics.ToArray()
+        invariants = $invariants
     }
 }
 
@@ -1467,6 +1726,7 @@ Export-ModuleMember -Function @(
     "Merge-YanamiRunManifests",
     "Invoke-YanamiPerfEvaluation",
     "Convert-YanamiTraceToManifest",
+    "Convert-YanamiBootstrapTraceToManifest",
     "New-YanamiUnavailableResult",
     "Write-YanamiJUnit"
 )

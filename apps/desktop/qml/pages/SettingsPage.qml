@@ -133,6 +133,22 @@ Item {
         return qsTr("None")
     }
 
+    function controllerDeviceName(device) {
+        const name = String(device && device.name || "")
+        const id = String(device && device.id || "")
+        if (id === "remote:qt-key")
+            return qsTr("TV remote / media keys")
+        if (id.startsWith("xinput:")) {
+            const slot = Number(id.slice("xinput:".length)) + 1
+            return qsTr("Xbox controller %1").arg(slot)
+        }
+        if (name === "HID TV Remote")
+            return qsTr("HID TV remote")
+        if (name === "Gamepad")
+            return qsTr("Gamepad")
+        return name.length > 0 ? name : qsTr("Unknown device")
+    }
+
     function controllerActionLabel(action) {
         if (action === InputModality.NavigateUp)
             return qsTr("Navigate up")
@@ -183,6 +199,39 @@ Item {
         if (action === InputModality.NextItem)
             return qsTr("Next item")
         return qsTr("Unknown action")
+    }
+
+    function controllerActionNameLabel(actionName) {
+        const actions = ({
+            "navigateUp": InputModality.NavigateUp,
+            "navigateDown": InputModality.NavigateDown,
+            "navigateLeft": InputModality.NavigateLeft,
+            "navigateRight": InputModality.NavigateRight,
+            "activate": InputModality.Activate,
+            "back": InputModality.Back,
+            "context": InputModality.Context,
+            "menu": InputModality.Menu,
+            "search": InputModality.Search,
+            "pagePrevious": InputModality.PagePrevious,
+            "pageNext": InputModality.PageNext,
+            "pageUp": InputModality.PageUp,
+            "pageDown": InputModality.PageDown,
+            "scrollUp": InputModality.ScrollUp,
+            "scrollDown": InputModality.ScrollDown,
+            "scrollLeft": InputModality.ScrollLeft,
+            "scrollRight": InputModality.ScrollRight,
+            "playPause": InputModality.PlayPause,
+            "seekBackward": InputModality.SeekBackward,
+            "seekForward": InputModality.SeekForward,
+            "volumeUp": InputModality.VolumeUp,
+            "volumeDown": InputModality.VolumeDown,
+            "previousItem": InputModality.PreviousItem,
+            "nextItem": InputModality.NextItem
+        })
+        const key = String(actionName || "")
+        return actions[key] !== undefined
+            ? root.controllerActionLabel(actions[key])
+            : qsTr("Unknown action")
     }
 
     function controllerDefaultFocusItem() {
@@ -2061,8 +2110,8 @@ Item {
                                     }
                                     Text {
                                         Layout.fillWidth: true
-                                        text: String(controllerDeviceRow.modelData.name
-                                                     || qsTr("Unknown device"))
+                                        text: root.controllerDeviceName(
+                                            controllerDeviceRow.modelData)
                                         color: Theme.text
                                         font.family: Theme.fontForText(text)
                                         font.pixelSize: 12
@@ -2122,7 +2171,8 @@ Item {
                                                ? qsTr(" · repeating") : "")
                                         : (!root.controllerActionCleared
                                            && InputModality.lastActionName.length > 0
-                                           ? InputModality.lastActionName
+                                           ? root.controllerActionNameLabel(
+                                                 InputModality.lastActionName)
                                            : qsTr("Waiting for input"))
                                     color: root.lastControllerAction.length > 0
                                         ? Theme.text : Theme.textMuted

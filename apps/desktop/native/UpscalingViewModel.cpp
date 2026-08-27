@@ -1,5 +1,7 @@
 #include "UpscalingViewModel.hpp"
 
+#include "ApplicationPaths.hpp"
+
 #include "ApplicationViewModel.hpp"
 #include "UpscalingAssetManager.hpp"
 #include "UpscalingCapabilityProbe.hpp"
@@ -10,7 +12,6 @@
 #include <QFileInfo>
 #include <QQuickWindow>
 #include <QScopedValueRollback>
-#include <QStandardPaths>
 
 #include <algorithm>
 
@@ -18,9 +19,7 @@ namespace {
 
 QString defaultAssetRoot()
 {
-    return QDir(QStandardPaths::writableLocation(
-                    QStandardPaths::AppDataLocation))
-        .filePath(QStringLiteral("models/upscaling"));
+    return ApplicationPaths::upscalingAssetRoot();
 }
 
 QVariantMap disabledRuntimeConfig()

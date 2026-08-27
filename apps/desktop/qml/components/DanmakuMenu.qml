@@ -641,7 +641,7 @@ AppTransientPopup {
                                     : qsTr("%1 episodes%2")
                                         .arg((modelData.episodes || []).length)
                                         .arg(modelData.typeDescription
-                                             ? " 路 " + modelData.typeDescription : "")
+                                             ? " · " + modelData.typeDescription : "")
                                 color: Theme.textMuted
                                 font.family: Theme.fontForText(text)
                                 font.pixelSize: 11
@@ -707,7 +707,7 @@ AppTransientPopup {
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.margins: 12
                             text: (modelData.animeTitle || qsTr("Unknown anime"))
-                                + " 路 " + (modelData.episodeTitle || qsTr("Unknown episode"))
+                                + " · " + (modelData.episodeTitle || qsTr("Unknown episode"))
                             color: Theme.text
                             font.family: Theme.fontForText(text)
                             font.pixelSize: 12

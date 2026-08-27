@@ -39,6 +39,8 @@ class InputModalityControllerTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void controllerSourceConstructionAndShutdownStayLazy();
+    void controllerSourceActivationIsExplicitAndIdempotent();
     void keyboardAndControllerShareFocusNavigationPresentation();
     void stationaryPointerDoesNotOverrideKeyboard();
     void realPointerInputOverridesFocusNavigation();
@@ -63,6 +65,49 @@ private slots:
     void controllerInputTestConsumesRemoteKeysWithoutReinjection();
     void multipleFacadesShareOneDispatchAndState();
 };
+
+void InputModalityControllerTests::
+    controllerSourceConstructionAndShutdownStayLazy()
+{
+    auto service = std::unique_ptr<InputModalityService>(
+        new InputModalityService);
+
+    QVERIFY(!service->m_controllerNavigation);
+    QCOMPARE(service->controllerBackend(), QStringLiteral("none"));
+    QVERIFY(service->connectedDevices().isEmpty());
+
+    // Destruction before activation must not assume that an SDL/XInput source
+    // or its timers and application-state connections ever existed.
+    service.reset();
+}
+
+void InputModalityControllerTests::
+    controllerSourceActivationIsExplicitAndIdempotent()
+{
+    auto service = std::unique_ptr<InputModalityService>(
+        new InputModalityService);
+    QSignalSpy backendSpy(
+        service.get(), &InputModalityService::controllerBackendChanged);
+
+    QVERIFY(!service->m_controllerNavigation);
+
+    service->initializeControllerNavigation();
+    QVERIFY(service->m_controllerNavigation);
+    ControllerNavigationSource *const source =
+        service->m_controllerNavigation.get();
+    const int signalCountAfterInitialization = backendSpy.count();
+    if (service->controllerBackend() == QStringLiteral("none"))
+        QCOMPARE(signalCountAfterInitialization, 0);
+    else
+        QCOMPARE(signalCountAfterInitialization, 1);
+
+    service->initializeControllerNavigation();
+    QCOMPARE(service->m_controllerNavigation.get(), source);
+    QCOMPARE(backendSpy.count(), signalCountAfterInitialization);
+
+    // Explicit shutdown after activation owns and tears down the source once.
+    service.reset();
+}
 
 void InputModalityControllerTests::
     keyboardAndControllerShareFocusNavigationPresentation()

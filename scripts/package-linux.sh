@@ -24,12 +24,27 @@ if [[ ! "$build_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$ ]]; then
     exit 1
 fi
 
-for command_name in cargo cmake ctest curl sha256sum; do
+for command_name in cargo cmake ctest curl pkg-config readlink sha256sum; do
     command -v "$command_name" >/dev/null 2>&1 || {
         echo "required command is missing: $command_name" >&2
         exit 1
     }
 done
+
+# yanami-desktop resolves libmpv only when PlayerPage is entered, so it is no
+# longer present in the executable's DT_NEEDED list for linuxdeploy to
+# discover. Keep libmpv as an explicit AppImage root; linuxdeploy will follow
+# its FFmpeg/libplacebo dependency graph from this real file.
+mpv_runtime_link="$(pkg-config --variable=libdir mpv)/libmpv.so"
+if [[ ! -e "$mpv_runtime_link" ]]; then
+    echo "pkg-config did not resolve the libmpv runtime: $mpv_runtime_link" >&2
+    exit 1
+fi
+mpv_runtime_library="$(readlink -f "$mpv_runtime_link")"
+if [[ ! -f "$mpv_runtime_library" ]]; then
+    echo "libmpv runtime target does not exist: $mpv_runtime_library" >&2
+    exit 1
+fi
 
 rust_license_inventory="${YANAMI_RUST_LICENSE_INVENTORY:-}"
 if [[ -n "$rust_license_inventory" ]]; then
@@ -89,8 +104,10 @@ file "$icon_file" | grep -q 'PNG image data, 512 x 512'
 
 "$linuxdeploy" \
     --appdir "$app_dir" \
+    --executable "$app_dir/usr/bin/yanami" \
     --executable "$app_dir/usr/bin/yanami-desktop" \
     --library "$app_dir/usr/bin/libyanami_desktop_bridge.so" \
+    --library "$mpv_runtime_library" \
     --desktop-file "$app_dir/usr/share/applications/io.github.TwooSix.Yanami.desktop" \
     --icon-file "$icon_file" \
     --plugin qt

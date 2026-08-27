@@ -341,9 +341,14 @@ jobs:
           Expand-Archive -LiteralPath $archive.FullName -DestinationPath $extractRoot
           $executable = Get-ChildItem $extractRoot -Filter yanami-desktop.exe -Recurse |
             Select-Object -First 1
+          $launcher = Get-ChildItem $extractRoot -Filter Yanami.exe -Recurse |
+            Where-Object { $_.DirectoryName -eq $executable.DirectoryName } |
+            Select-Object -First 1
           $bridge = Get-ChildItem $extractRoot -Filter yanami_desktop_bridge.dll -Recurse |
             Select-Object -First 1
-          if (-not $executable -or -not $bridge) { throw "Package binaries are missing." }
+          if (-not $executable -or -not $launcher -or -not $bridge) {
+            throw "Package launcher, desktop, or bridge binary is missing."
+          }
           $platformDirectory = Join-Path $executable.DirectoryName "platforms"
           foreach ($platformPlugin in @("qwindows.dll", "qoffscreen.dll")) {
             if (-not (Test-Path -LiteralPath (Join-Path $platformDirectory $platformPlugin) `
@@ -376,6 +381,9 @@ jobs:
           }
           if ($executable.VersionInfo.ProductVersion -ne $env:YANAMI_RELEASE_VERSION) {
             throw "Unexpected desktop ProductVersion: $($executable.VersionInfo.ProductVersion)"
+          }
+          if ($launcher.VersionInfo.ProductVersion -ne $env:YANAMI_RELEASE_VERSION) {
+            throw "Unexpected launcher ProductVersion: $($launcher.VersionInfo.ProductVersion)"
           }
           $buildInfo = Get-Content (Join-Path $packageRoot "BUILD_INFO.json") -Raw |
             ConvertFrom-Json
@@ -450,7 +458,7 @@ jobs:
               throw "Runtime owner has no packaged license or notice text: $owner"
             }
           }
-          foreach ($binary in @($executable.FullName, $bridge.FullName)) {
+          foreach ($binary in @($launcher.FullName, $executable.FullName, $bridge.FullName)) {
             $binaryText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($binary))
             if ($binaryText -match 'YANAMI_DEV_') {
               throw "A production binary contains a development hook: $binary"
@@ -461,7 +469,7 @@ jobs:
           if (-not $bridgeText.Contains($env:YANAMI_RELEASE_VERSION)) {
             throw "The Rust bridge does not contain the candidate version."
           }
-          foreach ($binary in @($executable.FullName, $bridge.FullName)) {
+          foreach ($binary in @($launcher.FullName, $executable.FullName, $bridge.FullName)) {
             if ((Get-AuthenticodeSignature -LiteralPath $binary).Status -ne "NotSigned") {
               throw "The unsigned release unexpectedly contains an Authenticode signature: $binary"
             }
@@ -477,6 +485,8 @@ jobs:
           $devLog = Join-Path $extractRoot "forbidden-dev-hook.log"
           $smokeStdout = Join-Path $extractRoot "runtime-smoke.stdout.log"
           $smokeStderr = Join-Path $extractRoot "runtime-smoke.stderr.log"
+          $mpvSmokeStdout = Join-Path $extractRoot "mpv-runtime-smoke.stdout.log"
+          $mpvSmokeStderr = Join-Path $extractRoot "mpv-runtime-smoke.stderr.log"
           $process = $null
           try {
             $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
@@ -504,6 +514,34 @@ jobs:
               Get-Content -LiteralPath $smokeStderr -ErrorAction SilentlyContinue |
                 Write-Host
               throw "The packaged runtime smoke test failed with exit code $($process.ExitCode)."
+            }
+            $process = Start-Process -FilePath $executable.FullName `
+              -ArgumentList "--mpv-runtime-smoke-test" `
+              -WorkingDirectory $executable.DirectoryName -WindowStyle Hidden `
+              -RedirectStandardOutput $mpvSmokeStdout `
+              -RedirectStandardError $mpvSmokeStderr -PassThru
+            if (-not $process.WaitForExit(60000)) {
+              throw "The packaged on-demand libmpv smoke test did not finish within 60 seconds."
+            }
+            if ($process.ExitCode -ne 0) {
+              Get-Content -LiteralPath $mpvSmokeStdout -ErrorAction SilentlyContinue |
+                Write-Host
+              Get-Content -LiteralPath $mpvSmokeStderr -ErrorAction SilentlyContinue |
+                Write-Host
+              throw "The packaged on-demand libmpv smoke test failed with exit code $($process.ExitCode)."
+            }
+            $ucrtBin = "${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin"
+            & scripts/performance/Test-BootstrapPackage.ps1 `
+              -Platform Windows `
+              -EntryPointPath $launcher.FullName `
+              -LauncherBinaryPath $launcher.FullName `
+              -DesktopBinaryPath $executable.FullName `
+              -DependencyToolPath (Join-Path $ucrtBin "objdump.exe") `
+              -CompilerPath (Join-Path $ucrtBin "gcc.exe") `
+              -OutputDirectory (Join-Path $extractRoot "bootstrap-smoke") `
+              -CandidateSha $env:YANAMI_RELEASE_SHA
+            if ($LASTEXITCODE -ne 0) {
+              throw "The packaged bootstrap lifecycle smoke failed with exit code $LASTEXITCODE."
             }
           } finally {
             if ($process -and -not $process.HasExited) {
@@ -574,7 +612,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes \
-            build-essential cmake file jq ninja-build pkg-config \
+            build-essential cmake file jq ninja-build pkg-config xvfb \
             libdbus-1-dev libgl1-mesa-dev libice6 libmpv-dev libsm6 \
             libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 \
             libxcb-randr0 libxcb-sync1 libxcb-xinput0 libxkbcommon-x11-0
@@ -636,7 +674,10 @@ jobs:
             cd "$extract_dir"
             "$asset" --appimage-extract >/dev/null
           )
+          app_root="$extract_dir/squashfs-root"
           package_root="$extract_dir/squashfs-root/usr"
+          entrypoint="$app_root/AppRun"
+          launcher="$package_root/bin/yanami"
           executable="$package_root/bin/yanami-desktop"
           bridge="$package_root/bin/libyanami_desktop_bridge.so"
           for required in \
@@ -647,9 +688,12 @@ jobs:
             test -f "$package_root/$required"
           done
           test -n "$(find "$package_root/licenses/qt" -type f -print -quit)"
+          test -x "$entrypoint"
+          test -x "$launcher"
           test -x "$executable"
           test -f "$bridge"
           test -n "$(find "$package_root/lib" -name 'libmpv.so*' -print -quit)"
+          file "$launcher" | grep -q 'x86-64'
           file "$executable" | grep -q 'x86-64'
           file "$bridge" | grep -q 'x86-64'
 
@@ -678,7 +722,7 @@ jobs:
             test "$(sha256sum "$full_path" | cut -d' ' -f1)" = "$expected_hash"
           done < "$package_root/SHA256SUMS.txt"
 
-          for binary in "$executable" "$bridge"; do
+          for binary in "$launcher" "$executable" "$bridge"; do
             if strings "$binary" | grep 'YANAMI_DEV_' >/dev/null; then
               echo "Production binary contains a development hook: $binary" >&2
               exit 1
@@ -691,24 +735,52 @@ jobs:
             echo "$ldd_output" >&2
             exit 1
           fi
-          grep -q 'libmpv' <<<"$ldd_output"
+          if grep -q 'libmpv' <<<"$ldd_output"; then
+            echo "Packaged desktop must not import libmpv before PlayerPage." >&2
+            echo "$ldd_output" >&2
+            exit 1
+          fi
 
           export XDG_DATA_HOME="$extract_dir/data"
           export XDG_CACHE_HOME="$extract_dir/cache"
           export QT_QPA_PLATFORM=offscreen
           export QT_QUICK_BACKEND=software
+          xvfb-run -a pwsh -NoLogo -NoProfile -File \
+            scripts/performance/Test-BootstrapPackage.ps1 \
+            -Platform Linux \
+            -EntryPointPath "$entrypoint" \
+            -LauncherBinaryPath "$launcher" \
+            -DesktopBinaryPath "$executable" \
+            -DependencyToolPath /usr/bin/ldd \
+            -CompilerPath /usr/bin/cc \
+            -OutputDirectory "$extract_dir/bootstrap-smoke" \
+            -CandidateSha "$YANAMI_RELEASE_SHA"
+
           export LD_DEBUG=libs
+          set +e
+          timeout 12s "$entrypoint" \
+            --mpv-runtime-smoke-test \
+            >"$extract_dir/mpv-smoke.stdout" \
+            2>"$extract_dir/mpv-loader.log"
+          mpv_smoke_status=$?
+          set -e
+          test "$mpv_smoke_status" -eq 0
+          grep -q 'libmpv' "$extract_dir/mpv-loader.log"
+
           export YANAMI_DEV_AUTOPLAY_FIRST=1
           export YANAMI_DEV_SCREENSHOT_PATH="$extract_dir/forbidden.png"
           export YANAMI_DEV_LOG_PATH="$extract_dir/forbidden.log"
           set +e
-          timeout 12s "$extract_dir/squashfs-root/AppRun" \
+          timeout 12s "$entrypoint" --performance-runtime-auto-exit \
             >"$extract_dir/smoke.stdout" 2>"$extract_dir/loader.log"
           smoke_status=$?
           set -e
-          test "$smoke_status" -eq 124
+          test "$smoke_status" -eq 0
           grep -q 'libyanami_desktop_bridge.so' "$extract_dir/loader.log"
-          grep -q 'libmpv' "$extract_dir/loader.log"
+          if grep -q 'libmpv' "$extract_dir/loader.log"; then
+            echo "First-screen smoke loaded libmpv before PlayerPage." >&2
+            exit 1
+          fi
           grep -R -q 'application_start' "$XDG_DATA_HOME"
           test ! -e "$extract_dir/forbidden.png"
           test ! -e "$extract_dir/forbidden.log"
@@ -817,9 +889,11 @@ jobs:
           hdiutil attach -nobrowse -readonly -mountpoint "$mount_dir" "$asset" >/dev/null
           trap 'hdiutil detach "$mount_dir" >/dev/null' EXIT
           app="$mount_dir/Yanami.app"
+          launcher="$app/Contents/MacOS/yanami-bootstrap"
           executable="$app/Contents/MacOS/Yanami"
           bridge="$app/Contents/MacOS/libyanami_desktop_bridge.dylib"
           test -d "$app"
+          test -x "$launcher"
           test -x "$executable"
           test -f "$bridge"
           test -n "$(find "$app/Contents" -name 'libmpv*.dylib' -print -quit)"
@@ -843,14 +917,22 @@ jobs:
              .platform == "macOS" and .architecture == $architecture' \
             "$mount_dir/BUILD_INFO.json" >/dev/null
 
+          test "$(plutil -extract CFBundleExecutable raw "$app/Contents/Info.plist")" = \
+            "yanami-bootstrap"
+          test "$(lipo -archs "$launcher")" = "${{ matrix.architecture }}"
           test "$(lipo -archs "$executable")" = "${{ matrix.architecture }}"
           test "$(lipo -archs "$bridge")" = "${{ matrix.architecture }}"
+          if otool -L "$executable" | grep -q 'libmpv'; then
+            echo "Packaged desktop must not import libmpv before PlayerPage." >&2
+            otool -L "$executable" >&2
+            exit 1
+          fi
           codesign --verify --deep --strict "$app"
           codesign -dv --verbose=4 "$app" 2>"$RUNNER_TEMP/codesign.txt"
           grep -q 'Signature=adhoc' "$RUNNER_TEMP/codesign.txt"
           bash scripts/verify-macos-bundle.sh "$app"
 
-          for binary in "$executable" "$bridge"; do
+          for binary in "$launcher" "$executable" "$bridge"; do
             if strings "$binary" | grep 'YANAMI_DEV_' >/dev/null; then
               echo "Production binary contains a development hook: $binary" >&2
               exit 1
@@ -863,6 +945,21 @@ jobs:
           smoke_home="$(mktemp -d "$RUNNER_TEMP/yanami-smoke-home.XXXXXX")"
           forbidden_screenshot="$RUNNER_TEMP/yanami-forbidden-${{ matrix.architecture }}.png"
           forbidden_log="$RUNNER_TEMP/yanami-forbidden-${{ matrix.architecture }}.log"
+          env \
+            HOME="$smoke_home" \
+            PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+            QT_QUICK_BACKEND=software \
+            pwsh -NoLogo -NoProfile -File \
+              scripts/performance/Test-BootstrapPackage.ps1 \
+              -Platform macOS \
+              -EntryPointPath "$launcher" \
+              -LauncherBinaryPath "$launcher" \
+              -DesktopBinaryPath "$executable" \
+              -DependencyToolPath /usr/bin/otool \
+              -CompilerPath /usr/bin/clang \
+              -OutputDirectory "$RUNNER_TEMP/bootstrap-smoke-${{ matrix.architecture }}" \
+              -CandidateSha "$YANAMI_RELEASE_SHA"
+
           env \
             HOME="$smoke_home" \
             PATH=/usr/bin:/bin:/usr/sbin:/sbin \
@@ -897,6 +994,20 @@ jobs:
             cat "$smoke_stdout" >&2
             cat "$smoke_stderr" >&2
             echo "Packaged macOS runtime smoke test failed with exit code $smoke_status." >&2
+            exit 1
+          fi
+
+          mpv_smoke_stdout="$RUNNER_TEMP/yanami-mpv-smoke-${{ matrix.architecture }}.stdout"
+          mpv_smoke_stderr="$RUNNER_TEMP/yanami-mpv-smoke-${{ matrix.architecture }}.stderr"
+          if ! env \
+            HOME="$smoke_home" \
+            PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+            QT_QUICK_BACKEND=software \
+            "$executable" --mpv-runtime-smoke-test \
+              >"$mpv_smoke_stdout" 2>"$mpv_smoke_stderr"; then
+            cat "$mpv_smoke_stdout" >&2
+            cat "$mpv_smoke_stderr" >&2
+            echo "Packaged macOS on-demand libmpv smoke test failed." >&2
             exit 1
           fi
           test ! -e "$forbidden_screenshot"

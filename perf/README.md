@@ -240,6 +240,68 @@ lab's real interaction workload or external Present evidence. Strict profiles
 retain the native window/rendering environment supplied by the lab
 orchestrator.
 
+### Two-stage startup lifecycle
+
+Packaged startup uses a native branded launcher and a ready-file handshake.
+When the launcher receives `--performance-trace <path>`, the desktop owns and
+truncates `<path>` while the launcher writes `<path>.bootstrap.jsonl`. The gate
+binds the launcher PID in that sidecar to the desktop PID recorded by both
+`desktop_ready` and `handoff_complete`, then validates the desktop trace against
+that child PID. The required launcher milestones are:
+
+- `bootstrap_first_visible`: branded launcher visibility candidate,
+  `readiness=false`, and `progressSemantic=indeterminate`;
+- `desktop_ready`: the desktop's content-ready handshake, not the launcher's
+  first frame;
+- `handoff_complete`: the launcher's cross-fade/hide boundary, kept separate
+  from content readiness.
+
+Each milestone occurs exactly once and in that order. Percentage-like progress
+fields are rejected because the launcher has no finite work denominator. The
+short handoff animation is reported as its own duration; its end must never be
+reported as desktop TTFP. `frameSwapped`, ready-file commit, and launcher
+visibility are process-internal candidates. They validate lifecycle ordering,
+but do not prove that DWM, WindowServer, or a Linux compositor presented a
+frame.
+
+Release package smoke invokes `scripts/performance/Test-BootstrapPackage.ps1`.
+It audits that the launcher does not statically import Qt, mpv, SDL, the Rust
+bridge, or media libraries; validates the three-milestone sidecar and desktop
+trace; and stages a non-responsive fake desktop to require bounded timeout exit
+code 70. Windows and macOS exercise their native launcher window paths. Linux
+runs the X11 launcher under Xvfb while the Qt child uses the packaged offscreen
+backend. These are handshake and dependency-contract checks, not strict visual
+performance evidence.
+
+### First-download cold-start A/B sampling
+
+Use a fixed Windows lab and collect complete A-B-A-B rounds from separately
+extracted, immutable base and candidate packages. Keep signing status, package
+origin, Mark-of-the-Web state, network state, power plan, display, and account
+fixture identical. Give every run a fresh experiment-owned APPDATA/LOCALAPPDATA
+root. Reset the OS page cache only through the lab's declared reboot or cache
+reset policy; deleting application state alone is not a cold binary-page-cache
+reset. Nightly/Weekly cold scenarios require at least 20 samples per variant;
+Release requires 50 so p99 is meaningful.
+
+For every launch retain both JSONL traces, package and artifact hashes, the
+candidate/fixture/machine binding, and an external QPC plus ETW/PresentMon
+capture correlated to launcher PID, child PID, and HWND. Report these boundaries
+separately:
+
+1. process entry to external launcher first Present;
+2. launcher first Present to external desktop content Present;
+3. internal `desktop_ready` to `handoff_complete` animation duration;
+4. download/open request to process entry, when reputation testing is in scope.
+
+Only boundary 2 can contribute to strict desktop TTFP, and only from external
+Present evidence. Local builds, CI extraction, Qt `frameSwapped`, and the ready
+file cannot measure Windows SmartScreen reputation delay. SmartScreen must be a
+separate signed-artifact experiment using the real download channel and
+preserved Mark-of-the-Web; macOS Gatekeeper/quarantine has the same separation.
+Do not combine those OS reputation/download delays with in-process startup
+latency.
+
 Danmaku strict profiles use the fixed Windows machine at 3840x2160 and 60Hz.
 They exercise cached 10,000-, 50,000-, and 100,000-comment loads plus the
 versioned steady/burst, seek, pause/resume, controlled-buffering, playback-rate,

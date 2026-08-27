@@ -142,8 +142,6 @@ Item {
                                  bool keyboardInvocation)
 
     function controllerDefaultFocusItem() {
-        if (!app.session.connected)
-            return disconnectedSettingsButton
         if (root.depth === 1) {
             const libraryCard = libraryGrid.itemAtIndex(0)
             return libraryCard || libraryBackButton
@@ -1481,80 +1479,6 @@ Item {
                     kind: "secondary"
                     text: qsTr("Try again")
                     onClicked: app.home.loadCollection(root.routeCollectionId)
-                }
-            }
-        }
-    }
-
-    Item {
-        id: disconnectedHome
-
-        anchors.fill: parent
-        visible: !app.session.connected
-        z: 2
-
-        GlassPanel {
-            anchors.centerIn: parent
-            width: Math.min(disconnectedHome.width - 48, 620)
-            height: disconnectedContent.implicitHeight + 64
-            radius: Theme.radiusLarge
-            color: Theme.surfaceStrong
-
-            ColumnLayout {
-                id: disconnectedContent
-
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.margins: 32
-                spacing: 18
-
-                Rectangle {
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: 64
-                    Layout.preferredHeight: 64
-                    radius: 21
-                    color: Theme.accentSoft
-                    border.width: 1
-                    border.color: "#52FF6687"
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: "E"
-                        color: Theme.accent
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 23
-                        font.weight: Font.Bold
-                    }
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("Connect your Emby server")
-                    color: Theme.text
-                    font.family: Theme.fontForText(text)
-                    font.pixelSize: 26
-                    font.weight: Font.DemiBold
-                    horizontalAlignment: Text.AlignHCenter
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("Set up Emby in Settings to start browsing your media library.")
-                    color: Theme.textMuted
-                    font.family: Theme.fontForText(text)
-                    font.pixelSize: 14
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.WordWrap
-                }
-
-                AppButton {
-                    id: disconnectedSettingsButton
-                    Layout.alignment: Qt.AlignHCenter
-                    kind: "primary"
-                    iconName: "settings"
-                    text: qsTr("Go to Settings")
-                    onClicked: root.settingsRequested()
                 }
             }
         }

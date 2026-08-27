@@ -272,6 +272,7 @@ void SdlVirtualControllerIntegrationTests::
     // This public facade owns the production ControllerNavigationSource. The
     // test never calls dispatchActionForTest or bypasses SDL polling.
     InputModalityController inputModality;
+    InputModalityService::instance().initializeControllerNavigation();
     QCOMPARE(inputModality.controllerBackend(), QStringLiteral("sdl"));
 
     QVariantMap virtualDescriptor;
@@ -409,6 +410,7 @@ void SdlVirtualControllerIntegrationTests::
     };
 
     InputModalityController inputModality;
+    InputModalityService::instance().initializeControllerNavigation();
     QSignalSpy pressedSpy(&inputModality,
                           &InputModalityController::actionPressed);
     QSignalSpy releasedSpy(&inputModality,

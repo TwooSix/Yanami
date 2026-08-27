@@ -26,6 +26,9 @@ param(
     [string]$PolicyPath,
     [switch]$ValidateOnly,
     [switch]$SkipProbeDiscovery,
+    [switch]$RequireBootstrapSidecar,
+
+    [switch]$UseNativeWindowForRuntimeTrace,
     [switch]$NoExit
 )
 
@@ -189,8 +192,16 @@ function Find-DesktopExecutableInBuildDirectory {
     param([string]$BuildDirectory)
     if (-not $BuildDirectory) { return $null }
     foreach ($candidate in @(
+        (Join-Path $BuildDirectory "yanami-bootstrap.exe"),
+        (Join-Path $BuildDirectory "Yanami.exe"),
+        (Join-Path $BuildDirectory "apps\desktop\yanami-bootstrap.exe"),
+        (Join-Path $BuildDirectory "apps\desktop\Yanami.exe"),
+        (Join-Path $BuildDirectory "yanami-bootstrap"),
+        (Join-Path $BuildDirectory "apps\desktop\yanami-bootstrap"),
         (Join-Path $BuildDirectory "yanami-desktop.exe"),
-        (Join-Path $BuildDirectory "apps\desktop\yanami-desktop.exe")
+        (Join-Path $BuildDirectory "apps\desktop\yanami-desktop.exe"),
+        (Join-Path $BuildDirectory "yanami-desktop"),
+        (Join-Path $BuildDirectory "apps\desktop\yanami-desktop")
     )) {
         if (Test-Path -LiteralPath $candidate -PathType Leaf) {
             return [System.IO.Path]::GetFullPath($candidate)
@@ -344,9 +355,9 @@ function Build-DesktopExecutableBesideProbe {
         $toolBin = Split-Path -Parent $cmake
         $env:PATH = "$toolBin;$env:USERPROFILE\.cargo\bin;$env:PATH"
         $env:RUSTUP_TOOLCHAIN = "stable-x86_64-pc-windows-gnu"
-        & $cmake --build $buildDirectory --target yanami-desktop --parallel 2>&1 | ForEach-Object { Write-Host $_ }
+        & $cmake --build $buildDirectory --target yanami-desktop yanami-bootstrap --parallel 2>&1 | ForEach-Object { Write-Host $_ }
         if ($LASTEXITCODE -ne 0) {
-            throw "Building yanami-desktop for startup tracing failed with code $LASTEXITCODE."
+            throw "Building yanami-desktop and yanami-bootstrap for startup tracing failed with code $LASTEXITCODE."
         }
     }
     finally {
@@ -2048,8 +2059,12 @@ function Invoke-DesktopRuntimeTrace {
                 foreach ($line in Get-Content -LiteralPath $TracePath -Encoding UTF8 -ErrorAction SilentlyContinue) {
                     if ([string]::IsNullOrWhiteSpace($line)) { continue }
                     try { $event = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+                    # A bootstrap entry point owns the launched PID while the
+                    # forwarded desktop process owns the main trace. The
+                    # unique runId/path pair prevents stale evidence here;
+                    # launcher/child PID binding is verified against the
+                    # bootstrap sidecar after both processes exit.
                     if ([string]$event.runId -eq $RunId -and
-                        [long]$event.processId -eq $processId -and
                         [string]$event.milestone -eq $CompletionMilestone) {
                         $completed = $true
                         break
@@ -2392,6 +2407,7 @@ try {
         if ($DesktopExecutable) {
             $traceRunId = "runtime-smoke-$([guid]::NewGuid().ToString('N'))"
             $tracePath = Join-Path $resolvedOutput "desktop-runtime-trace-$traceRunId.jsonl"
+            $bootstrapTracePath = "$tracePath.bootstrap.jsonl"
             $runtimeArguments = @($DesktopArguments)
             if ("--performance-runtime-auto-exit" -notin $runtimeArguments) {
                 $runtimeArguments += "--performance-runtime-auto-exit"
@@ -2403,16 +2419,46 @@ try {
                     $runtimeArguments += "--performance-runtime-probe"
                 }
             }
-            $traceProcess = Invoke-DesktopRuntimeTrace -Executable $DesktopExecutable -TracePath $tracePath -Arguments $runtimeArguments -TimeoutSeconds $StartupTimeoutSeconds -CompletionMilestone $completionMilestone -RunId $traceRunId -HostedSmoke ($Profile -eq "PullRequest")
+            $traceProcess = Invoke-DesktopRuntimeTrace -Executable $DesktopExecutable -TracePath $tracePath -Arguments $runtimeArguments -TimeoutSeconds $StartupTimeoutSeconds -CompletionMilestone $completionMilestone -RunId $traceRunId -HostedSmoke ($Profile -eq "PullRequest" -and -not $UseNativeWindowForRuntimeTrace)
             Assert-JsonLinesSchema -Path $tracePath -SchemaPath $perfEventSchemaPath -Label "Desktop PerfEvent trace"
+            $bootstrapTracePresent = Test-Path -LiteralPath $bootstrapTracePath -PathType Leaf
+            if ($RequireBootstrapSidecar -and -not $bootstrapTracePresent) {
+                throw "Bootstrap runtime smoke did not produce the required sidecar '$bootstrapTracePath'."
+            }
+            $bootstrapManifest = $null
+            $expectedDesktopProcessId = [long]$traceProcess.processId
+            if ($bootstrapTracePresent) {
+                Assert-JsonLinesSchema -Path $bootstrapTracePath -SchemaPath $perfEventSchemaPath -Label "Bootstrap PerfEvent sidecar"
+                $bootstrapManifest = Convert-YanamiBootstrapTraceToManifest `
+                    -TracePath $bootstrapTracePath `
+                    -Profile $Profile `
+                    -RunId $traceRunId `
+                    -ExpectedProcessId ([long]$traceProcess.processId) `
+                    -Mode $effectiveMode `
+                    -EnvironmentFingerprint $env:YANAMI_PERF_RUN_FINGERPRINT `
+                    -ReferenceMatch ($env:YANAMI_PERF_REFERENCE_MATCH -eq "1")
+                $bootstrapInvariant = @($bootstrapManifest.invariants |
+                    Where-Object id -eq "startup.bootstrap_handoff_valid")[0]
+                $sidecarChildProcessId = [long]$bootstrapInvariant.details.childProcessId
+                if ($sidecarChildProcessId -gt 0) {
+                    $expectedDesktopProcessId = $sidecarChildProcessId
+                }
+            }
             $traceManifest = Convert-YanamiTraceToManifest `
                 -TracePath $tracePath `
                 -Profile $Profile `
                 -RunId $traceRunId `
-                -ExpectedProcessId ([long]$traceProcess.processId) `
+                -ExpectedProcessId $expectedDesktopProcessId `
                 -Mode $effectiveMode `
                 -EnvironmentFingerprint $env:YANAMI_PERF_RUN_FINGERPRINT `
-                -ReferenceMatch ($env:YANAMI_PERF_REFERENCE_MATCH -eq "1")
+                -ReferenceMatch ($env:YANAMI_PERF_REFERENCE_MATCH -eq "1") `
+                -RequireBootstrapHandshake:$bootstrapTracePresent
+            if ($bootstrapManifest) {
+                $traceManifest = Merge-YanamiRunManifests -Manifests @(
+                    $traceManifest,
+                    $bootstrapManifest
+                )
+            }
             $traceManifest = Set-LocalManifestProvenance `
                 -Manifest $traceManifest `
                 -ProbeKind "desktop-runtime" `
@@ -2421,14 +2467,37 @@ try {
                 } elseif ($DesktopExecutable) { "explicit-desktop-executable" } else { "unavailable" }) `
                 -ArtifactPath $DesktopExecutable `
                 -TrustedProducerLedger $trustedProducerAttestations
-            $traceManifest | Add-Member -NotePropertyName artifacts -NotePropertyValue @([pscustomobject][ordered]@{
-                role = "desktop-runtime"
-                fileName = [System.IO.Path]::GetFileName($DesktopExecutable)
-                sha256 = (Get-FileHash -LiteralPath $DesktopExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
-                candidateSha = [string]$traceManifest.candidateSha
-                processExitCode = [int]$traceProcess.exitCode
-                completionMilestone = [string]$traceProcess.completionMilestone
-            }) -Force
+            $runtimeArtifacts = New-Object System.Collections.Generic.List[object]
+            $runtimeArtifacts.Add([pscustomobject][ordered]@{
+                    role = "desktop-runtime-entrypoint"
+                    fileName = [System.IO.Path]::GetFileName($DesktopExecutable)
+                    sha256 = (Get-FileHash -LiteralPath $DesktopExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
+                    candidateSha = [string]$traceManifest.candidateSha
+                    processId = [long]$traceProcess.processId
+                    processExitCode = [int]$traceProcess.exitCode
+                    completionMilestone = [string]$traceProcess.completionMilestone
+                })
+            $desktopTraceFile = Get-Item -LiteralPath $tracePath
+            $runtimeArtifacts.Add([pscustomobject][ordered]@{
+                    role = "desktop-runtime-trace"
+                    fileName = $desktopTraceFile.Name
+                    sha256 = (Get-FileHash -LiteralPath $desktopTraceFile.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                    runnerValidated = $true
+                    validatedBytes = [long]$desktopTraceFile.Length
+                    processId = $expectedDesktopProcessId
+                })
+            if ($bootstrapTracePresent) {
+                $bootstrapTraceFile = Get-Item -LiteralPath $bootstrapTracePath
+                $runtimeArtifacts.Add([pscustomobject][ordered]@{
+                        role = "bootstrap-runtime-trace"
+                        fileName = $bootstrapTraceFile.Name
+                        sha256 = (Get-FileHash -LiteralPath $bootstrapTraceFile.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                        runnerValidated = $true
+                        validatedBytes = [long]$bootstrapTraceFile.Length
+                        processId = [long]$traceProcess.processId
+                    })
+            }
+            $traceManifest | Add-Member -NotePropertyName artifacts -NotePropertyValue $runtimeArtifacts.ToArray() -Force
             $traceManifestPath = Join-Path $resolvedOutput "runtime-smoke-run-manifest.json"
             $traceManifest | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $traceManifestPath -Encoding UTF8
             Assert-JsonFileSchema -Path $traceManifestPath -SchemaPath $runManifestSchemaPath -Label "Runtime smoke run manifest"

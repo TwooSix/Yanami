@@ -3,6 +3,7 @@
 #include "BackendPorts.hpp"
 
 #include <QObject>
+#include <QString>
 
 #include <memory>
 
@@ -13,6 +14,10 @@ class DesktopBackendServices final : public QObject
 {
 public:
     explicit DesktopBackendServices(QObject *parent = nullptr);
+    DesktopBackendServices(
+        const QString &dataDirectory,
+        bool isolatedCredentials,
+        QObject *parent = nullptr);
     ~DesktopBackendServices() override;
 
     BackendPortSet portSet() const;

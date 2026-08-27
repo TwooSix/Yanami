@@ -19,10 +19,10 @@ use yanami_danmaku::{
     bundled_credentials_available,
 };
 use yanami_emby::{ClientIdentity, EmbyClient, EmbyNotification};
-use yanami_storage::{AppStorage, CredentialVault, SystemCredentialVault};
+use yanami_storage::{AppStorage, CredentialVault, MemoryCredentialVault, SystemCredentialVault};
 
 use crate::{
-    Application, ApplicationError, ApplicationErrorCode,
+    Application, ApplicationError, ApplicationErrorCode, ApplicationOpenOptions,
     images::{
         IMAGE_CACHE_MAX_AGE, IMAGE_CACHE_MAX_BYTES, IMAGE_EDITOR_CACHE_MAX_AGE,
         IMAGE_EDITOR_CACHE_MAX_BYTES, prune_cache_tree,
@@ -56,6 +56,9 @@ const DANDAN_APP_ID_KEY: &str = "danmaku.dandanplay.app_id";
 const DANDAN_SECRET_KEY: &str = "danmaku.dandanplay.app_secret";
 const REFRESH_PROGRESS_STALE_AFTER: Duration = Duration::from_secs(2 * 60);
 const REFRESH_CONNECTION_STABLE_AFTER: Duration = Duration::from_secs(30);
+// Cache retention is maintenance work. Give the window, controller, and first
+// content requests a quiet startup interval before walking thousands of files.
+const CACHE_PRUNE_STARTUP_DELAY: Duration = Duration::from_secs(10);
 
 fn dandan_credential_error(error: DandanError) -> ApplicationError {
     match error {
@@ -80,11 +83,46 @@ pub enum DandanCredentialSource {
     UserProvided,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CredentialVaultMode {
+    System,
+    IsolatedMemory,
+}
+
+fn credential_vault_mode(options: ApplicationOpenOptions) -> CredentialVaultMode {
+    if options.isolated_credentials {
+        CredentialVaultMode::IsolatedMemory
+    } else {
+        CredentialVaultMode::System
+    }
+}
+
+fn credential_vault(options: ApplicationOpenOptions) -> Arc<dyn CredentialVault> {
+    match credential_vault_mode(options) {
+        CredentialVaultMode::System => Arc::new(SystemCredentialVault::new("Yanami")),
+        CredentialVaultMode::IsolatedMemory => Arc::new(MemoryCredentialVault::default()),
+    }
+}
+
 impl Application {
     pub fn open(
         data_dir: &Path,
         background: Handle,
         cancellation: watch::Sender<bool>,
+    ) -> Result<Self, ApplicationError> {
+        Self::open_with_options(
+            data_dir,
+            background,
+            cancellation,
+            ApplicationOpenOptions::default(),
+        )
+    }
+
+    pub fn open_with_options(
+        data_dir: &Path,
+        background: Handle,
+        cancellation: watch::Sender<bool>,
+        options: ApplicationOpenOptions,
     ) -> Result<Self, ApplicationError> {
         fs::create_dir_all(data_dir).map_err(|error| {
             ApplicationError::new(ApplicationErrorCode::Storage, error.to_string())
@@ -105,22 +143,38 @@ impl Application {
                 .map(|profile| ActiveSession { profile, session }),
             None => None,
         };
-        let vault: Arc<dyn CredentialVault> = Arc::new(SystemCredentialVault::new("Yanami"));
+        let vault = credential_vault(options);
         let cache_root = data_dir.join("cache");
-        let cache_prune_task = background.spawn_blocking(move || {
-            if let Err(error) = prune_cache_tree(
-                &cache_root.join("images"),
-                IMAGE_CACHE_MAX_BYTES,
-                IMAGE_CACHE_MAX_AGE,
-            ) {
-                tracing::warn!(error = %error, "image cache pruning failed");
+        let mut cache_prune_cancellation = cancellation.subscribe();
+        let cache_prune_task = background.spawn(async move {
+            tokio::select! {
+                () = tokio::time::sleep(CACHE_PRUNE_STARTUP_DELAY) => {}
+                changed = cache_prune_cancellation.changed() => {
+                    if changed.is_err() || *cache_prune_cancellation.borrow() {
+                        return;
+                    }
+                }
             }
-            if let Err(error) = prune_cache_tree(
-                &cache_root.join("image-editor"),
-                IMAGE_EDITOR_CACHE_MAX_BYTES,
-                IMAGE_EDITOR_CACHE_MAX_AGE,
-            ) {
-                tracing::warn!(error = %error, "image editor cache pruning failed");
+
+            let prune_result = tokio::task::spawn_blocking(move || {
+                if let Err(error) = prune_cache_tree(
+                    &cache_root.join("images"),
+                    IMAGE_CACHE_MAX_BYTES,
+                    IMAGE_CACHE_MAX_AGE,
+                ) {
+                    tracing::warn!(error = %error, "image cache pruning failed");
+                }
+                if let Err(error) = prune_cache_tree(
+                    &cache_root.join("image-editor"),
+                    IMAGE_EDITOR_CACHE_MAX_BYTES,
+                    IMAGE_EDITOR_CACHE_MAX_AGE,
+                ) {
+                    tracing::warn!(error = %error, "image editor cache pruning failed");
+                }
+            })
+            .await;
+            if let Err(error) = prune_result {
+                tracing::warn!(error = %error, "cache pruning worker failed");
             }
         });
 
@@ -747,10 +801,28 @@ mod tests {
     use yanami_storage::{AppStorage, CredentialVault, MemoryCredentialVault};
 
     use super::{
-        ActiveSession, dandan_credential_error, refresh_retry_schedule, route_notification,
-        take_refresh_progress_snapshot,
+        ActiveSession, CredentialVaultMode, credential_vault_mode, dandan_credential_error,
+        refresh_retry_schedule, route_notification, take_refresh_progress_snapshot,
     };
-    use crate::{Application, ApplicationErrorCode};
+    use crate::{Application, ApplicationErrorCode, ApplicationOpenOptions};
+
+    #[test]
+    fn application_open_options_keep_system_credentials_by_default() {
+        assert_eq!(
+            credential_vault_mode(ApplicationOpenOptions::default()),
+            CredentialVaultMode::System
+        );
+    }
+
+    #[test]
+    fn isolated_application_open_options_select_an_in_memory_vault() {
+        assert_eq!(
+            credential_vault_mode(ApplicationOpenOptions {
+                isolated_credentials: true,
+            }),
+            CredentialVaultMode::IsolatedMemory
+        );
+    }
 
     fn test_application() -> (Runtime, Application, UserSession) {
         let runtime = Builder::new_multi_thread()

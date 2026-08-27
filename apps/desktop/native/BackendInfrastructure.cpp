@@ -18,7 +18,8 @@ RuntimeHost::~RuntimeHost()
 
 RuntimeInitializationResult RuntimeHost::initialize(
     const QString &applicationDirectory,
-    const QString &dataDirectory)
+    const QString &dataDirectory,
+    bool isolatedCredentials)
 {
     if (ready()) {
         return {
@@ -74,7 +75,7 @@ RuntimeInitializationResult RuntimeHost::initialize(
     }
 
     const YanamiStatusResult openResult =
-        m_runtime->open(resolvedDataDirectory);
+        m_runtime->open(resolvedDataDirectory, isolatedCredentials);
     if (openResult.value < 0) {
         m_runtime->close();
         return {

@@ -591,6 +591,8 @@
     { "id": "danmaku.external_pixel_evidence_valid", "suite": "danmaku", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },
     { "id": "danmaku.strict_matrix_complete", "suite": "danmaku", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },
     { "id": "startup.milestone_order_valid", "suite": "startup", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "startup.bootstrap_handoff_valid", "suite": "startup", "evidence": "bootstrap-ready-file-sidecar", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
+    { "id": "startup.no_false_progress_indicator", "suite": "startup", "evidence": "bootstrap-ready-file-sidecar", "requiredProfiles": ["PullRequest", "Lab", "Nightly", "Weekly", "Release"] },
     { "id": "startup.external_present_evidence_valid", "suite": "startup", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },
     { "id": "startup.offline_independent", "suite": "startup", "requiredProfiles": ["Nightly", "Weekly", "Release"] },
     { "id": "startup.no_white_window", "suite": "startup", "requiredProfiles": ["Lab", "Nightly", "Weekly", "Release"] },

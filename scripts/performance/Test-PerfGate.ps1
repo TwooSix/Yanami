@@ -162,7 +162,7 @@ try {
     $expectedSuites = @("search", "backend", "interaction", "playback", "danmaku", "upscaling", "startup")
     Assert-Equal (@(Get-YanamiPerfSuites) -join ",") ($expectedSuites -join ",") "The canonical default suite list must contain all seven suites in stable order."
     Assert-Equal @($productionSlo.metrics).Count 104 "SLO-v1 must contain the existing 94 metrics plus ten isolated upscaling metrics."
-    Assert-Equal @($productionSlo.invariants).Count 41 "SLO-v1 must contain the existing 32 invariants plus nine isolated upscaling invariants."
+    Assert-Equal @($productionSlo.invariants).Count 43 "SLO-v1 must retain the prior 41 invariants plus two isolated bootstrap lifecycle invariants."
 
     $upscalingMetricDefinitions = @($productionSlo.metrics | Where-Object { [string]$_.suite -eq "upscaling" })
     $upscalingInvariantDefinitions = @($productionSlo.invariants | Where-Object { [string]$_.suite -eq "upscaling" })
@@ -745,6 +745,118 @@ try {
         $traceManifest = Convert-YanamiTraceToManifest -TracePath $tracePath -Profile PullRequest -RunId "trace-$traceIndex"
         Assert-Equal $traceManifest.invariants[0].passed $true "Both legal event-loop/presentation interleavings must satisfy the startup partial order."
     }
+
+    $handshakeTracePath = Join-Path $testRoot "bootstrap-handshake-desktop-trace.jsonl"
+    $handshakeTraceLines = New-Object System.Collections.Generic.List[string]
+    $timestamp = [long]1000
+    foreach ($milestone in @(
+        "main_entered", "qt_app_ready", "logger_ready",
+        "backend_services_ready", "view_models_ready", "qml_root_ready",
+        "event_loop_ready", "window_exposed", "first_shell_present",
+        "desktop_ready", "startup_settled")) {
+        $traceEvent = [ordered]@{
+            schemaVersion = "1.0"; runId = "trace-handshake"; suite = "startup"
+            scenarioId = "desktop.runtime"; milestone = $milestone
+            monotonicNs = $timestamp; generation = 0; processId = 4321
+            attributes = [pscustomobject]@{}
+        }
+        $handshakeTraceLines.Add(($traceEvent | ConvertTo-Json -Compress -Depth 10))
+        $timestamp += 1000
+    }
+    $handshakeTraceLines.ToArray() | Set-Content -LiteralPath $handshakeTracePath -Encoding UTF8
+    $handshakeDesktopManifest = Convert-YanamiTraceToManifest `
+        -TracePath $handshakeTracePath -Profile PullRequest `
+        -RunId "trace-handshake" -ExpectedProcessId 4321 `
+        -RequireBootstrapHandshake
+    Assert-Equal $handshakeDesktopManifest.invariants[0].passed $true "Bootstrap mode must bind desktop_ready to the second content-frame trace without treating handoff animation as readiness."
+
+    $bootstrapTracePath = "$handshakeTracePath.bootstrap.jsonl"
+    $bootstrapTraceLines = New-Object System.Collections.Generic.List[string]
+    foreach ($bootstrapEvent in @(
+        [ordered]@{ milestone = "bootstrap_entered"; monotonicNs = 1000000; attributes = [ordered]@{ elapsedMs = 1 } },
+        [ordered]@{ milestone = "bootstrap_first_visible"; monotonicNs = 2000000; attributes = [ordered]@{ readiness = $false; progressSemantic = "indeterminate"; elapsedMs = 2 } },
+        [ordered]@{ milestone = "bootstrap_desktop_spawned"; monotonicNs = 3000000; attributes = [ordered]@{ childProcessId = 4321; elapsedMs = 3 } },
+        [ordered]@{ milestone = "desktop_ready"; monotonicNs = 12000000; attributes = [ordered]@{ readiness = $true; childProcessId = 4321; elapsedMs = 12 } },
+        [ordered]@{ milestone = "handoff_complete"; monotonicNs = 17000000; attributes = [ordered]@{ readiness = $true; childProcessId = 4321; elapsedMs = 17 } }
+    )) {
+        $traceEvent = [ordered]@{
+            schemaVersion = "1.0"; runId = "trace-handshake"; suite = "startup"
+            scenarioId = "desktop.bootstrap"; milestone = $bootstrapEvent.milestone
+            monotonicNs = $bootstrapEvent.monotonicNs; generation = 0
+            processId = 2468; attributes = $bootstrapEvent.attributes
+        }
+        $bootstrapTraceLines.Add(($traceEvent | ConvertTo-Json -Compress -Depth 10))
+    }
+    $bootstrapTraceLines.ToArray() | Set-Content -LiteralPath $bootstrapTracePath -Encoding UTF8
+    $bootstrapManifest = Convert-YanamiBootstrapTraceToManifest `
+        -TracePath $bootstrapTracePath -Profile PullRequest `
+        -RunId "trace-handshake" -ExpectedProcessId 2468
+    $bootstrapHandoffInvariant = @($bootstrapManifest.invariants |
+        Where-Object id -eq "startup.bootstrap_handoff_valid")[0]
+    $bootstrapProgressInvariant = @($bootstrapManifest.invariants |
+        Where-Object id -eq "startup.no_false_progress_indicator")[0]
+    Assert-Equal $bootstrapHandoffInvariant.passed $true "The launcher sidecar must prove first-visible, content-ready, then handoff-complete under one launcher clock."
+    Assert-Equal $bootstrapProgressInvariant.passed $true "Indeterminate brand animation must not be relabeled as a readiness percentage."
+    Assert-Equal $bootstrapHandoffInvariant.details.childProcessId 4321 "The ready-file child PID must bind the launcher sidecar to the desktop trace."
+    $readyMetric = @($bootstrapManifest.metrics |
+        Where-Object id -eq "startup.internal.bootstrap_visible_to_desktop_ready_candidate_ms")[0]
+    $animationMetric = @($bootstrapManifest.metrics |
+        Where-Object id -eq "startup.internal.desktop_ready_to_handoff_animation_ms")[0]
+    Assert-Equal $readyMetric.samples[0] 10 "Content-ready latency must stop at desktop_ready, before the handoff animation."
+    Assert-Equal $animationMetric.samples[0] 5 "Handoff animation must remain a separate diagnostic phase."
+
+    $mergedHandshakeManifest = Merge-YanamiRunManifests -Manifests @(
+        $handshakeDesktopManifest,
+        $bootstrapManifest
+    )
+    $handshakeEvaluation = Invoke-YanamiPerfEvaluation `
+        -Manifest $mergedHandshakeManifest -Slo $productionSlo `
+        -Policy $productionPolicy -Mode collect -Suites startup
+    Assert-Equal $handshakeEvaluation.status "pass" "Hosted startup must require both the desktop content-frame trace and bootstrap sidecar semantics."
+    $desktopOnlyEvaluation = Invoke-YanamiPerfEvaluation `
+        -Manifest $handshakeDesktopManifest -Slo $productionSlo `
+        -Policy $productionPolicy -Mode collect -Suites startup
+    Assert-Equal $desktopOnlyEvaluation.status "debt" "A desktop-only trace cannot greenlight the two-phase startup contract."
+
+    $falseProgressTracePath = Join-Path $testRoot "bootstrap-false-progress.jsonl"
+    $falseProgressLines = @($bootstrapTraceLines)
+    $falseProgressEvent = $falseProgressLines[1] | ConvertFrom-Json
+    $falseProgressEvent.attributes | Add-Member -NotePropertyName progressPercent -NotePropertyValue 42
+    $falseProgressLines[1] = $falseProgressEvent | ConvertTo-Json -Compress -Depth 10
+    $falseProgressLines | Set-Content -LiteralPath $falseProgressTracePath -Encoding UTF8
+    $falseProgressManifest = Convert-YanamiBootstrapTraceToManifest `
+        -TracePath $falseProgressTracePath -Profile PullRequest `
+        -RunId "trace-handshake" -ExpectedProcessId 2468
+    $falseProgressInvariant = @($falseProgressManifest.invariants |
+        Where-Object id -eq "startup.no_false_progress_indicator")[0]
+    Assert-Equal $falseProgressInvariant.passed $false "A numeric or percentage-like bootstrap progress claim must fail the startup contract."
+
+    $missingHandoffTracePath = Join-Path $testRoot "bootstrap-missing-handoff.jsonl"
+    @($bootstrapTraceLines | Select-Object -First 4) |
+        Set-Content -LiteralPath $missingHandoffTracePath -Encoding UTF8
+    $missingHandoffManifest = Convert-YanamiBootstrapTraceToManifest `
+        -TracePath $missingHandoffTracePath -Profile PullRequest `
+        -RunId "trace-handshake" -ExpectedProcessId 2468
+    $missingHandoffInvariant = @($missingHandoffManifest.invariants |
+        Where-Object id -eq "startup.bootstrap_handoff_valid")[0]
+    Assert-Equal $missingHandoffInvariant.passed $false "A launcher that exits after desktop_ready but before handoff_complete must fail the two-stage lifecycle contract."
+
+    $mainOwnsHandoffPath = Join-Path $testRoot "desktop-illegal-handoff-trace.jsonl"
+    $mainOwnsHandoffLines = @($handshakeTraceLines)
+    $illegalHandoff = [ordered]@{
+        schemaVersion = "1.0"; runId = "trace-handshake"; suite = "startup"
+        scenarioId = "desktop.runtime"; milestone = "handoff_complete"
+        monotonicNs = 12000; generation = 0; processId = 4321
+        attributes = [pscustomobject]@{}
+    }
+    $mainOwnsHandoffLines += ($illegalHandoff | ConvertTo-Json -Compress -Depth 10)
+    $mainOwnsHandoffLines | Set-Content -LiteralPath $mainOwnsHandoffPath -Encoding UTF8
+    $mainOwnsHandoffManifest = Convert-YanamiTraceToManifest `
+        -TracePath $mainOwnsHandoffPath -Profile PullRequest `
+        -RunId "trace-handshake" -ExpectedProcessId 4321 `
+        -RequireBootstrapHandshake
+    Assert-Equal $mainOwnsHandoffManifest.invariants[0].passed $false "The desktop process must not claim launcher handoff completion at ready-file commit time."
+
     $pidMismatchManifest = Convert-YanamiTraceToManifest -TracePath $tracePath -Profile PullRequest -RunId "trace-1" -ExpectedProcessId 9999
     Assert-Equal $pidMismatchManifest.invariants[0].passed $false "A trace from a different process must not satisfy the launched runtime invariant."
     $runMismatchManifest = Convert-YanamiTraceToManifest -TracePath $tracePath -Profile PullRequest -RunId "trace-stale"

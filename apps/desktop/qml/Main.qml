@@ -6,13 +6,18 @@ import Yanami.Ui
 
 ApplicationWindow {
     id: window
+    property bool bootstrapHandoffPending: bootstrapHandoffRequested
+    property bool bootstrapHandoffReady: false
+    property bool bootstrapHandoffTransitionVisible: bootstrapHandoffRequested
+
     width: 1240
     height: 800
     minimumWidth: 900
     minimumHeight: 620
+    opacity: bootstrapHandoffPending ? 0.0 : 1.0
     visible: true
     title: "Yanami"
-    color: Theme.background
+    color: bootstrapHandoffTransitionVisible ? "#080D17" : Theme.background
     flags: Qt.Window
         | Qt.FramelessWindowHint
         | Qt.WindowSystemMenuHint
@@ -26,10 +31,12 @@ ApplicationWindow {
 
     property int currentPage: 0
     property int playerReturnPage: 0
-    readonly property PlayerPage playerPage: playerLoader.item as PlayerPage
-    readonly property SearchPage searchPage: searchLoader.item as SearchPage
-    readonly property FavoritesPage favoritesPage: favoritesLoader.item as FavoritesPage
-    readonly property SettingsPage settingsPage: settingsLoader.item as SettingsPage
+    readonly property var playerPage: playerLoader.item
+    readonly property var searchPage: searchLoader.item
+    readonly property var favoritesPage: favoritesLoader.item
+    readonly property var settingsPage: settingsLoader.item
+    readonly property var homePage: homeLoader.item
+    property var pendingHomeRoute: null
     property bool searchLoaded: false
     property bool settingsLoaded: false
     property bool favoritesLoaded: false
@@ -128,6 +135,56 @@ ApplicationWindow {
         playerLoader.active = true
     }
 
+    function invokeObject(target, methodName, args) {
+        if (target && typeof target[methodName] === "function")
+            return target[methodName].apply(target, args || [])
+        return null
+    }
+
+    function invokeHome(methodName, args, queueIfLoading) {
+        const page = window.homePage
+        if (page)
+            return window.invokeObject(page, methodName, args)
+        if (queueIfLoading === true && app.session.connected) {
+            window.pendingHomeRoute = {
+                methodName: methodName,
+                args: args || []
+            }
+        }
+        return null
+    }
+
+    function ensureDeferredDialog(loader, viewModel, opener) {
+        loader.active = true
+        const dialog = loader.item
+        if (!dialog)
+            return null
+        if (viewModel)
+            dialog.viewModel = viewModel
+        dialog.focusReturnTarget = opener || null
+        return dialog
+    }
+
+    function metadataDialog(opener) {
+        return window.ensureDeferredDialog(
+            metadataEditorLoader, app.metadataEditor, opener)
+    }
+
+    function imageDialog(opener) {
+        return window.ensureDeferredDialog(
+            imageEditorLoader, app.imageEditor, opener)
+    }
+
+    function refreshDialog(opener) {
+        return window.ensureDeferredDialog(
+            refreshMetadataLoader, null, opener)
+    }
+
+    function targetDialog(opener) {
+        return window.ensureDeferredDialog(
+            mediaTargetLoader, app.mediaTarget, opener)
+    }
+
     function showBackendError() {
         if (!app.status.ready && app.status.error
                 && app.status.message.length > 0)
@@ -185,8 +242,8 @@ ApplicationWindow {
             else
                 window.closePlayer()
         } else if (window.currentPage === 0) {
-            if (homePage.depth > 0)
-                homePage.goBack()
+            if (window.homePage && window.homePage.depth > 0)
+                window.homePage.goBack()
         } else {
             window.currentPage = 0
         }
@@ -194,7 +251,7 @@ ApplicationWindow {
 
     function activePageItem() {
         if (window.currentPage === 0)
-            return homePage
+            return window.homePage || homeHost
         if (window.currentPage === 1)
             return searchLoader.item
         if (window.currentPage === 3)
@@ -247,8 +304,8 @@ ApplicationWindow {
 
     function selectControllerPage(page) {
         const destination = Number(page)
-        if (destination === 0)
-            homePage.goHome()
+        if (destination === 0 && window.homePage)
+            window.homePage.goHome()
         if (destination === 1)
             window.searchLoaded = true
         else if (destination === 3)
@@ -303,7 +360,8 @@ ApplicationWindow {
         const itemId = String(item.id || "")
         if (itemId.length === 0)
             return false
-        mediaTargetDialog.focusReturnTarget = opener || null
+        if (!window.targetDialog(opener))
+            return false
         return app.mediaTarget.load(item)
     }
 
@@ -313,26 +371,29 @@ ApplicationWindow {
         if (type === "CollectionFolder" || type === "UserView" || type === "Folder"
                 || type === "AggregateFolder") {
             window.currentPage = 0
-            homePage.openLibraryView(item)
+            window.invokeHome("openLibraryView", [item], true)
         } else if (type === "Playlist") {
             window.currentPage = 0
             if (previousPage !== 0)
-                homePage.openExternalItem(item, previousPage)
+                window.invokeHome(
+                    "openExternalItem", [item, previousPage], true)
             else
-                homePage.openLibraryItem(item)
+                window.invokeHome("openLibraryItem", [item], true)
         } else if (type === "Series") {
             const cameFromExternalPage = previousPage !== 0
             window.currentPage = 0
             if (cameFromExternalPage)
-                homePage.openExternalItem(item, previousPage)
+                window.invokeHome(
+                    "openExternalItem", [item, previousPage], true)
             else
-                homePage.openLibraryItem(item)
+                window.invokeHome("openLibraryItem", [item], true)
         } else if (type === "Season") {
             window.currentPage = 0
             if (previousPage !== 0)
-                homePage.openExternalSeason(item, previousPage)
+                window.invokeHome(
+                    "openExternalSeason", [item, previousPage], true)
             else
-                homePage.openSeason(item)
+                window.invokeHome("openSeason", [item], true)
         } else if (type === "Episode" || type === "Movie"
                    || type === "Video" || type === "MusicVideo") {
             window.requestPlayback(
@@ -340,29 +401,38 @@ ApplicationWindow {
         } else {
             window.currentPage = 0
             if (previousPage !== 0)
-                homePage.openExternalItem(item, previousPage)
+                window.invokeHome(
+                    "openExternalItem", [item, previousPage], true)
             else
-                homePage.openLibraryItem(item)
+                window.invokeHome("openLibraryItem", [item], true)
         }
     }
 
     function tryDevelopmentMediaMenuPreview() {
         if (window.developmentMediaMenuPreview === "context"
                 || window.developmentMediaMenuPreview === "admin-context")
-            return homePage.openDevelopmentContextPreview()
+            return Boolean(window.invokeHome(
+                "openDevelopmentContextPreview", [], false))
         if (window.developmentMediaMenuPreview === "admin-library-context")
-            return homePage.openDevelopmentLibraryContextPreview()
+            return Boolean(window.invokeHome(
+                "openDevelopmentLibraryContextPreview", [], false))
         if (window.developmentMediaMenuPreview === "metadata"
                 || window.developmentMediaMenuPreview === "metadata-ids") {
-            const item = homePage.developmentPreviewItem()
+            const item = window.invokeHome("developmentPreviewItem", [], false)
             if (!item || !item.id || !app.session.administrator)
                 return false
-            metadataEditor.beginLoading(item)
+            const editor = window.metadataDialog(null)
+            if (!editor)
+                return false
+            editor.beginLoading(item)
             return true
         }
         if (window.developmentMediaMenuPreview === "metadata-mock"
                 || window.developmentMediaMenuPreview === "metadata-ids-mock") {
-            metadataEditor.openFor({
+            const editor = window.metadataDialog(null)
+            if (!editor)
+                return false
+            editor.openFor({
                 id: "preview",
                 itemType: "Series",
                 title: "Metadata preview",
@@ -385,21 +455,27 @@ ApplicationWindow {
                 ]
             })
             if (window.developmentMediaMenuPreview === "metadata-ids-mock")
-                metadataEditor.scrollToExternalIdentifiers()
+                editor.scrollToExternalIdentifiers()
             return true
         }
         if (window.developmentMediaMenuPreview === "images") {
-            const item = homePage.developmentPreviewItem()
+            const item = window.invokeHome("developmentPreviewItem", [], false)
             if (!item || !item.id || !app.session.administrator)
                 return false
-            imageEditor.beginLoading(item)
+            const editor = window.imageDialog(null)
+            if (!editor)
+                return false
+            editor.beginLoading(item)
             return true
         }
         if (window.developmentMediaMenuPreview === "images-mock"
                 || window.developmentMediaMenuPreview === "image-search-mock") {
             const previewUrl = Qt.resolvedUrl(
                 "qrc:/qt/qml/Yanami/Ui/qml/assets/yanami-logo.png")
-            imageEditor.openFor({
+            const editor = window.imageDialog(null)
+            if (!editor)
+                return false
+            editor.openFor({
                 id: "preview",
                 itemType: "Series",
                 title: "Image editor preview",
@@ -416,7 +492,7 @@ ApplicationWindow {
                 ]
             })
             if (window.developmentMediaMenuPreview === "image-search-mock") {
-                imageEditor.showSearchPreview({
+                editor.showSearchPreview({
                     images: [
                         { providerName: "TheMovieDb", width: 2000, height: 3000,
                           language: "zh", displayLanguage: "中文", imageUrl: "https://example.test/1.jpg",
@@ -430,14 +506,17 @@ ApplicationWindow {
             return true
         }
         if (window.developmentMediaMenuPreview === "refresh-metadata-mock") {
-            const item = homePage.developmentPreviewItem()
+            const item = window.invokeHome("developmentPreviewItem", [], false)
             if (!item)
                 return false
-            refreshMetadataDialog.openFor(item)
+            const dialog = window.refreshDialog(null)
+            if (!dialog)
+                return false
+            dialog.openFor(item)
             return true
         }
         if (window.developmentMediaMenuPreview === "playlist-targets") {
-            const item = homePage.developmentPreviewItem()
+            const item = window.invokeHome("developmentPreviewItem", [], false)
             if (!item || !item.id)
                 return false
             return window.requestMediaTargets(item, null)
@@ -523,7 +602,7 @@ ApplicationWindow {
                         accessibleName: qsTr("Home")
                         selected: window.currentPage === 0
                         onClicked: {
-                            homePage.goHome()
+                            window.invokeHome("goHome", [], false)
                             window.currentPage = 0
                         }
                         KeyNavigation.down: searchNavButton
@@ -588,25 +667,156 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 currentIndex: window.currentPage
 
-                HomePage {
-                    id: homePage
+                Item {
+                    id: homeHost
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    collectionParent: app.home.collectionParent
-                    developmentLibraryScanProgress: window.developmentLibraryScanProgress
-                    onPlayRequested: (itemId, title, playbackContext) =>
-                        window.requestPlayback(
-                            itemId, false, playbackContext, title)
-                    onMediaContextRequested: (item, sourceItem, x, y,
-                                              keyboardInvocation) =>
-                        mediaContextMenu.openFor(
-                            item, sourceItem, x, y, keyboardInvocation)
-                    onSettingsRequested: window.currentPage = 3
-                    onExternalReturnRequested: page => window.currentPage = page
-                    onControllerFocusRequested:
-                        Qt.callLater(function() {
-                            window.focusCurrentPage(true)
-                        })
+
+                    function controllerDefaultFocusItem() {
+                        if (!app.session.connected)
+                            return disconnectedSettingsButton
+                        return window.invokeHome(
+                            "controllerDefaultFocusItem", [], false)
+                    }
+
+                    Loader {
+                        id: homeLoader
+                        anchors.fill: parent
+                        active: app.session.connected
+                        asynchronous: true
+                        source: Qt.resolvedUrl("pages/HomePage.qml")
+
+                        onLoaded: {
+                            const pending = window.pendingHomeRoute
+                            window.pendingHomeRoute = null
+                            if (pending)
+                                window.invokeHome(
+                                    pending.methodName, pending.args, false)
+                            if (window.currentPage === 0
+                                    && InputModality.focusNavigationActive) {
+                                Qt.callLater(function() {
+                                    window.focusCurrentPage(false)
+                                })
+                            }
+                        }
+                        onActiveChanged: if (!active) window.pendingHomeRoute = null
+                    }
+
+                    Binding {
+                        target: homeLoader.item
+                        property: "collectionParent"
+                        value: app.home.collectionParent
+                        when: homeLoader.status === Loader.Ready
+                    }
+                    Binding {
+                        target: homeLoader.item
+                        property: "developmentLibraryScanProgress"
+                        value: window.developmentLibraryScanProgress
+                        when: homeLoader.status === Loader.Ready
+                    }
+
+                    Connections {
+                        target: homeLoader.item
+                        ignoreUnknownSignals: true
+
+                        function onPlayRequested(itemId, title, playbackContext) {
+                            window.requestPlayback(
+                                itemId, false, playbackContext, title)
+                        }
+                        function onMediaContextRequested(
+                                item, sourceItem, x, y, keyboardInvocation) {
+                            mediaContextMenu.openFor(
+                                item, sourceItem, x, y, keyboardInvocation)
+                        }
+                        function onSettingsRequested() {
+                            window.currentPage = 3
+                        }
+                        function onExternalReturnRequested(page) {
+                            window.currentPage = page
+                        }
+                        function onControllerFocusRequested() {
+                            Qt.callLater(function() {
+                                window.focusCurrentPage(true)
+                            })
+                        }
+                    }
+
+                    LoadingIndicator {
+                        anchors.centerIn: parent
+                        visible: app.session.connected
+                            && homeLoader.status === Loader.Loading
+                    }
+
+                    Item {
+                        id: disconnectedHome
+                        anchors.fill: parent
+                        visible: !app.session.connected
+
+                        GlassPanel {
+                            anchors.centerIn: parent
+                            width: Math.min(disconnectedHome.width - 48, 620)
+                            height: disconnectedContent.implicitHeight + 64
+                            radius: Theme.radiusLarge
+                            color: Theme.surfaceStrong
+
+                            ColumnLayout {
+                                id: disconnectedContent
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.margins: 32
+                                spacing: 18
+
+                                Rectangle {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    Layout.preferredWidth: 64
+                                    Layout.preferredHeight: 64
+                                    radius: 21
+                                    color: Theme.accentSoft
+                                    border.width: 1
+                                    border.color: "#52FF6687"
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "E"
+                                        color: Theme.accent
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 23
+                                        font.weight: Font.Bold
+                                    }
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Connect your Emby server")
+                                    color: Theme.text
+                                    font.family: Theme.fontForText(text)
+                                    font.pixelSize: 26
+                                    font.weight: Font.DemiBold
+                                    horizontalAlignment: Text.AlignHCenter
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Set up Emby in Settings to start browsing your media library.")
+                                    color: Theme.textMuted
+                                    font.family: Theme.fontForText(text)
+                                    font.pixelSize: 14
+                                    horizontalAlignment: Text.AlignHCenter
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                AppButton {
+                                    id: disconnectedSettingsButton
+                                    Layout.alignment: Qt.AlignHCenter
+                                    kind: "primary"
+                                    iconName: "settings"
+                                    text: qsTr("Go to Settings")
+                                    onClicked: window.currentPage = 3
+                                }
+                            }
+                        }
+                    }
                 }
                 Item {
                     Layout.fillWidth: true
@@ -617,24 +827,35 @@ ApplicationWindow {
                         anchors.fill: parent
                         active: window.searchLoaded
                         asynchronous: true
-                        sourceComponent: SearchPage {
-                            developmentDiagnostics: window.developmentSearchQuery.length > 0
-                            controllerExitTarget: searchNavButton
-                            onItemRequested: item => window.openContextItem(item)
-                            onPlayRequested: (itemId, title, playbackContext) =>
-                                window.requestPlayback(
-                                    itemId, false, playbackContext, title)
-                            onMediaContextRequested: (item, sourceItem, x, y,
-                                                      keyboardInvocation) =>
-                                mediaContextMenu.openFor(
-                                    item, sourceItem, x, y,
-                                    keyboardInvocation)
-                        }
+                        source: Qt.resolvedUrl("pages/SearchPage.qml")
                         onLoaded: {
+                            item.developmentDiagnostics = Qt.binding(function() {
+                                return window.developmentSearchQuery.length > 0
+                            })
+                            item.controllerExitTarget = searchNavButton
                             if (window.developmentSearchQuery.length > 0)
                                 item.query = window.developmentSearchQuery
                             if (window.currentPage === 1)
-                                item.focusSearch()
+                                window.invokeObject(item, "focusSearch", [])
+                        }
+                    }
+
+                    Connections {
+                        target: searchLoader.item
+                        ignoreUnknownSignals: true
+                        function onItemRequested(item) {
+                            window.openContextItem(item)
+                        }
+                        function onPlayRequested(
+                                itemId, title, playbackContext) {
+                            window.requestPlayback(
+                                itemId, false, playbackContext, title)
+                        }
+                        function onMediaContextRequested(
+                                item, sourceItem, x, y, keyboardInvocation) {
+                            mediaContextMenu.openFor(
+                                item, sourceItem, x, y,
+                                keyboardInvocation)
                         }
                     }
 
@@ -649,44 +870,82 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     active: false
+                    source: Qt.resolvedUrl("pages/PlayerPage.qml")
 
-                    sourceComponent: PlayerPage {
-                        globalToastBottom: actionToast.visible
-                            ? actionToast.y + actionToast.height : 0
-                        developmentSeekSeconds: window.developmentSeekSeconds
-                        developmentAutoSkipIntro: window.developmentAutoSkipIntro
-                        developmentRenderDiagnostics: window.developmentRenderDiagnostics
-                        developmentDanmakuPreview: window.developmentDanmakuPreview
-                        developmentPlaybackQueuePreview:
-                            window.developmentPlaybackQueuePreview
-                        developmentDanmakuSearchQuery: window.developmentDanmakuSearchQuery
-                        developmentDanmakuPreviewFontSize: window.developmentDanmakuPreviewFontSize
-                        developmentDisableDanmakuAfterLoad: window.developmentDisableDanmakuAfterLoad
-                        developmentReenableDanmakuAfterDisable: window.developmentReenableDanmakuAfterDisable
-                        developmentSyntheticDanmaku: window.developmentLocalMediaUrl.toString().length > 0
-                        developmentDanmakuStyleStressCount: window.developmentDanmakuStyleStressCount
-                        developmentDanmakuToggleStressCount: window.developmentDanmakuToggleStressCount
-                        loadingPreview: window.developmentLoadingPreview
-                        windowFullScreen: window.fullScreenMode
-                        onPlaybackLoaded: {
-                            if (window.developmentAutoStopMs > 0)
-                                developmentStopTimer.restart()
-                        }
-                        onCloseRequested: window.closePlayer()
-                        onToggleFullScreenRequested: window.toggleFullScreen()
-                        onEpisodeSwitchRequested: (itemId, playbackContext,
-                                                   positionSeconds, paused) => {
-                            app.playback.switchToInContext(
-                                itemId, playbackContext, positionSeconds, paused)
-                        }
-                        onReplayRequested: (itemId, playbackContext, title) => {
-                            window.requestPlayback(
-                                itemId, true, playbackContext, title)
-                        }
-                        onQueueRefreshRequested: (itemId, playbackContext) => {
-                            app.playback.prepareInContext(
-                                itemId, playbackContext || ({}))
-                        }
+                    onLoaded: {
+                        item.globalToastBottom = Qt.binding(function() {
+                            return actionToast.visible
+                                ? actionToast.y + actionToast.height : 0
+                        })
+                        item.developmentSeekSeconds = Qt.binding(function() {
+                            return window.developmentSeekSeconds
+                        })
+                        item.developmentAutoSkipIntro = Qt.binding(function() {
+                            return window.developmentAutoSkipIntro
+                        })
+                        item.developmentRenderDiagnostics = Qt.binding(function() {
+                            return window.developmentRenderDiagnostics
+                        })
+                        item.developmentDanmakuPreview = Qt.binding(function() {
+                            return window.developmentDanmakuPreview
+                        })
+                        item.developmentPlaybackQueuePreview = Qt.binding(function() {
+                            return window.developmentPlaybackQueuePreview
+                        })
+                        item.developmentDanmakuSearchQuery = Qt.binding(function() {
+                            return window.developmentDanmakuSearchQuery
+                        })
+                        item.developmentDanmakuPreviewFontSize = Qt.binding(function() {
+                            return window.developmentDanmakuPreviewFontSize
+                        })
+                        item.developmentDisableDanmakuAfterLoad = Qt.binding(function() {
+                            return window.developmentDisableDanmakuAfterLoad
+                        })
+                        item.developmentReenableDanmakuAfterDisable = Qt.binding(function() {
+                            return window.developmentReenableDanmakuAfterDisable
+                        })
+                        item.developmentSyntheticDanmaku = Qt.binding(function() {
+                            return window.developmentLocalMediaUrl.toString().length > 0
+                        })
+                        item.developmentDanmakuStyleStressCount = Qt.binding(function() {
+                            return window.developmentDanmakuStyleStressCount
+                        })
+                        item.developmentDanmakuToggleStressCount = Qt.binding(function() {
+                            return window.developmentDanmakuToggleStressCount
+                        })
+                        item.loadingPreview = Qt.binding(function() {
+                            return window.developmentLoadingPreview
+                        })
+                        item.windowFullScreen = Qt.binding(function() {
+                            return window.fullScreenMode
+                        })
+                    }
+                }
+
+                Connections {
+                    target: playerLoader.item
+                    ignoreUnknownSignals: true
+                    function onPlaybackLoaded() {
+                        if (window.developmentAutoStopMs > 0)
+                            developmentStopTimer.restart()
+                    }
+                    function onCloseRequested() { window.closePlayer() }
+                    function onToggleFullScreenRequested() {
+                        window.toggleFullScreen()
+                    }
+                    function onEpisodeSwitchRequested(
+                            itemId, playbackContext, positionSeconds, paused) {
+                        app.playback.switchToInContext(
+                            itemId, playbackContext, positionSeconds, paused)
+                    }
+                    function onReplayRequested(
+                            itemId, playbackContext, title) {
+                        window.requestPlayback(
+                            itemId, true, playbackContext, title)
+                    }
+                    function onQueueRefreshRequested(itemId, playbackContext) {
+                        app.playback.prepareInContext(
+                            itemId, playbackContext || ({}))
                     }
                 }
                 Item {
@@ -698,10 +957,11 @@ ApplicationWindow {
                         anchors.fill: parent
                         active: window.settingsLoaded
                         asynchronous: true
-                        sourceComponent: SettingsPage {
-                            pageActive: window.currentPage === 3
-                        }
+                        source: Qt.resolvedUrl("pages/SettingsPage.qml")
                         onLoaded: {
+                            item.pageActive = Qt.binding(function() {
+                                return window.currentPage === 3
+                            })
                             if (window.currentPage === 3
                                     && InputModality.focusNavigationActive) {
                                 Qt.callLater(function() {
@@ -726,26 +986,40 @@ ApplicationWindow {
                         anchors.fill: parent
                         active: window.favoritesLoaded
                         asynchronous: true
-                        sourceComponent: FavoritesPage {
-                            refreshing: app.favorites.refreshing
-                            loadFailed: app.favorites.loadFailed
-                            onItemRequested: item => window.openContextItem(item)
-                            onPlayRequested: (itemId, title) =>
-                                window.requestPlayback(itemId, false, ({}), title)
-                            onMediaContextRequested: (item, sourceItem, x, y,
-                                                      keyboardInvocation) =>
-                                mediaContextMenu.openFor(
-                                    item, sourceItem, x, y,
-                                    keyboardInvocation)
-                            onRetryRequested: app.favorites.refresh()
-                        }
+                        source: Qt.resolvedUrl("pages/FavoritesPage.qml")
                         onLoaded: {
+                            item.refreshing = Qt.binding(function() {
+                                return app.favorites.refreshing
+                            })
+                            item.loadFailed = Qt.binding(function() {
+                                return app.favorites.loadFailed
+                            })
                             if (window.currentPage === 4
                                     && InputModality.focusNavigationActive) {
                                 Qt.callLater(function() {
                                     window.focusCurrentPage(false)
                                 })
                             }
+                        }
+                    }
+
+                    Connections {
+                        target: favoritesLoader.item
+                        ignoreUnknownSignals: true
+                        function onItemRequested(item) {
+                            window.openContextItem(item)
+                        }
+                        function onPlayRequested(itemId, title) {
+                            window.requestPlayback(itemId, false, ({}), title)
+                        }
+                        function onMediaContextRequested(
+                                item, sourceItem, x, y, keyboardInvocation) {
+                            mediaContextMenu.openFor(
+                                item, sourceItem, x, y,
+                                keyboardInvocation)
+                        }
+                        function onRetryRequested() {
+                            app.favorites.refresh()
                         }
                     }
 
@@ -764,10 +1038,7 @@ ApplicationWindow {
                         anchors.fill: parent
                         active: window.aboutLoaded
                         asynchronous: true
-                        sourceComponent: AboutPage {
-                            onFeedbackRequested: (message, tone) =>
-                                window.showActionToast(message, tone)
-                        }
+                        source: Qt.resolvedUrl("pages/AboutPage.qml")
                         onLoaded: {
                             if (window.currentPage === 5
                                     && InputModality.focusNavigationActive) {
@@ -775,6 +1046,14 @@ ApplicationWindow {
                                     window.focusCurrentPage(false)
                                 })
                             }
+                        }
+                    }
+
+                    Connections {
+                        target: aboutLoader.item
+                        ignoreUnknownSignals: true
+                        function onFeedbackRequested(message, tone) {
+                            window.showActionToast(message, tone)
                         }
                     }
 
@@ -832,18 +1111,21 @@ ApplicationWindow {
             onPlaylistAddRequested: (item, opener) =>
                 window.requestMediaTargets(item, opener)
             onMetadataEditRequested: (item, opener) => {
-                metadataEditor.focusReturnTarget = opener || null
-                metadataEditor.beginLoading(item)
+                const editor = window.metadataDialog(opener)
+                if (editor)
+                    editor.beginLoading(item)
             }
             onImageEditRequested: (item, opener) => {
-                imageEditor.focusReturnTarget = opener || null
-                imageEditor.beginLoading(item)
+                const editor = window.imageDialog(opener)
+                if (editor)
+                    editor.beginLoading(item)
             }
             onLibraryScanRequested: item =>
                 app.mediaActions.scanLibraryFiles(item.id)
             onMetadataRefreshRequested: (item, opener) => {
-                refreshMetadataDialog.focusReturnTarget = opener || null
-                refreshMetadataDialog.openFor(item)
+                const dialog = window.refreshDialog(opener)
+                if (dialog)
+                    dialog.openFor(item)
             }
             onDeleteRequested: (item, opener) => {
                 deleteConfirm.focusReturnTarget = opener || null
@@ -855,38 +1137,70 @@ ApplicationWindow {
             }
         }
 
-        MetadataEditorDialog {
-            id: metadataEditor
-            viewModel: app.metadataEditor
-            onValidationError: message => errorDialog.show(message)
-            onActionFailure: (message, nonModal, handledInPlace) =>
+        Loader {
+            id: metadataEditorLoader
+            active: false
+            source: Qt.resolvedUrl("components/MetadataEditorDialog.qml")
+        }
+        Connections {
+            target: metadataEditorLoader.item
+            ignoreUnknownSignals: true
+            function onValidationError(message) {
+                errorDialog.show(message)
+            }
+            function onActionFailure(message, nonModal, handledInPlace) {
                 window.reportMediaActionFailure(
                     message, nonModal, handledInPlace)
+            }
         }
 
-        ImageEditorDialog {
-            id: imageEditor
-            viewModel: app.imageEditor
-            onActionFailure: (message, nonModal, handledInPlace) =>
+        Loader {
+            id: imageEditorLoader
+            active: false
+            source: Qt.resolvedUrl("components/ImageEditorDialog.qml")
+        }
+        Connections {
+            target: imageEditorLoader.item
+            ignoreUnknownSignals: true
+            function onActionFailure(message, nonModal, handledInPlace) {
                 window.reportMediaActionFailure(
                     message, nonModal, handledInPlace)
+            }
         }
 
-        RefreshMetadataDialog {
-            id: refreshMetadataDialog
-            onRefreshRequested: (itemId, mode, replaceImages) =>
-                app.mediaActions.refreshMetadata(itemId, mode, replaceImages)
+        Loader {
+            id: refreshMetadataLoader
+            active: false
+            source: Qt.resolvedUrl("components/RefreshMetadataDialog.qml")
+        }
+        Connections {
+            target: refreshMetadataLoader.item
+            ignoreUnknownSignals: true
+            function onRefreshRequested(itemId, mode, replaceImages) {
+                app.mediaActions.refreshMetadata(
+                    itemId, mode, replaceImages)
+            }
         }
 
-        MediaTargetDialog {
-            id: mediaTargetDialog
-            viewModel: app.mediaTarget
-            onValidationError: message => errorDialog.show(message)
-            onActionFailure: (message, nonModal, handledInPlace) =>
+        Loader {
+            id: mediaTargetLoader
+            active: false
+            source: Qt.resolvedUrl("components/MediaTargetDialog.qml")
+        }
+        Connections {
+            target: mediaTargetLoader.item
+            ignoreUnknownSignals: true
+            function onValidationError(message) {
+                errorDialog.show(message)
+            }
+            function onActionFailure(message, nonModal, handledInPlace) {
                 window.reportMediaActionFailure(
                     message, nonModal, handledInPlace)
-            onAdded: itemId => window.showActionToast(
-                qsTr("Added to playlist"), "success")
+            }
+            function onAdded(itemId) {
+                window.showActionToast(
+                    qsTr("Added to playlist"), "success")
+            }
         }
 
         AppConfirmDialog {
@@ -1067,8 +1381,8 @@ ApplicationWindow {
 
     MediaActionHost {
         hostWindow: window
-        refreshMetadataDialog: refreshMetadataDialog
-        homePage: homePage
+        refreshMetadataDialog: refreshMetadataLoader.item
+        homePage: window.homePage
         deleteConfirm: deleteConfirm
     }
 
@@ -1116,7 +1430,8 @@ ApplicationWindow {
                 stop()
                 return
             }
-            homePage.openLibraryView(libraryViewsModel.get(index))
+            window.invokeHome(
+                "openLibraryView", [libraryViewsModel.get(index)], true)
             ++window.developmentCollectionStep
             if (window.developmentScrollRegression)
                 developmentScrollRegressionTimer.restart()
@@ -1137,7 +1452,8 @@ ApplicationWindow {
         id: developmentScrollRegressionTimer
         interval: 900
         onTriggered: {
-            homePage.runDevelopmentScrollRegression()
+            window.invokeHome(
+                "runDevelopmentScrollRegression", [], false)
             if (window.developmentCollectionStep
                     < window.developmentCollectionSequence.split(",").length)
                 developmentCollectionTimer.restart()
@@ -1162,6 +1478,126 @@ ApplicationWindow {
             const page = window.playerPage
             if (page)
                 page.closeRequested()
+        }
+    }
+
+    Loader {
+        id: bootstrapTransitionLoader
+        anchors.fill: parent
+        active: window.bootstrapHandoffTransitionVisible
+        z: 10000
+
+        sourceComponent: Component {
+            FocusScope {
+                id: bootstrapTransition
+                objectName: "bootstrapHandoffTransition"
+                anchors.fill: parent
+                focus: true
+                opacity: 1.0
+
+                Keys.onPressed: event => { event.accepted = true }
+                Keys.onReleased: event => { event.accepted = true }
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: "#080D17"
+                }
+
+                Item {
+                    id: bootstrapBrand
+                    anchors.centerIn: parent
+                    width: 540
+                    height: 320
+
+                    Image {
+                        id: bootstrapLogo
+                        objectName: "bootstrapHandoffLogo"
+                        x: 214
+                        y: 38
+                        width: 112
+                        height: 112
+                        source: Qt.resolvedUrl(
+                            "qrc:/qt/qml/Yanami/Ui/qml/assets/yanami-logo.png")
+                        fillMode: Image.PreserveAspectFit
+                        mipmap: true
+                        smooth: true
+                    }
+
+                    Rectangle {
+                        x: bootstrapLogo.x
+                        y: bootstrapLogo.y
+                        width: bootstrapLogo.width
+                        height: bootstrapLogo.height
+                        radius: 20
+                        color: "transparent"
+                        border.width: 1
+                        border.color: "#1B2534"
+                    }
+
+                    Text {
+                        objectName: "bootstrapHandoffTitle"
+                        x: 0
+                        y: 168
+                        width: parent.width
+                        height: 40
+                        text: "Yanami"
+                        color: "#F5F7FA"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        renderType: Text.NativeRendering
+                        font.family: Qt.platform.os === "windows"
+                            ? "Segoe UI" : Theme.fontForText(text)
+                        font.pixelSize: 30
+                        font.weight: Font.DemiBold
+                    }
+
+                    Text {
+                        objectName: "bootstrapHandoffStatus"
+                        x: 48
+                        y: 216
+                        width: parent.width - 96
+                        height: 28
+                        text: qsTr("Starting Yanami…")
+                        color: "#9AA3B2"
+                        elide: Text.ElideRight
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        renderType: Text.NativeRendering
+                        font.family: Theme.fontForText(text)
+                        font.pixelSize: 16
+                    }
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.AllButtons
+                    hoverEnabled: true
+                }
+
+                Timer {
+                    id: bootstrapHandoffHold
+                    interval: 200
+                    running: window.bootstrapHandoffReady
+                    onTriggered: bootstrapHandoffFade.start()
+                }
+
+                NumberAnimation {
+                    id: bootstrapHandoffFade
+                    target: bootstrapTransition
+                    property: "opacity"
+                    from: 1.0
+                    to: 0.0
+                    duration: 180
+                    easing.type: Easing.OutCubic
+                    onFinished: {
+                        window.bootstrapHandoffTransitionVisible = false
+                        if (InputModality.focusNavigationActive)
+                            Qt.callLater(function() {
+                                window.focusCurrentPage(false)
+                            })
+                    }
+                }
+            }
         }
     }
 
