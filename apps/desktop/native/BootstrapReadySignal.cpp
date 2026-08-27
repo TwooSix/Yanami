@@ -1,8 +1,11 @@
 #include "BootstrapReadySignal.hpp"
 
+#include <QDir>
+#include <QFileInfo>
 #include <QStringView>
 
 #include <limits>
+#include <string>
 
 #ifdef Q_OS_WIN
 #ifndef WIN32_LEAN_AND_MEAN
@@ -17,6 +20,60 @@
 namespace {
 constexpr auto BootstrapReadyHandleOption =
     "--yanami-bootstrap-ready-handle";
+}
+
+QStringList bootstrapHandoffTemporaryRoots()
+{
+    QStringList roots {QDir::tempPath()};
+#ifdef Q_OS_WIN
+    // The native launcher intentionally uses GetTempPathW so it remains
+    // compatible with every supported Windows version. Newer Qt releases may
+    // choose GetTempPath2W for QDir::tempPath(), so trust both OS-provided
+    // roots rather than coupling the handoff protocol to Qt's implementation.
+    std::wstring legacyTemporaryRoot(32768, L'\0');
+    const DWORD rootLength = GetTempPathW(
+        static_cast<DWORD>(legacyTemporaryRoot.size()),
+        legacyTemporaryRoot.data());
+    if (rootLength > 0 && rootLength < legacyTemporaryRoot.size()) {
+        roots.push_back(QString::fromWCharArray(
+            legacyTemporaryRoot.data(), static_cast<qsizetype>(rootLength)));
+    }
+#endif
+    roots.removeDuplicates();
+    return roots;
+}
+
+BootstrapHandoffParentValidation validateBootstrapHandoffParent(
+    const QString &parentPath,
+    const QStringList &temporaryRoots)
+{
+    const QString canonicalParent =
+        QFileInfo(parentPath).canonicalFilePath();
+    if (canonicalParent.isEmpty()) {
+        return BootstrapHandoffParentValidation::CanonicalPathUnavailable;
+    }
+
+    bool canonicalRootAvailable = false;
+    for (const QString &temporaryRoot : temporaryRoots) {
+        const QString canonicalRoot =
+            QFileInfo(temporaryRoot).canonicalFilePath();
+        if (canonicalRoot.isEmpty())
+            continue;
+        canonicalRootAvailable = true;
+
+        const QString relativeParent =
+            QDir(canonicalRoot).relativeFilePath(canonicalParent);
+        if (relativeParent != QLatin1String(".")
+            && relativeParent != QLatin1String("..")
+            && !relativeParent.startsWith(QLatin1String("../"))
+            && !QDir::isAbsolutePath(relativeParent)) {
+            return BootstrapHandoffParentValidation::Allowed;
+        }
+    }
+
+    return canonicalRootAvailable
+        ? BootstrapHandoffParentValidation::OutsideTemporaryRoots
+        : BootstrapHandoffParentValidation::CanonicalPathUnavailable;
 }
 
 BootstrapReadySignal bootstrapReadySignalFromArguments(

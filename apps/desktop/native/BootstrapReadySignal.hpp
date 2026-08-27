@@ -12,6 +12,18 @@ struct BootstrapReadySignal {
     QString rejectionReason;
 };
 
+enum class BootstrapHandoffParentValidation {
+    Allowed,
+    CanonicalPathUnavailable,
+    OutsideTemporaryRoots,
+};
+
+QStringList bootstrapHandoffTemporaryRoots();
+
+BootstrapHandoffParentValidation validateBootstrapHandoffParent(
+    const QString &parentPath,
+    const QStringList &temporaryRoots);
+
 BootstrapReadySignal bootstrapReadySignalFromArguments(
     const QStringList &arguments);
 

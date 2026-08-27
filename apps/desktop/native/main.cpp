@@ -67,7 +67,8 @@ struct BootstrapHandoffRequest {
 };
 
 BootstrapHandoffRequest bootstrapHandoffFromArguments(
-    const QStringList &arguments)
+    const QStringList &arguments,
+    const QStringList &handoffTemporaryRoots)
 {
     BootstrapHandoffRequest request;
     request.readySignal = bootstrapReadySignalFromArguments(arguments);
@@ -130,19 +131,16 @@ BootstrapHandoffRequest bootstrapHandoffFromArguments(
         return request;
     }
 
-    const QString canonicalTempRoot =
-        QFileInfo(QDir::tempPath()).canonicalFilePath();
-    const QString canonicalParent = parentDirectory.canonicalFilePath();
-    if (canonicalTempRoot.isEmpty() || canonicalParent.isEmpty()) {
+    const BootstrapHandoffParentValidation parentValidation =
+        validateBootstrapHandoffParent(
+            parentDirectory.absoluteFilePath(), handoffTemporaryRoots);
+    if (parentValidation
+        == BootstrapHandoffParentValidation::CanonicalPathUnavailable) {
         request.rejectionReason = QStringLiteral("canonical_path_unavailable");
         return request;
     }
-    const QString relativeParent =
-        QDir(canonicalTempRoot).relativeFilePath(canonicalParent);
-    if (relativeParent == QLatin1String(".")
-        || relativeParent == QLatin1String("..")
-        || relativeParent.startsWith(QLatin1String("../"))
-        || QDir::isAbsolutePath(relativeParent)) {
+    if (parentValidation
+        == BootstrapHandoffParentValidation::OutsideTemporaryRoots) {
         request.rejectionReason = QStringLiteral("parent_outside_temp");
         return request;
     }
@@ -562,6 +560,12 @@ int main(int argc, char *argv[])
     QGuiApplication::setOrganizationName(QStringLiteral("Yanami"));
     QGuiApplication::setOrganizationDomain(QStringLiteral("yanami.local"));
 
+    // The launcher creates its private handoff directory before the desktop
+    // starts. Freeze the trusted OS temp roots before isolated-profile setup
+    // intentionally redirects TEMP/TMPDIR for the rest of this process.
+    const QStringList bootstrapHandoffTrustedTemporaryRoots =
+        bootstrapHandoffTemporaryRoots();
+
     const ApplicationPaths::ConfigurationResult profileConfiguration =
         ApplicationPaths::configureFromEnvironment();
     if (!profileConfiguration.succeeded) {
@@ -590,7 +594,8 @@ int main(int argc, char *argv[])
     if (mpvRuntimeSmokeTest)
         return runMpvRuntimeSmokeTest();
     const BootstrapHandoffRequest bootstrapHandoff =
-        bootstrapHandoffFromArguments(app.arguments());
+        bootstrapHandoffFromArguments(
+            app.arguments(), bootstrapHandoffTrustedTemporaryRoots);
 #ifdef Q_OS_WIN
     const bool explicitDirectDesktop = app.arguments().contains(
         QString::fromLatin1(DesktopEntryGuard::DirectDesktopOption))

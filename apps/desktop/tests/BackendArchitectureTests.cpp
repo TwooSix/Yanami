@@ -396,7 +396,9 @@ private slots:
         QVERIFY(main.contains(QStringLiteral(
             "QStringLiteral(\"YanamiBootstrap-\")")));
         QVERIFY(main.contains(QStringLiteral(
-            "QFileInfo(QDir::tempPath()).canonicalFilePath()")));
+            "const QStringList &handoffTemporaryRoots")));
+        QVERIFY(main.contains(QStringLiteral(
+            "validateBootstrapHandoffParent(")));
         QVERIFY(main.contains(QStringLiteral("QSaveFile readyFile(path)")));
         QVERIFY(main.contains(QStringLiteral(
             "readyFile.setDirectWriteFallback(false)")));
@@ -418,6 +420,17 @@ private slots:
                 QStringLiteral("main.cpp must keep bootstrap IPC portable: %1")
                     .arg(api)));
         }
+
+        const qsizetype temporaryRootCapture = main.indexOf(QStringLiteral(
+            "bootstrapHandoffTrustedTemporaryRoots =\n"
+            "        bootstrapHandoffTemporaryRoots()"));
+        const qsizetype isolatedProfileConfiguration = main.indexOf(
+            QStringLiteral("ApplicationPaths::configureFromEnvironment()"));
+        const qsizetype handoffParsing = main.indexOf(QStringLiteral(
+            "app.arguments(), bootstrapHandoffTrustedTemporaryRoots"));
+        QVERIFY(temporaryRootCapture >= 0);
+        QVERIFY(isolatedProfileConfiguration > temporaryRootCapture);
+        QVERIFY(handoffParsing > isolatedProfileConfiguration);
 
         const qsizetype contextProperty = main.indexOf(QStringLiteral(
             "QStringLiteral(\"bootstrapHandoffRequested\")"));

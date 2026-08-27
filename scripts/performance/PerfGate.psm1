@@ -1428,6 +1428,7 @@ function Convert-YanamiBootstrapTraceToManifest {
 
     $requiredMilestones = @(
         "bootstrap_first_visible",
+        "bootstrap_desktop_spawned",
         "desktop_ready",
         "handoff_complete"
     )
@@ -1477,7 +1478,7 @@ function Convert-YanamiBootstrapTraceToManifest {
             $valid = $false
         }
     }
-    foreach ($optionalMilestone in @("bootstrap_entered", "bootstrap_desktop_spawned")) {
+    foreach ($optionalMilestone in @("bootstrap_entered")) {
         if ($milestoneCounts.ContainsKey($optionalMilestone) -and
             [int]$milestoneCounts[$optionalMilestone] -ne 1) {
             $duplicate.Add($optionalMilestone)
@@ -1508,6 +1509,9 @@ function Convert-YanamiBootstrapTraceToManifest {
     $firstVisibleAttributes = if ($byMilestone.ContainsKey("bootstrap_first_visible")) {
         $byMilestone["bootstrap_first_visible"].attributes
     } else { [pscustomobject]@{} }
+    $spawnedAttributes = if ($byMilestone.ContainsKey("bootstrap_desktop_spawned")) {
+        $byMilestone["bootstrap_desktop_spawned"].attributes
+    } else { [pscustomobject]@{} }
     $desktopReadyAttributes = if ($byMilestone.ContainsKey("desktop_ready")) {
         $byMilestone["desktop_ready"].attributes
     } else { [pscustomobject]@{} }
@@ -1520,19 +1524,47 @@ function Convert-YanamiBootstrapTraceToManifest {
     $handoffReadiness = Get-ObjectPropertyValue $handoffAttributes "readiness" $null
     $progressSemantic = [string](Get-ObjectPropertyValue $firstVisibleAttributes "progressSemantic" "")
     $childProcessId = [long]-1
+    $desktopReadyChildProcessId = [long]-1
     $handoffChildProcessId = [long]-1
     $childProcessIdValid = [long]::TryParse(
-        [string](Get-ObjectPropertyValue $desktopReadyAttributes "childProcessId" ""),
+        [string](Get-ObjectPropertyValue $spawnedAttributes "childProcessId" ""),
         [ref]$childProcessId) -and $childProcessId -gt 0
+    $desktopReadyChildProcessIdValid = [long]::TryParse(
+        [string](Get-ObjectPropertyValue $desktopReadyAttributes "childProcessId" ""),
+        [ref]$desktopReadyChildProcessId) -and
+        $desktopReadyChildProcessId -gt 0
     $handoffChildProcessIdValid = [long]::TryParse(
         [string](Get-ObjectPropertyValue $handoffAttributes "childProcessId" ""),
         [ref]$handoffChildProcessId) -and $handoffChildProcessId -gt 0
+    $launcherProcessId = [long]-1
+    $launcherProcessBindingValid =
+        $processIds.Count -eq 1 -and
+        $processIds[0] -ne "<missing>" -and
+        [long]::TryParse([string]$processIds[0], [ref]$launcherProcessId) -and
+        $launcherProcessId -gt 0 -and
+        ($ExpectedProcessId -lt 0 -or $launcherProcessId -eq $ExpectedProcessId)
+    $spawnedEvent = if ($byMilestone.ContainsKey("bootstrap_desktop_spawned")) {
+        $byMilestone["bootstrap_desktop_spawned"]
+    } else { $null }
+    $spawnedMetadataBindingValid =
+        $null -ne $spawnedEvent -and
+        [string]$spawnedEvent.suite -eq "startup" -and
+        [string]$spawnedEvent.scenarioId -eq "desktop.bootstrap" -and
+        [long]$spawnedEvent.generation -eq 0
+    $childProcessBindingValid =
+        $runIds.Count -eq 1 -and $runIds[0] -eq $RunId -and
+        $launcherProcessBindingValid -and
+        $milestoneCounts.ContainsKey("bootstrap_desktop_spawned") -and
+        [int]$milestoneCounts["bootstrap_desktop_spawned"] -eq 1 -and
+        $spawnedMetadataBindingValid -and $childProcessIdValid
     $readinessSemanticsValid =
         $firstReadiness -is [bool] -and -not [bool]$firstReadiness -and
         $desktopReadiness -is [bool] -and [bool]$desktopReadiness -and
         $handoffReadiness -is [bool] -and [bool]$handoffReadiness -and
         $progressSemantic -eq "indeterminate" -and
-        $childProcessIdValid -and $handoffChildProcessIdValid -and
+        $childProcessIdValid -and $desktopReadyChildProcessIdValid -and
+        $handoffChildProcessIdValid -and
+        $childProcessId -eq $desktopReadyChildProcessId -and
         $childProcessId -eq $handoffChildProcessId
     if (-not $readinessSemanticsValid) { $valid = $false }
 
@@ -1585,6 +1617,9 @@ function Convert-YanamiBootstrapTraceToManifest {
                 monotonic = $monotonic
                 eventCount = $events.Count
                 childProcessId = $childProcessId
+                childProcessBindingValid = $childProcessBindingValid
+                desktopReadyChildProcessId = $desktopReadyChildProcessId
+                handoffChildProcessId = $handoffChildProcessId
                 readinessSemanticsValid = $readinessSemanticsValid
                 desktopReadyIsContentBoundary = $true
                 handoffIsAnimationBoundary = $true

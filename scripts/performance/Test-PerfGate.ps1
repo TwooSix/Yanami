@@ -798,6 +798,7 @@ try {
     Assert-Equal $bootstrapHandoffInvariant.passed $true "The launcher sidecar must prove first-visible, content-ready, then handoff-complete under one launcher clock."
     Assert-Equal $bootstrapProgressInvariant.passed $true "Indeterminate brand animation must not be relabeled as a readiness percentage."
     Assert-Equal $bootstrapHandoffInvariant.details.childProcessId 4321 "The ready-file child PID must bind the launcher sidecar to the desktop trace."
+    Assert-Equal $bootstrapHandoffInvariant.details.childProcessBindingValid $true "A valid launcher identity and unique spawned event must authorize desktop trace PID binding."
     $readyMetric = @($bootstrapManifest.metrics |
         Where-Object id -eq "startup.internal.bootstrap_visible_to_desktop_ready_candidate_ms")[0]
     $animationMetric = @($bootstrapManifest.metrics |
@@ -840,6 +841,35 @@ try {
     $missingHandoffInvariant = @($missingHandoffManifest.invariants |
         Where-Object id -eq "startup.bootstrap_handoff_valid")[0]
     Assert-Equal $missingHandoffInvariant.passed $false "A launcher that exits after desktop_ready but before handoff_complete must fail the two-stage lifecycle contract."
+
+    $missingReadyTracePath = Join-Path $testRoot "bootstrap-missing-ready.jsonl"
+    @($bootstrapTraceLines | Select-Object -First 3) |
+        Set-Content -LiteralPath $missingReadyTracePath -Encoding UTF8
+    $missingReadyManifest = Convert-YanamiBootstrapTraceToManifest `
+        -TracePath $missingReadyTracePath -Profile PullRequest `
+        -RunId "trace-handshake" -ExpectedProcessId 2468
+    $missingReadyInvariant = @($missingReadyManifest.invariants |
+        Where-Object id -eq "startup.bootstrap_handoff_valid")[0]
+    Assert-Equal $missingReadyInvariant.passed $false "A launcher waiting on a rejected ready file must fail the handoff lifecycle contract."
+    Assert-Equal $missingReadyInvariant.details.childProcessId 4321 "The spawned desktop PID must remain available for trace binding even when ready and handoff milestones are missing."
+    Assert-Equal $missingReadyInvariant.details.childProcessBindingValid $true "Missing readiness must not erase an otherwise valid launcher-to-child identity binding."
+
+    $wrongLauncherManifest = Convert-YanamiBootstrapTraceToManifest `
+        -TracePath $bootstrapTracePath -Profile PullRequest `
+        -RunId "trace-handshake" -ExpectedProcessId 9999
+    $wrongLauncherInvariant = @($wrongLauncherManifest.invariants |
+        Where-Object id -eq "startup.bootstrap_handoff_valid")[0]
+    Assert-Equal $wrongLauncherInvariant.details.childProcessBindingValid $false "A sidecar from a different launcher PID must not authorize desktop trace binding."
+
+    $duplicateSpawnTracePath = Join-Path $testRoot "bootstrap-duplicate-spawn.jsonl"
+    @($bootstrapTraceLines) + @($bootstrapTraceLines[2]) |
+        Set-Content -LiteralPath $duplicateSpawnTracePath -Encoding UTF8
+    $duplicateSpawnManifest = Convert-YanamiBootstrapTraceToManifest `
+        -TracePath $duplicateSpawnTracePath -Profile PullRequest `
+        -RunId "trace-handshake" -ExpectedProcessId 2468
+    $duplicateSpawnInvariant = @($duplicateSpawnManifest.invariants |
+        Where-Object id -eq "startup.bootstrap_handoff_valid")[0]
+    Assert-Equal $duplicateSpawnInvariant.details.childProcessBindingValid $false "Duplicate spawned events must not authorize an ambiguous desktop trace binding."
 
     $mainOwnsHandoffPath = Join-Path $testRoot "desktop-illegal-handoff-trace.jsonl"
     $mainOwnsHandoffLines = @($handshakeTraceLines)

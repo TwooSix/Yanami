@@ -2440,7 +2440,8 @@ try {
                 $bootstrapInvariant = @($bootstrapManifest.invariants |
                     Where-Object id -eq "startup.bootstrap_handoff_valid")[0]
                 $sidecarChildProcessId = [long]$bootstrapInvariant.details.childProcessId
-                if ($sidecarChildProcessId -gt 0) {
+                if ([bool]$bootstrapInvariant.details.childProcessBindingValid -and
+                    $sidecarChildProcessId -gt 0) {
                     $expectedDesktopProcessId = $sidecarChildProcessId
                 }
             }
