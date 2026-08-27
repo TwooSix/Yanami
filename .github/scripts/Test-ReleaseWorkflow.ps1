@@ -44,5 +44,13 @@ Assert-Absent "removed tracked dependency snapshot" `
     'licenses[/\\]RUST_DEPENDENCIES\.md'
 Assert-Absent "stale checked-in inventory comparison" `
     'checked-in Rust license report is stale|Get-FileHash licenses[/\\]rust[/\\]THIRD_PARTY_LICENSES\.html'
+Assert-Count "Linux loader smokes scope LD_DEBUG to the tested entrypoint" `
+    '(?m)^\s*LD_DEBUG=libs timeout 12s "\$entrypoint"' 2
+Assert-Absent "Linux loader debugging is not exported to unrelated commands" `
+    '(?m)^\s*export LD_DEBUG='
+Assert-Match "Linux first-screen auto-exit has an explicit trace" `
+    '(?ms)LD_DEBUG=libs timeout 12s "\$entrypoint" \\\r?\n\s*--performance-trace "\$first_screen_trace" \\\r?\n\s*--performance-runtime-auto-exit \\$'
+Assert-Match "Linux first-screen smoke verifies the settled milestone" `
+    'grep -q ''"milestone":"startup_settled"'' "\$first_screen_trace"'
 
 Write-Host "Release workflow contract tests passed ($assertions assertions)."
