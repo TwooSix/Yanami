@@ -28,6 +28,8 @@ using namespace std::chrono_literals;
 constexpr char desktopExecutableName[] = "Yanami";
 constexpr char readyFileName[] = "desktop-ready.json";
 
+} // namespace
+
 @interface YanamiBootstrapController : NSObject
 @property(nonatomic, assign) BOOL cancelRequested;
 @property(nonatomic, strong) NSWindow *window;
@@ -44,6 +46,8 @@ constexpr char readyFileName[] = "desktop-ready.json";
     self.statusLabel.stringValue = @"Cancelling safely…";
 }
 @end
+
+namespace {
 
 std::filesystem::path executableDirectory()
 {

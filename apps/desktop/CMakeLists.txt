@@ -540,6 +540,27 @@ qt_add_qml_module(yanami-desktop
         qml/pages/SettingsPage.qml
 )
 
+get_target_property(YANAMI_LRELEASE_EXECUTABLE Qt6::lrelease IMPORTED_LOCATION)
+execute_process(
+    COMMAND "${YANAMI_LRELEASE_EXECUTABLE}" -help
+    RESULT_VARIABLE YANAMI_LRELEASE_HELP_RESULT
+    OUTPUT_VARIABLE YANAMI_LRELEASE_HELP_STDOUT
+    ERROR_VARIABLE YANAMI_LRELEASE_HELP_STDERR
+)
+set(YANAMI_LRELEASE_OPTIONS)
+if(YANAMI_LRELEASE_HELP_RESULT EQUAL 0)
+    string(CONCAT YANAMI_LRELEASE_HELP
+        "${YANAMI_LRELEASE_HELP_STDOUT}"
+        "${YANAMI_LRELEASE_HELP_STDERR}"
+    )
+    if(YANAMI_LRELEASE_HELP MATCHES "-fail-on-unfinished")
+        list(APPEND YANAMI_LRELEASE_OPTIONS -fail-on-unfinished)
+    endif()
+    if(YANAMI_LRELEASE_HELP MATCHES "-fail-on-invalid")
+        list(APPEND YANAMI_LRELEASE_OPTIONS -fail-on-invalid)
+    endif()
+endif()
+
 qt_add_translations(
     TARGETS yanami-desktop
     SOURCE_TARGETS yanami-desktop yanami-ui
@@ -548,7 +569,7 @@ qt_add_translations(
     LUPDATE_OPTIONS -no-obsolete
     LUPDATE_TARGET yanami-update-translations
     LRELEASE_TARGET yanami-release-translations
-    LRELEASE_OPTIONS -fail-on-unfinished -fail-on-invalid
+    LRELEASE_OPTIONS ${YANAMI_LRELEASE_OPTIONS}
 )
 
 target_link_libraries(yanami-desktop PRIVATE
