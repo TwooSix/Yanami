@@ -756,9 +756,8 @@ jobs:
             -OutputDirectory "$extract_dir/bootstrap-smoke" \
             -CandidateSha "$YANAMI_RELEASE_SHA"
 
-          export LD_DEBUG=libs
           set +e
-          timeout 12s "$entrypoint" \
+          LD_DEBUG=libs timeout 12s "$entrypoint" \
             --mpv-runtime-smoke-test \
             >"$extract_dir/mpv-smoke.stdout" \
             2>"$extract_dir/mpv-loader.log"
@@ -770,12 +769,21 @@ jobs:
           export YANAMI_DEV_AUTOPLAY_FIRST=1
           export YANAMI_DEV_SCREENSHOT_PATH="$extract_dir/forbidden.png"
           export YANAMI_DEV_LOG_PATH="$extract_dir/forbidden.log"
+          first_screen_trace="$extract_dir/first-screen-loader-trace.jsonl"
           set +e
-          timeout 12s "$entrypoint" --performance-runtime-auto-exit \
+          LD_DEBUG=libs timeout 12s "$entrypoint" \
+            --performance-trace "$first_screen_trace" \
+            --performance-runtime-auto-exit \
             >"$extract_dir/smoke.stdout" 2>"$extract_dir/loader.log"
           smoke_status=$?
           set -e
-          test "$smoke_status" -eq 0
+          if [[ "$smoke_status" -ne 0 ]]; then
+            echo "First-screen loader smoke failed with status $smoke_status." >&2
+            tail -n 200 "$extract_dir/smoke.stdout" >&2 || true
+            tail -n 200 "$extract_dir/loader.log" >&2 || true
+            exit 1
+          fi
+          grep -q '"milestone":"startup_settled"' "$first_screen_trace"
           grep -q 'libyanami_desktop_bridge.so' "$extract_dir/loader.log"
           if grep -q 'libmpv' "$extract_dir/loader.log"; then
             echo "First-screen smoke loaded libmpv before PlayerPage." >&2
