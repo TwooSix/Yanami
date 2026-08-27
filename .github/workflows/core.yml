@@ -90,7 +90,7 @@ jobs:
     name: Rust quality (Linux)
     needs: [scope, workflow-lint]
     if: >-
-      always() &&
+      !cancelled() &&
       needs.scope.result == 'success' &&
       needs.scope.outputs.rust == 'true' &&
       (needs.scope.outputs.workflows == 'false' ||
@@ -160,7 +160,7 @@ jobs:
     name: Desktop (Linux x86_64)
     needs: [scope, workflow-lint, rust]
     if: >-
-      always() &&
+      !cancelled() &&
       needs.scope.result == 'success' &&
       needs.scope.outputs.desktop == 'true' &&
       (needs.scope.outputs.workflows == 'false' ||
@@ -242,7 +242,7 @@ jobs:
     name: Desktop (Windows x86_64)
     needs: [scope, workflow-lint, rust]
     if: >-
-      always() &&
+      !cancelled() &&
       needs.scope.result == 'success' &&
       (needs.scope.outputs.desktop == 'true' ||
        needs.scope.outputs.performance == 'true') &&
@@ -375,7 +375,7 @@ jobs:
     name: Desktop (macOS ${{ matrix.architecture }})
     needs: [scope, workflow-lint, rust]
     if: >-
-      always() &&
+      !cancelled() &&
       needs.scope.result == 'success' &&
       needs.scope.outputs.desktop == 'true' &&
       (needs.scope.outputs.workflows == 'false' ||
