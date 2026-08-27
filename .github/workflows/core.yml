@@ -88,8 +88,13 @@ jobs:
 
   rust:
     name: Rust quality (Linux)
-    needs: scope
-    if: needs.scope.outputs.rust == 'true'
+    needs: [scope, workflow-lint]
+    if: >-
+      always() &&
+      needs.scope.result == 'success' &&
+      needs.scope.outputs.rust == 'true' &&
+      (needs.scope.outputs.workflows == 'false' ||
+       needs.workflow-lint.result == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -153,8 +158,15 @@ jobs:
 
   desktop-linux:
     name: Desktop (Linux x86_64)
-    needs: scope
-    if: needs.scope.outputs.desktop == 'true'
+    needs: [scope, workflow-lint, rust]
+    if: >-
+      always() &&
+      needs.scope.result == 'success' &&
+      needs.scope.outputs.desktop == 'true' &&
+      (needs.scope.outputs.workflows == 'false' ||
+       needs.workflow-lint.result == 'success') &&
+      (needs.scope.outputs.rust == 'false' ||
+       needs.rust.result == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     permissions:
@@ -228,8 +240,16 @@ jobs:
 
   desktop-windows:
     name: Desktop (Windows x86_64)
-    needs: scope
-    if: needs.scope.outputs.desktop == 'true' || needs.scope.outputs.performance == 'true'
+    needs: [scope, workflow-lint, rust]
+    if: >-
+      always() &&
+      needs.scope.result == 'success' &&
+      (needs.scope.outputs.desktop == 'true' ||
+       needs.scope.outputs.performance == 'true') &&
+      (needs.scope.outputs.workflows == 'false' ||
+       needs.workflow-lint.result == 'success') &&
+      (needs.scope.outputs.rust == 'false' ||
+       needs.rust.result == 'success')
     runs-on: windows-2022
     timeout-minutes: 55
     env:
@@ -353,8 +373,15 @@ jobs:
 
   desktop-macos:
     name: Desktop (macOS ${{ matrix.architecture }})
-    needs: scope
-    if: needs.scope.outputs.desktop == 'true'
+    needs: [scope, workflow-lint, rust]
+    if: >-
+      always() &&
+      needs.scope.result == 'success' &&
+      needs.scope.outputs.desktop == 'true' &&
+      (needs.scope.outputs.workflows == 'false' ||
+       needs.workflow-lint.result == 'success') &&
+      (needs.scope.outputs.rust == 'false' ||
+       needs.rust.result == 'success')
     strategy:
       fail-fast: false
       matrix:
@@ -456,8 +483,8 @@ jobs:
              then ."desktop-windows".result == "success"
              else ."desktop-windows".result == "skipped" end) and
             (if .scope.outputs.performance == "true"
-             then (.scope.outputs.performance_suites | length) > 0
-             else .scope.outputs.performance_suites == "" end)
+             then ((.scope.outputs.performance_suites // "") | length) > 0
+             else (.scope.outputs.performance_suites // "") == "" end)
           ' <<<"$NEEDS_JSON" >/dev/null
           {
             echo "## Required CI gate"
