@@ -400,8 +400,10 @@ impl Application {
             return (single_playback_queue(playable_item.clone()), true);
         }
 
-        if context.kind == PlaybackContextKind::Playlist
-            && let Some(source_id) = context.source_id.as_deref()
+        if let Some(source_id) = context
+            .source_id
+            .as_deref()
+            .filter(|_| context.kind == PlaybackContextKind::Playlist)
         {
             match self.block_on_emby(client.playlist_items(source_id)) {
                 Ok(result) => {
@@ -429,8 +431,8 @@ impl Application {
         if let Some(series_id) = requested_series_id {
             series_ids.push(series_id);
         }
-        if let Some(series_id) = inferred_series_id
-            && !series_ids.contains(&series_id)
+        if let Some(series_id) =
+            inferred_series_id.filter(|series_id| !series_ids.contains(series_id))
         {
             series_ids.push(series_id);
         }

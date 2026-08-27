@@ -333,9 +333,9 @@ impl Application {
         let cached = self.storage.comments(episode_id).map_err(|error| {
             ApplicationError::new(ApplicationErrorCode::Storage, error.to_string())
         })?;
-        if !force_refresh
-            && let Some(cache) = &cached
-            && cache.is_fresh_at(now)
+        if let Some(cache) = cached
+            .as_ref()
+            .filter(|cache| !force_refresh && cache.is_fresh_at(now))
         {
             return Ok(CommentLoadResult {
                 comments: cache.comments.clone(),

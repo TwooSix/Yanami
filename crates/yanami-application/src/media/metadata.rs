@@ -427,8 +427,9 @@ fn apply_metadata_patch_in_place(item: &mut Value, patch: &Value) -> Result<(), 
     let editable_fields = editable_metadata_fields(item_type);
     validate_metadata_patch(patch_object, &editable_fields)?;
     for (source, destination) in METADATA_FIELD_MAP {
-        if editable_fields.contains(source)
-            && let Some(value) = patch_object.get(*source)
+        if let Some(value) = patch_object
+            .get(*source)
+            .filter(|_| editable_fields.contains(source))
         {
             item_object.insert((*destination).to_owned(), value.clone());
         }

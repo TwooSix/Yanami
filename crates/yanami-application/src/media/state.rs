@@ -144,14 +144,17 @@ async fn authoritative_item_states(
         .with_parent_ids(&item);
     states.push(target);
     let mut parent_ids = Vec::new();
-    if let Some(season_id) = item.season_id.as_deref()
-        && season_id != item_id
+    if let Some(season_id) = item
+        .season_id
+        .as_deref()
+        .filter(|season_id| *season_id != item_id)
     {
         parent_ids.push(season_id.to_owned());
     }
-    if let Some(series_id) = item.series_id.as_deref()
-        && series_id != item_id
-        && !parent_ids.iter().any(|id| id == series_id)
+    if let Some(series_id) = item
+        .series_id
+        .as_deref()
+        .filter(|series_id| *series_id != item_id && !parent_ids.iter().any(|id| id == *series_id))
     {
         parent_ids.push(series_id.to_owned());
     }
