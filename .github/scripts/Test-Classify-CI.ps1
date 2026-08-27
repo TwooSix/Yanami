@@ -128,6 +128,32 @@ foreach ($packageScriptPath in @(
     Assert-Equal $packageScript.package $true "$packageScriptPath package"
 }
 
+foreach ($performancePackagePath in @(
+        "scripts/performance/Test-BootstrapPackage.ps1",
+        "scripts/performance/run-gate.ps1",
+        "scripts/performance/PerfGate.psm1"
+    )) {
+    $performancePackage = Invoke-Case -Path @($performancePackagePath)
+    Assert-Equal $performancePackage.rust $false `
+        "$performancePackagePath rust"
+    Assert-Equal $performancePackage.desktop $false `
+        "$performancePackagePath desktop"
+    Assert-Equal $performancePackage.workflows $true `
+        "$performancePackagePath static analysis"
+    Assert-Equal $performancePackage.performance $true `
+        "$performancePackagePath performance"
+    Assert-Equal $performancePackage.package $true `
+        "$performancePackagePath package"
+}
+
+$performanceSelfTest = Invoke-Case -Path @("scripts/performance/Test-PerfGate.ps1")
+Assert-Equal $performanceSelfTest.workflows $true `
+    "performance self-test static analysis"
+Assert-Equal $performanceSelfTest.performance $true `
+    "performance self-test performance"
+Assert-Equal $performanceSelfTest.package $false `
+    "performance self-test package"
+
 $licenseGenerator = Invoke-Case -Path @("scripts/generate-rust-license-inventory.sh")
 Assert-Equal $licenseGenerator.rust $true "license generator rust"
 Assert-Equal $licenseGenerator.desktop $false "license generator desktop"

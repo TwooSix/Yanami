@@ -566,6 +566,8 @@ function Set-RunnerObservationProducerRunIds {
 }
 
 function Initialize-RunFingerprint {
+    $runningOnWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [System.Runtime.InteropServices.OSPlatform]::Windows)
     $details = [ordered]@{
         machineName = [Environment]::MachineName
         os = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
@@ -592,7 +594,7 @@ function Initialize-RunFingerprint {
         fontCacheState = "unavailable"
         fontCachePreparationId = "unavailable"
     }
-    if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
+    if ($runningOnWindows) {
         try {
             $cpu = Get-CimInstance Win32_Processor -ErrorAction Stop | Sort-Object DeviceID | Select-Object -First 1
             $gpu = Get-CimInstance Win32_VideoController -ErrorAction Stop | Sort-Object PNPDeviceID | Select-Object -First 1
@@ -630,17 +632,34 @@ function Initialize-RunFingerprint {
             if ($powerOutput) { $details.powerPlan = ([string]($powerOutput -join " ")).Trim() }
         } catch {}
     }
+    $userProfileRoot = @(
+        [Environment]::GetEnvironmentVariable("USERPROFILE"),
+        [Environment]::GetEnvironmentVariable("HOME"),
+        [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
+        Select-Object -First 1
+    $scoopQmakeFallback = if ($runningOnWindows -and $userProfileRoot) {
+        Join-Path $userProfileRoot "scoop\apps\msys2\current\ucrt64\bin\qmake6.exe"
+    } else {
+        $null
+    }
+    $rustcFallback = if ($userProfileRoot) {
+        $rustcRelativePath = if ($runningOnWindows) { ".cargo\bin\rustc.exe" } else { ".cargo/bin/rustc" }
+        Join-Path $userProfileRoot $rustcRelativePath
+    } else {
+        $null
+    }
     $qmakeCandidates = @(
         (Get-Command qmake6 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
         "C:\msys64\ucrt64\bin\qmake6.exe",
-        (Join-Path $env:USERPROFILE "scoop\apps\msys2\current\ucrt64\bin\qmake6.exe")
+        $scoopQmakeFallback
     ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
     if ($qmakeCandidates) {
         try { $details.qtVersion = ([string](& $qmakeCandidates -query QT_VERSION 2>$null)).Trim() } catch {}
     }
     $rustcCandidates = @(
         (Get-Command rustc -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
-        (Join-Path $env:USERPROFILE ".cargo\bin\rustc.exe")
+        $rustcFallback
     ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
     if ($rustcCandidates) {
         try { $details.rustVersion = ([string](& $rustcCandidates --version 2>$null)).Trim() } catch {}

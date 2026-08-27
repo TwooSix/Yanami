@@ -972,6 +972,26 @@ try {
     Assert-True (Test-Path -LiteralPath (Join-Path $runnerOutput "performance-result.json")) "Runner must always write JSON output."
     Assert-True (Test-Path -LiteralPath (Join-Path $runnerOutput "perf-results.xml")) "Runner must always write JUnit output."
 
+    $originalUserProfile = [Environment]::GetEnvironmentVariable("USERPROFILE")
+    $originalHome = [Environment]::GetEnvironmentVariable("HOME")
+    try {
+        [Environment]::SetEnvironmentVariable("USERPROFILE", $null)
+        [Environment]::SetEnvironmentVariable("HOME", $testRoot)
+        $homeOnlyRunnerOutput = Join-Path $testRoot "runner-home-only"
+        $homeOnlyRunnerResult = & (Join-Path $PSScriptRoot "run-gate.ps1") `
+            -Profile PullRequest `
+            -OutputDirectory $homeOnlyRunnerOutput `
+            -Suites search `
+            -ValidateOnly `
+            -NoExit
+        Assert-Equal $homeOnlyRunnerResult.status "pass" "Runner fingerprinting must support hosts that define HOME without USERPROFILE."
+        Assert-True (Test-Path -LiteralPath (Join-Path $homeOnlyRunnerOutput "performance-result.json")) "HOME-only fingerprinting must still write JSON output."
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable("USERPROFILE", $originalUserProfile)
+        [Environment]::SetEnvironmentVariable("HOME", $originalHome)
+    }
+
     $workspaceMismatchOutput = Join-Path $testRoot "workspace-candidate-mismatch"
     $workspaceMismatchResult = & (Join-Path $PSScriptRoot "run-gate.ps1") `
         -Profile PullRequest `
