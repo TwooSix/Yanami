@@ -90,6 +90,6 @@ private slots:
     }
 };
 
-QTEST_MAIN(ApplicationPathsTests)
+QTEST_GUILESS_MAIN(ApplicationPathsTests)
 
 #include "ApplicationPathsTests.moc"

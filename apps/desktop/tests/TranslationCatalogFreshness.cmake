@@ -4,6 +4,9 @@ endif()
 if(NOT DEFINED YANAMI_LRELEASE OR NOT EXISTS "${YANAMI_LRELEASE}")
     message(FATAL_ERROR "YANAMI_LRELEASE must name the Qt lrelease executable")
 endif()
+if(NOT DEFINED YANAMI_LRELEASE_OPTIONS)
+    message(FATAL_ERROR "YANAMI_LRELEASE_OPTIONS is required")
+endif()
 if(NOT DEFINED YANAMI_TRANSLATION OR NOT EXISTS "${YANAMI_TRANSLATION}")
     message(FATAL_ERROR "YANAMI_TRANSLATION must name the checked-in TS catalog")
 endif()
@@ -44,10 +47,11 @@ if(updated_contents MATCHES "type=\"unfinished\"")
         "and remove all unfinished markers.\n${update_output}\n${update_error}")
 endif()
 
+string(REPLACE "|" ";" release_options "${YANAMI_LRELEASE_OPTIONS}")
+
 execute_process(
     COMMAND "${YANAMI_LRELEASE}"
-        -fail-on-unfinished
-        -fail-on-invalid
+        ${release_options}
         "${updated_translation}"
         -qm "${YANAMI_TEST_ROOT}/yanami_zh_CN.qm"
     RESULT_VARIABLE release_result
@@ -58,4 +62,12 @@ if(NOT release_result EQUAL 0)
     message(FATAL_ERROR
         "The refreshed translation catalog is not releaseable (${release_result}).\n"
         "${release_output}\n${release_error}")
+endif()
+set(released_catalog "${YANAMI_TEST_ROOT}/yanami_zh_CN.qm")
+if(NOT EXISTS "${released_catalog}")
+    message(FATAL_ERROR "lrelease did not create ${released_catalog}")
+endif()
+file(SIZE "${released_catalog}" released_catalog_size)
+if(released_catalog_size EQUAL 0)
+    message(FATAL_ERROR "lrelease created an empty ${released_catalog}")
 endif()

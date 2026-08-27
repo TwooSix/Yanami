@@ -91,19 +91,31 @@ QStringList libraryCandidates()
     QStringList candidates;
     const QString applicationDirectory = QCoreApplication::applicationDirPath();
     for (const QString &name : std::as_const(names)) {
-        if (!applicationDirectory.isEmpty())
-            candidates.append(QDir(applicationDirectory).absoluteFilePath(name));
 #ifdef Q_OS_MACOS
         if (!applicationDirectory.isEmpty()) {
             candidates.append(QDir(applicationDirectory).absoluteFilePath(
                 QStringLiteral("../Frameworks/") + name));
         }
 #endif
-#ifndef Q_OS_WIN
-        // Unix packages normally provide libmpv through the system loader.
-        candidates.append(name);
-#endif
+        if (!applicationDirectory.isEmpty())
+            candidates.append(QDir(applicationDirectory).absoluteFilePath(name));
     }
+#ifdef Q_OS_MACOS
+#ifdef YANAMI_MPV_DEVELOPMENT_RUNTIME_PATH
+    // Installed bundles resolve their private Frameworks copy first. Build-tree
+    // executables and tests need the exact library discovered by CMake because
+    // dyld does not search Homebrew prefixes by default.
+    candidates.append(
+        QStringLiteral(YANAMI_MPV_DEVELOPMENT_RUNTIME_PATH));
+#endif
+#endif
+#ifdef Q_OS_MACOS
+    // Let QLibrary add the platform prefix and suffix for loader-path lookup.
+    candidates.append(QStringLiteral("mpv"));
+#elif !defined(Q_OS_WIN)
+    // Unix packages normally provide libmpv through the system loader.
+    candidates.append(names);
+#endif
     candidates.removeDuplicates();
     return candidates;
 #endif
