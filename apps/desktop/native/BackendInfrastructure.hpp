@@ -31,7 +31,8 @@ public:
 
     RuntimeInitializationResult initialize(
         const QString &applicationDirectory = {},
-        const QString &dataDirectory = {});
+        const QString &dataDirectory = {},
+        bool isolatedCredentials = false);
     void shutdown();
 
     bool ready() const;

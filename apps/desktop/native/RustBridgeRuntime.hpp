@@ -41,7 +41,9 @@ public:
     RustBridgeRuntime &operator=(const RustBridgeRuntime &) = delete;
 
     bool load(const QString &libraryPath, QString *errorMessage);
-    YanamiStatusResult open(const QString &dataDirectory);
+    YanamiStatusResult open(
+        const QString &dataDirectory,
+        bool isolatedCredentials = false);
     bool ready() const { return m_backend != nullptr; }
     void cancelAll();
     void close();
@@ -85,6 +87,13 @@ public:
 private:
     using BackendAbiVersion = quint32 (*)();
     using BackendNew = void *(*)(const char *, char **);
+    struct BackendOptions {
+        quint32 structSize = 0;
+        quint32 isolatedCredentials = 0;
+    };
+    static_assert(sizeof(BackendOptions) == 8);
+    using BackendNewWithOptions = void *(*)(
+        const char *, const BackendOptions *, char **);
     using BackendFree = void (*)(void *);
     using BackendCancelAll = void (*)(void *);
     using StringFree = void (*)(char *);
@@ -132,6 +141,7 @@ private:
     QLibrary m_library;
     void *m_backend = nullptr;
     BackendNew m_new = nullptr;
+    BackendNewWithOptions m_newWithOptions = nullptr;
     BackendFree m_free = nullptr;
     BackendCancelAll m_cancelAll = nullptr;
     StringFree m_stringFree = nullptr;

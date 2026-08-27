@@ -313,7 +313,9 @@ private slots:
                 && player.contains(QStringLiteral(
                     "globalToastBottom + 8"))
                 && mainWindow.contains(QStringLiteral(
-                    "globalToastBottom: actionToast.visible"))
+                    "item.globalToastBottom = Qt.binding"))
+                && mainWindow.contains(QStringLiteral(
+                    "return actionToast.visible"))
                 && statusToast.contains(QStringLiteral("Theme.surfaceStrong"))
                 && statusToast.contains(QStringLiteral("Theme.info"))
                 && statusToast.contains(QStringLiteral("color: Theme.text"))
@@ -537,6 +539,163 @@ private slots:
             detailReturnStart, detailReturnEnd - detailReturnStart);
         QVERIFY2(!detailReturn.contains(QStringLiteral("requestLibraryScrollReset")),
             "Returning from details must preserve the parent library position");
+    }
+
+    void firstShellDefersAuthenticatedHomeAndHeavyDialogs()
+    {
+        const QDir qmlRoot(QStringLiteral(YANAMI_QML_SOURCE_DIR));
+        const QString mainWindow = source(
+            qmlRoot.filePath(QStringLiteral("Main.qml")));
+        const QString homePage = source(
+            qmlRoot.filePath(QStringLiteral("pages/HomePage.qml")));
+        QVERIFY2(!mainWindow.isEmpty(), "Main.qml must be readable");
+        QVERIFY2(!homePage.isEmpty(), "HomePage.qml must be readable");
+
+        QVERIFY(mainWindow.contains(QStringLiteral(
+            "active: app.session.connected")));
+        QVERIFY(mainWindow.contains(QStringLiteral(
+            "source: Qt.resolvedUrl(\"pages/HomePage.qml\")")));
+        QVERIFY(mainWindow.contains(QStringLiteral(
+            "text: qsTr(\"Connect your Emby server\")")));
+        QVERIFY(!homePage.contains(QStringLiteral(
+            "text: qsTr(\"Connect your Emby server\")")));
+
+        const QList<QPair<QString, QString>> deferredDialogs {
+            { QStringLiteral("MetadataEditorDialog"),
+                QStringLiteral("metadataEditorLoader") },
+            { QStringLiteral("ImageEditorDialog"),
+                QStringLiteral("imageEditorLoader") },
+            { QStringLiteral("RefreshMetadataDialog"),
+                QStringLiteral("refreshMetadataLoader") },
+            { QStringLiteral("MediaTargetDialog"),
+                QStringLiteral("mediaTargetLoader") },
+        };
+        for (const auto &[dialog, loaderId] : deferredDialogs) {
+            const qsizetype idPosition = mainWindow.indexOf(
+                QStringLiteral("id: ") + loaderId);
+            const qsizetype loaderStart = mainWindow.lastIndexOf(
+                QStringLiteral("Loader {"), idPosition);
+            const qsizetype loaderEnd = mainWindow.indexOf(
+                QLatin1Char('}'), idPosition);
+            QVERIFY2(loaderStart >= 0 && idPosition > loaderStart
+                    && loaderEnd > idPosition,
+                qPrintable(dialog + QStringLiteral(" must be owned by a Loader")));
+            const QString loader = mainWindow.mid(
+                loaderStart, loaderEnd - loaderStart);
+            QVERIFY2(loader.contains(QStringLiteral("active: false"))
+                    && loader.contains(dialog + QStringLiteral(".qml")),
+                qPrintable(dialog + QStringLiteral(" must start inactive")));
+            const QRegularExpression eagerDeclaration(
+                QStringLiteral(R"(\b%1\s*\{)").arg(dialog));
+            QVERIFY2(!eagerDeclaration.match(mainWindow).hasMatch(),
+                qPrintable(dialog + QStringLiteral(" must not be created by the first shell")));
+        }
+        QVERIFY(mainWindow.contains(QStringLiteral("AppErrorDialog {"))
+            && mainWindow.contains(QStringLiteral(
+                "errorDialog.show(app.status.message)")));
+    }
+
+    void bootstrapHandoffMirrorsBalancedNativeBrandFrameBeforeFading()
+    {
+        const QString path = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))
+            .filePath(QStringLiteral("Main.qml"));
+        const QString content = source(path);
+        QVERIFY2(!content.isEmpty(), qPrintable(path));
+
+        QVERIFY(content.contains(QStringLiteral(
+            "property bool bootstrapHandoffPending: bootstrapHandoffRequested")));
+        QVERIFY(content.contains(QStringLiteral(
+            "property bool bootstrapHandoffReady: false")));
+        QVERIFY(content.contains(QStringLiteral(
+            "property bool bootstrapHandoffTransitionVisible: bootstrapHandoffRequested")));
+        QVERIFY(content.contains(QStringLiteral(
+            "opacity: bootstrapHandoffPending ? 0.0 : 1.0")));
+        QVERIFY(content.contains(QStringLiteral(
+            "active: window.bootstrapHandoffTransitionVisible")));
+        QCOMPARE(content.count(QStringLiteral("sourceComponent:")), 1);
+        QVERIFY(content.contains(QStringLiteral(
+            "objectName: \"bootstrapHandoffTransition\"")));
+        QVERIFY(content.contains(QStringLiteral("color: \"#080D17\"")));
+        QVERIFY(content.contains(QStringLiteral(
+            "\"qrc:/qt/qml/Yanami/Ui/qml/assets/yanami-logo.png\")")));
+        QVERIFY(content.contains(QStringLiteral(
+            "objectName: \"bootstrapHandoffLogo\"")));
+        QVERIFY(content.contains(QStringLiteral("width: 540")));
+        QVERIFY(content.contains(QStringLiteral("height: 320")));
+        QVERIFY(content.contains(QStringLiteral("x: 214")));
+        QVERIFY(content.contains(QStringLiteral("y: 38")));
+        QVERIFY(content.contains(QStringLiteral("width: 112")));
+        QVERIFY(content.contains(QStringLiteral("height: 112")));
+        QVERIFY(content.contains(QStringLiteral("mipmap: true")));
+        QVERIFY(content.contains(QStringLiteral("smooth: true")));
+        QVERIFY(content.contains(QStringLiteral(
+            "border.color: \"#1B2534\"")));
+        QVERIFY(content.contains(QStringLiteral(
+            "objectName: \"bootstrapHandoffTitle\"")));
+        QVERIFY(content.contains(QStringLiteral(
+            "objectName: \"bootstrapHandoffStatus\"")));
+        QVERIFY(content.contains(QStringLiteral("text: \"Yanami\"")));
+        QVERIFY(content.contains(QStringLiteral(
+            "text: qsTr(\"Starting Yanami…\")")));
+        QVERIFY(content.contains(QStringLiteral(
+            "color: \"#F5F7FA\"")));
+        QVERIFY(content.contains(QStringLiteral(
+            "color: \"#9AA3B2\"")));
+        QVERIFY(content.contains(QStringLiteral(
+            "renderType: Text.NativeRendering")));
+        QVERIFY(content.contains(QStringLiteral("font.pixelSize: 30")));
+        QVERIFY(content.contains(QStringLiteral("font.pixelSize: 16")));
+        QVERIFY(content.contains(QStringLiteral(
+            "font.weight: Font.DemiBold")));
+        QVERIFY2(!content.contains(QStringLiteral(
+            "objectName: \"bootstrapHandoffSpinner\"")),
+            "QML must not restart the native spinner with a mismatched phase");
+        QVERIFY2(!content.contains(QStringLiteral(
+            "SequentialAnimation on scale")),
+            "the handoff logo must remain on exact device-pixel boundaries");
+        QVERIFY(content.contains(QStringLiteral("interval: 200")));
+        QVERIFY(content.contains(QStringLiteral(
+            "running: window.bootstrapHandoffReady")));
+        QVERIFY(content.contains(QStringLiteral("duration: 180")));
+        QVERIFY(content.contains(QStringLiteral(
+            "window.bootstrapHandoffTransitionVisible = false")));
+    }
+
+    void inactivePagesUseUrlLoaders()
+    {
+        const QString path = QDir(QStringLiteral(YANAMI_QML_SOURCE_DIR))
+            .filePath(QStringLiteral("Main.qml"));
+        const QString content = source(path);
+        QVERIFY2(!content.isEmpty(), qPrintable(path));
+
+        const QStringList pageTypes {
+            QStringLiteral("SearchPage"),
+            QStringLiteral("PlayerPage"),
+            QStringLiteral("SettingsPage"),
+            QStringLiteral("FavoritesPage"),
+            QStringLiteral("AboutPage"),
+        };
+        for (const QString &pageType : pageTypes) {
+            const QString pageSource = QStringLiteral("pages/")
+                + pageType + QStringLiteral(".qml");
+            const qsizetype sourcePosition = content.indexOf(pageSource);
+            const qsizetype loaderStart = content.lastIndexOf(
+                QStringLiteral("Loader {"), sourcePosition);
+            QVERIFY2(sourcePosition >= 0,
+                qPrintable(pageType + QStringLiteral(" must have a URL loader")));
+            QVERIFY(loaderStart >= 0);
+            const QString loader = content.mid(
+                loaderStart, sourcePosition - loaderStart);
+            QVERIFY2(!loader.contains(QStringLiteral("sourceComponent:")),
+                qPrintable(pageType
+                    + QStringLiteral(" must defer type parsing through a URL")));
+            const QRegularExpression eagerDeclaration(
+                QStringLiteral(R"(\b%1\s*\{)").arg(pageType));
+            QVERIFY2(!eagerDeclaration.match(content).hasMatch(),
+                qPrintable(pageType + QStringLiteral(" must not resolve in the first shell")));
+        }
+        QVERIFY(content.contains(QStringLiteral(
+            "readonly property var playerPage: playerLoader.item")));
     }
 
     void homeLandingRailsPassVerticalWheelToThePage()
@@ -790,7 +949,9 @@ private slots:
             && settings.contains(QStringLiteral(
                 "? Theme.accent : \"#52FF6687\"")));
         QVERIFY(mainWindow.contains(QStringLiteral(
-            "pageActive: window.currentPage === 3"))
+            "item.pageActive = Qt.binding"))
+            && mainWindow.contains(QStringLiteral(
+                "return window.currentPage === 3"))
             && mainWindow.contains(QStringLiteral(
                 "InputModality.controllerInputTestActive")));
         QVERIFY(inputTestScope.contains(QStringLiteral(

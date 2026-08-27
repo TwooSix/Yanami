@@ -18,7 +18,7 @@ use std::{
 };
 
 use serde::{Serialize, de::DeserializeOwned};
-use yanami_application::{ApplicationError, ApplicationErrorCode};
+use yanami_application::{ApplicationError, ApplicationErrorCode, ApplicationOpenOptions};
 
 use crate::{
     backend::YanamiBackend,
@@ -36,11 +36,32 @@ pub extern "C" fn yanami_backend_abi_version() -> u32 {
     BACKEND_ABI_VERSION
 }
 
+/// Additive options for `yanami_backend_new_with_options`.
+///
+/// Callers must initialize `struct_size` to `sizeof(YanamiBackendOptions)`
+/// and use either 0 or 1 for `isolated_credentials`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct YanamiBackendOptions {
+    pub struct_size: u32,
+    pub isolated_credentials: u32,
+}
+
+impl Default for YanamiBackendOptions {
+    fn default() -> Self {
+        Self {
+            struct_size: std::mem::size_of::<Self>() as u32,
+            isolated_credentials: 0,
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 /// Cancels in-flight work so the Qt shell can join native workers promptly.
 ///
 /// # Safety
-/// `backend` must be null or a live pointer returned by `yanami_backend_new`.
+/// `backend` must be null or a live pointer returned by either backend creation
+/// function.
 pub unsafe extern "C" fn yanami_backend_cancel_all(backend: *mut YanamiBackend) {
     if let Some(backend) = unsafe { backend.as_ref() } {
         backend.cancel_all();
@@ -75,10 +96,41 @@ pub unsafe extern "C" fn yanami_backend_new(
 }
 
 #[unsafe(no_mangle)]
+/// Creates the application backend with explicit storage options.
+///
+/// # Safety
+/// `data_dir` must be valid NUL-terminated UTF-8. `options` must point to a
+/// readable `YanamiBackendOptions`. `error` must be null or writable.
+pub unsafe extern "C" fn yanami_backend_new_with_options(
+    data_dir: *const c_char,
+    options: *const YanamiBackendOptions,
+    error: *mut *mut c_char,
+) -> *mut YanamiBackend {
+    unsafe { clear_output(error) };
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let options = unsafe { required_backend_options(options) }?;
+        let data_dir = unsafe { required_string(data_dir, "data directory") }?;
+        YanamiBackend::open_with_options(Path::new(&data_dir), options)
+    }));
+    match result {
+        Ok(Ok(backend)) => Box::into_raw(Box::new(backend)),
+        Ok(Err(application_error)) => {
+            unsafe { set_output(error, &encode_error(&application_error)) };
+            ptr::null_mut()
+        }
+        Err(_) => {
+            unsafe { set_output(error, &panic_error()) };
+            ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 /// Frees a backend after all callers have stopped using it.
 ///
 /// # Safety
-/// `backend` must be null or an unfreed pointer returned by `yanami_backend_new`.
+/// `backend` must be null or an unfreed pointer returned by either backend
+/// creation function.
 pub unsafe extern "C" fn yanami_backend_free(backend: *mut YanamiBackend) {
     if !backend.is_null() {
         drop(unsafe { Box::from_raw(backend) });
@@ -183,6 +235,31 @@ pub(crate) unsafe fn required_string(
         .map_err(|_| ApplicationError::invalid(format!("{label} must be valid UTF-8")))
 }
 
+unsafe fn required_backend_options(
+    options: *const YanamiBackendOptions,
+) -> Result<ApplicationOpenOptions, ApplicationError> {
+    let options = unsafe { options.as_ref() }
+        .ok_or_else(|| ApplicationError::invalid("backend options are required"))?;
+    let expected_size = std::mem::size_of::<YanamiBackendOptions>() as u32;
+    if options.struct_size != expected_size {
+        return Err(ApplicationError::invalid(format!(
+            "backend options size must be {expected_size} bytes"
+        )));
+    }
+    let isolated_credentials = match options.isolated_credentials {
+        0 => false,
+        1 => true,
+        _ => {
+            return Err(ApplicationError::invalid(
+                "isolated_credentials must be 0 or 1",
+            ));
+        }
+    };
+    Ok(ApplicationOpenOptions {
+        isolated_credentials,
+    })
+}
+
 pub(crate) unsafe fn parse_json<T: DeserializeOwned>(
     value: *const c_char,
     label: &str,
@@ -247,6 +324,15 @@ mod tests {
     }
 
     #[test]
+    fn backend_options_have_a_stable_c_layout() {
+        assert_eq!(std::mem::size_of::<YanamiBackendOptions>(), 8);
+        assert_eq!(std::mem::align_of::<YanamiBackendOptions>(), 4);
+        let options = YanamiBackendOptions::default();
+        assert_eq!(options.struct_size, 8);
+        assert_eq!(options.isolated_credentials, 0);
+    }
+
+    #[test]
     fn backend_accepts_a_utf8_non_ascii_data_directory() {
         let temporary = tempfile::tempdir().unwrap();
         let data_dir = temporary.path().join("数据");
@@ -266,6 +352,65 @@ mod tests {
         assert!(!backend.is_null());
         assert!(error.is_null());
         unsafe { yanami_backend_free(backend) };
+    }
+
+    #[test]
+    fn backend_options_create_an_isolated_backend_without_changing_the_legacy_entrypoint() {
+        let temporary = tempfile::tempdir().unwrap();
+        let data_dir = CString::new(temporary.path().to_string_lossy().as_bytes()).unwrap();
+        let options = YanamiBackendOptions {
+            isolated_credentials: 1,
+            ..YanamiBackendOptions::default()
+        };
+        let mut error = ptr::null_mut();
+
+        let backend = unsafe {
+            yanami_backend_new_with_options(
+                data_dir.as_ptr(),
+                std::ptr::addr_of!(options),
+                std::ptr::addr_of_mut!(error),
+            )
+        };
+
+        assert!(!backend.is_null());
+        assert!(error.is_null());
+        unsafe { yanami_backend_free(backend) };
+    }
+
+    #[test]
+    fn backend_options_reject_missing_or_invalid_values() {
+        let temporary = tempfile::tempdir().unwrap();
+        let data_dir = CString::new(temporary.path().to_string_lossy().as_bytes()).unwrap();
+        let missing: *const YanamiBackendOptions = ptr::null();
+        let wrong_size = YanamiBackendOptions {
+            struct_size: 0,
+            isolated_credentials: 0,
+        };
+        let invalid_flag = YanamiBackendOptions {
+            isolated_credentials: 2,
+            ..YanamiBackendOptions::default()
+        };
+
+        for options in [
+            missing,
+            std::ptr::addr_of!(wrong_size),
+            std::ptr::addr_of!(invalid_flag),
+        ] {
+            let mut error = ptr::null_mut();
+            let backend = unsafe {
+                yanami_backend_new_with_options(
+                    data_dir.as_ptr(),
+                    options,
+                    std::ptr::addr_of_mut!(error),
+                )
+            };
+            assert!(backend.is_null());
+            assert!(!error.is_null());
+            let message = unsafe { CStr::from_ptr(error) }.to_str().unwrap();
+            let envelope: serde_json::Value = serde_json::from_str(message).unwrap();
+            assert_eq!(envelope["code"], "invalid_input");
+            unsafe { yanami_string_free(error) };
+        }
     }
 
     #[test]

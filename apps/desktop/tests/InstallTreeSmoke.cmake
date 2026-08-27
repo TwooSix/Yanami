@@ -4,6 +4,7 @@ foreach(required_variable IN ITEMS
         YANAMI_CONFIG
         YANAMI_PLATFORM
         YANAMI_EXECUTABLE_RELATIVE
+        YANAMI_DESKTOP_RELATIVE
         YANAMI_BRIDGE_RELATIVE
         YANAMI_QT_PREFIX
         YANAMI_EXPECTED_VERSION
@@ -56,6 +57,7 @@ set(required_common_files
     SHA256SUMS.txt
     licenses/rust/THIRD_PARTY_LICENSES.html
     "${YANAMI_EXECUTABLE_RELATIVE}"
+    "${YANAMI_DESKTOP_RELATIVE}"
     "${YANAMI_BRIDGE_RELATIVE}")
 foreach(relative_path IN LISTS required_common_files)
     if(NOT EXISTS "${stage_root}/${relative_path}")
@@ -129,6 +131,7 @@ set(runtime_environment
     "QT_QUICK_BACKEND=software"
     "QML_IMPORT_PATH="
     "QML2_IMPORT_PATH="
+    "YANAMI_ISOLATED_PROFILE_ROOT=${data_root}/Profile"
     "YANAMI_DEV_AUTOPLAY_FIRST=1"
     "YANAMI_DEV_SCREENSHOT_PATH=${data_root}/forbidden.png"
     "YANAMI_DEV_LOG_PATH=${data_root}/forbidden.log")
@@ -163,6 +166,25 @@ if(NOT smoke_result EQUAL 0)
     message(STATUS "Install smoke stdout:\n${smoke_stdout}")
     message(STATUS "Install smoke stderr:\n${smoke_stderr}")
     message(FATAL_ERROR "Installed runtime smoke failed: ${smoke_result}")
+endif()
+
+# The desktop executable intentionally has no static libmpv import, so the
+# ordinary root-QML smoke cannot prove that packaging retained the on-demand
+# player and its transitive FFmpeg/runtime closure. Exercise the production
+# loader explicitly from the isolated install tree.
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env ${runtime_environment}
+        "${executable}" --mpv-runtime-smoke-test
+    WORKING_DIRECTORY "${executable_directory}"
+    RESULT_VARIABLE mpv_smoke_result
+    OUTPUT_VARIABLE mpv_smoke_stdout
+    ERROR_VARIABLE mpv_smoke_stderr
+    TIMEOUT 45)
+if(NOT mpv_smoke_result EQUAL 0)
+    message(STATUS "Install mpv smoke stdout:\n${mpv_smoke_stdout}")
+    message(STATUS "Install mpv smoke stderr:\n${mpv_smoke_stderr}")
+    message(FATAL_ERROR
+        "Installed on-demand libmpv runtime smoke failed: ${mpv_smoke_result}")
 endif()
 if(EXISTS "${data_root}/forbidden.png" OR EXISTS "${data_root}/forbidden.log")
     message(FATAL_ERROR "Production install honored a forbidden development hook")

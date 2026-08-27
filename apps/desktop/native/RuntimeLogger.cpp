@@ -1,5 +1,7 @@
 #include "RuntimeLogger.hpp"
 
+#include "ApplicationPaths.hpp"
+
 #include "DevelopmentHooks.hpp"
 
 #include <QCoreApplication>
@@ -13,7 +15,6 @@
 #include <QMutexLocker>
 #include <QRegularExpression>
 #include <QSaveFile>
-#include <QStandardPaths>
 #include <QThread>
 #include <QUrl>
 #include <QtLogging>
@@ -196,11 +197,9 @@ QString resolvedLogPath()
     if (!overridePath.isEmpty()) {
         requestedPath = QFileInfo(overridePath).absoluteFilePath();
     } else {
-        const QString dataLocation =
-            QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-        if (dataLocation.isEmpty())
+        requestedPath = ApplicationPaths::logFilePath();
+        if (requestedPath.isEmpty())
             return {};
-        requestedPath = QDir(dataLocation).absoluteFilePath(QStringLiteral("logs/yanami.log"));
     }
 
     const QFileInfo requestedFile(requestedPath);

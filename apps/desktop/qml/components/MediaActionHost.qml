@@ -15,11 +15,14 @@ Item {
         target: app.mediaActions
 
         function onMetadataRefreshed(itemId, result) {
-            host.refreshMetadataDialog.submitSucceeded(itemId)
+            if (host.refreshMetadataDialog)
+                host.refreshMetadataDialog.submitSucceeded(itemId)
         }
         function onRemovedFromPlaylist(itemId, result) {
-            host.homePage.playlistEntryRemoved(
-                result.removedPlaylistEntryId || "")
+            if (host.homePage) {
+                host.homePage.playlistEntryRemoved(
+                    result.removedPlaylistEntryId || "")
+            }
             host.hostWindow.showActionToast(
                 qsTr("Removed from playlist"), "success")
         }
@@ -29,8 +32,11 @@ Item {
         }
 
         function onMetadataRefreshFailed(itemId, message, nonModal) {
+            const handled = host.refreshMetadataDialog
+                ? host.refreshMetadataDialog.submitFailed(itemId, message)
+                : false
             host.hostWindow.reportMediaActionFailure(message, nonModal,
-                host.refreshMetadataDialog.submitFailed(itemId, message))
+                handled)
         }
         function onRemoveFromPlaylistFailed(itemId, message, nonModal) {
             host.hostWindow.reportMediaActionFailure(message, nonModal, false)

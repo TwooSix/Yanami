@@ -41,7 +41,9 @@ CatalogUserCapabilities catalogCapabilities(
 
 struct DesktopBackendServices::Impl
 {
-    Impl();
+    Impl(
+        const QString &dataDirectory = {},
+        bool isolatedCredentials = false);
     ~Impl();
 
     Impl(const Impl &) = delete;
@@ -50,7 +52,9 @@ struct DesktopBackendServices::Impl
     BackendPortSet portSet() const;
 
 private:
-    void initialize();
+    void initialize(
+        const QString &dataDirectory,
+        bool isolatedCredentials);
     void constructCoordinators();
     void connectSessionLifecycle();
     void fenceFeatures();
@@ -84,9 +88,11 @@ private:
     bool shuttingDown = false;
 };
 
-DesktopBackendServices::Impl::Impl()
+DesktopBackendServices::Impl::Impl(
+    const QString &dataDirectory,
+    bool isolatedCredentials)
 {
-    initialize();
+    initialize(dataDirectory, isolatedCredentials);
 }
 
 DesktopBackendServices::Impl::~Impl()
@@ -94,12 +100,14 @@ DesktopBackendServices::Impl::~Impl()
     shutdown();
 }
 
-void DesktopBackendServices::Impl::initialize()
+void DesktopBackendServices::Impl::initialize(
+    const QString &dataDirectory,
+    bool isolatedCredentials)
 {
     status = std::make_unique<ApplicationStatusService>(runtimeHost);
 
     const RuntimeInitializationResult runtimeResult =
-        runtimeHost.initialize();
+        runtimeHost.initialize({}, dataDirectory, isolatedCredentials);
     if (runtimeResult.ready) {
         status->publishStatus({}, false);
     } else {
@@ -392,6 +400,17 @@ BackendPortSet DesktopBackendServices::Impl::portSet() const
 DesktopBackendServices::DesktopBackendServices(QObject *parent)
     : QObject(parent)
     , m_impl(std::make_unique<Impl>())
+{
+}
+
+DesktopBackendServices::DesktopBackendServices(
+    const QString &dataDirectory,
+    bool isolatedCredentials,
+    QObject *parent)
+    : QObject(parent)
+    , m_impl(std::make_unique<Impl>(
+          dataDirectory,
+          isolatedCredentials))
 {
 }
 

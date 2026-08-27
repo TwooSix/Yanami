@@ -46,7 +46,7 @@
 
 1. 从 [Releases](https://github.com/TwooSix/Yanami/releases) 下载 Windows ZIP。
 
-2. 解压 ZIP，打开解压后的目录并运行 `bin\yanami-desktop.exe`。
+2. 解压 ZIP，打开解压后的目录并运行 `bin\Yanami.exe`。
 
 ### Linux（实验性支持，尚未实测）
 
@@ -138,7 +138,7 @@ cmake -S apps/desktop -B build/desktop-linux -G Ninja \
   -DCMAKE_PREFIX_PATH="$YANAMI_QT_ROOT" \
   -DBUILD_TESTING=OFF
 cmake --build build/desktop-linux --parallel
-./build/desktop-linux/yanami-desktop
+./build/desktop-linux/yanami
 ```
 
 ### macOS（实验性支持，尚未实测）

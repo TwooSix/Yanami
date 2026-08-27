@@ -2,7 +2,7 @@
 Type=Application
 Name=Yanami
 Comment=A modern Emby desktop client with danmaku support
-Exec=yanami-desktop
+Exec=yanami
 Icon=io.github.TwooSix.Yanami
 Terminal=false
 Categories=AudioVideo;Video;Player;

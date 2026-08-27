@@ -225,7 +225,13 @@ Item {
     MpvVideoItem {
         id: player
         anchors.fill: parent
-        Component.onCompleted: app.playback.attachPlayer(player)
+        Component.onCompleted: {
+            app.playback.attachPlayer(player)
+            if (!player.backendAvailable) {
+                playerStatusToast.show(
+                    player.initializationError, "error", 8000)
+            }
+        }
         onPlaybackError: message => {
             // closePlayback() clears identity before the Loader is destroyed;
             // discard any libmpv event already queued for that closed load.

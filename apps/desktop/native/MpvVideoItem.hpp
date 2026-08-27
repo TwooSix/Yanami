@@ -45,6 +45,8 @@ class MpvVideoItem : public QQuickFramebufferObject
     Q_PROPERTY(bool upscalingConfigurationPending
             READ upscalingConfigurationPending
             NOTIFY upscalingConfigurationPendingChanged)
+    Q_PROPERTY(bool backendAvailable READ backendAvailable CONSTANT)
+    Q_PROPERTY(QString initializationError READ initializationError CONSTANT)
 
 public:
     enum class PlaybackState {
@@ -85,6 +87,8 @@ public:
     { return m_effectiveUpscalingProfile; }
     bool upscalingConfigurationPending() const
     { return m_pendingUpscalingConfiguration != nullptr; }
+    bool backendAvailable() const { return m_mpv != nullptr; }
+    QString initializationError() const { return m_initializationError; }
 
     Q_INVOKABLE void open(const QUrl &url, const QVariantMap &headers = {});
     Q_INVOKABLE void openWithUpscaling(
@@ -207,6 +211,7 @@ private:
 
     std::shared_ptr<mpv_handle> m_mpvOwner;
     mpv_handle *m_mpv = nullptr;
+    QString m_initializationError;
     std::shared_ptr<MpvRenderState> m_renderState;
     QString m_upscalingAssetRoot;
     std::atomic_bool m_eventDrainQueued{false};

@@ -55,6 +55,16 @@ use session::ActiveSession;
 
 type MediaCatalogCache = Arc<Mutex<Option<(CatalogScope, Arc<MediaCatalog>)>>>;
 
+/// Process-local storage choices used while opening the application backend.
+///
+/// The default keeps production credentials in the platform credential
+/// service. Isolated launch environments can opt into an in-memory vault so
+/// experiments cannot observe, change, or delete the user's real credentials.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ApplicationOpenOptions {
+    pub isolated_credentials: bool,
+}
+
 pub(crate) enum BackgroundTaskScope {
     Global,
     Catalog { session_key: String },

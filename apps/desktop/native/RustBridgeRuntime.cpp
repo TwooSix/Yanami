@@ -48,6 +48,8 @@ bool RustBridgeRuntime::load(
     }
 
     m_new = resolve<BackendNew>("yanami_backend_new");
+    m_newWithOptions = resolve<BackendNewWithOptions>(
+        "yanami_backend_new_with_options");
     m_free = resolve<BackendFree>("yanami_backend_free");
     m_cancelAll = resolve<BackendCancelAll>("yanami_backend_cancel_all");
     m_stringFree = resolve<StringFree>("yanami_string_free");
@@ -115,7 +117,8 @@ bool RustBridgeRuntime::load(
     m_reportPlayback = resolve<ReportPlaybackJson>(
         "yanami_backend_report_playback_json");
 
-    const bool complete = m_new && m_free && m_cancelAll && m_stringFree
+    const bool complete = m_new && m_newWithOptions
+        && m_free && m_cancelAll && m_stringFree
         && m_dandanplayCredentialSource && m_embyConnected
         && m_configureDandanplay && m_clearDandanplay && m_loginEmby
         && m_logoutEmby && m_embySettings && m_refreshProgress
@@ -138,7 +141,9 @@ bool RustBridgeRuntime::load(
     return true;
 }
 
-YanamiStatusResult RustBridgeRuntime::open(const QString &dataDirectory)
+YanamiStatusResult RustBridgeRuntime::open(
+    const QString &dataDirectory,
+    bool isolatedCredentials)
 {
     YanamiStatusResult result;
     if (m_backend) {
@@ -153,7 +158,16 @@ YanamiStatusResult RustBridgeRuntime::open(const QString &dataDirectory)
     }
     char *error = nullptr;
     const QByteArray encodedPath = dataDirectory.toUtf8();
-    m_backend = m_new(encodedPath.constData(), &error);
+    if (isolatedCredentials) {
+        const BackendOptions options {
+            .structSize = sizeof(BackendOptions),
+            .isolatedCredentials = 1,
+        };
+        m_backend = m_newWithOptions(
+            encodedPath.constData(), &options, &error);
+    } else {
+        m_backend = m_new(encodedPath.constData(), &error);
+    }
     if (m_backend) {
         result.value = 1;
         return result;
@@ -181,6 +195,7 @@ void RustBridgeRuntime::close()
 void RustBridgeRuntime::resetResolvedSymbols()
 {
     m_new = nullptr;
+    m_newWithOptions = nullptr;
     m_free = nullptr;
     m_cancelAll = nullptr;
     m_stringFree = nullptr;

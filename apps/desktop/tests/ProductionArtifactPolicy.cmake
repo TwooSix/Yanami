@@ -48,6 +48,7 @@ endif()
 set(required_bridge_symbols
     yanami_backend_abi_version
     yanami_backend_new
+    yanami_backend_new_with_options
     yanami_backend_free
     yanami_backend_cancel_all
     yanami_string_free
