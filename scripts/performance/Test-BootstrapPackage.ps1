@@ -99,7 +99,20 @@ $gateResult = @($gateOutput | Where-Object {
 if ($gateResult.Count -eq 1) { $gateResult = $gateResult[0] } else { $gateResult = $null }
 if (-not $gateResult -or [string]$gateResult.status -ne "pass") {
     $observedStatus = if ($gateResult) { [string]$gateResult.status } else { "missing" }
-    throw "Bootstrap startup performance smoke failed with status '$observedStatus'."
+    $reasonLines = @(
+        if ($gateResult) {
+            @($gateResult.reasons) | ForEach-Object {
+                $reason = ([string]$_).Trim()
+                if ($reason) { "- $reason" }
+            }
+        }
+    )
+    $reasonSuffix = if ($reasonLines.Count -gt 0) {
+        "`nReasons:`n" + ($reasonLines -join "`n")
+    } else {
+        ""
+    }
+    throw "Bootstrap startup performance smoke failed with status '$observedStatus'.$reasonSuffix"
 }
 $performanceResultPath = Join-Path $runtimeOutput "performance-result.json"
 $performanceResult = Get-Content -LiteralPath $performanceResultPath -Raw -Encoding UTF8 |
