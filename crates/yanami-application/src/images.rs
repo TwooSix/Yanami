@@ -457,9 +457,7 @@ impl Application {
                             Err(_) => break,
                         }
                     }
-                    if !cache_path.is_file()
-                        && let Some(bytes) = downloaded
-                    {
+                    if let Some(bytes) = downloaded.filter(|_| !cache_path.is_file()) {
                         let extension = cache_path
                             .extension()
                             .and_then(|value| value.to_str())
