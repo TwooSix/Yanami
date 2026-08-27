@@ -11,6 +11,7 @@
 #ifdef Q_OS_WIN
 #include <cstdlib>
 #include <string>
+#include <qt_windows.h>
 #endif
 
 namespace {
@@ -29,11 +30,30 @@ bool setEnvironmentVariable(const char *name, const QString &value)
     const std::wstring variableName =
         QString::fromLatin1(name).toStdWString();
     const std::wstring nativeValue = value.toStdWString();
-    return ::_wputenv_s(variableName.c_str(), nativeValue.c_str()) == 0;
+    const bool operatingSystemUpdated = ::SetEnvironmentVariableW(
+        variableName.c_str(), nativeValue.c_str()) != FALSE;
+    const bool runtimeUpdated =
+        ::_wputenv_s(variableName.c_str(), nativeValue.c_str()) == 0;
+    return operatingSystemUpdated && runtimeUpdated;
 #else
     return qputenv(name, QFile::encodeName(value));
 #endif
 }
+
+#ifdef Q_OS_WIN
+QString nativeEnvironmentVariable(const wchar_t *name)
+{
+    const DWORD requiredSize = ::GetEnvironmentVariableW(name, nullptr, 0);
+    if (requiredSize == 0)
+        return {};
+    std::wstring value(requiredSize, L'\0');
+    const DWORD written = ::GetEnvironmentVariableW(
+        name, value.data(), requiredSize);
+    if (written == 0 || written >= requiredSize)
+        return {};
+    return QString::fromWCharArray(value.data(), static_cast<qsizetype>(written));
+}
+#endif
 
 } // namespace
 
@@ -77,6 +97,11 @@ private slots:
             qEnvironmentVariable(
                 ApplicationPaths::isolatedProfileEnvironment),
             profileRoot);
+#ifdef Q_OS_WIN
+        QCOMPARE(
+            nativeEnvironmentVariable(L"YANAMI_ISOLATED_PROFILE_ROOT"),
+            profileRoot);
+#endif
 
         QCoreApplication::setApplicationName(
             QStringLiteral("YanamiApplicationPathsTests"));
@@ -97,9 +122,19 @@ private slots:
         QVERIFY(isWithin(
             configured.profileRoot,
             ApplicationPaths::logFilePath()));
+        const QString isolatedTemporaryPath = temporary.filePath(
+            QStringLiteral("cold-profile-全新/temp"));
+#ifdef Q_OS_WIN
+        QCOMPARE(qEnvironmentVariable("TEMP"), isolatedTemporaryPath);
+        QCOMPARE(qEnvironmentVariable("TMP"), isolatedTemporaryPath);
         QCOMPARE(
-            qEnvironmentVariable("TEMP"),
-            temporary.filePath(QStringLiteral("cold-profile-全新/temp")));
+            nativeEnvironmentVariable(L"TEMP"),
+            isolatedTemporaryPath);
+        QCOMPARE(nativeEnvironmentVariable(L"TMP"), isolatedTemporaryPath);
+#else
+        QCOMPARE(qEnvironmentVariable("TMPDIR"), isolatedTemporaryPath);
+#endif
+        QCOMPARE(QDir::tempPath(), isolatedTemporaryPath);
 
         QCOMPARE(QSettings::defaultFormat(), QSettings::IniFormat);
         QSettings settings;

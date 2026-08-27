@@ -10,6 +10,7 @@
 #ifdef Q_OS_WIN
 #include <cstdlib>
 #include <string>
+#include <qt_windows.h>
 #endif
 
 namespace ApplicationPaths {
@@ -51,9 +52,13 @@ bool setEnvironmentPath(const char *name, const QString &path, QString *error)
     const std::wstring variableName =
         QString::fromLatin1(name).toStdWString();
     const std::wstring nativePath = path.toStdWString();
-    const int nativeError =
+    const BOOL operatingSystemUpdated = ::SetEnvironmentVariableW(
+        variableName.c_str(), nativePath.c_str());
+    const DWORD operatingSystemError = operatingSystemUpdated
+        ? ERROR_SUCCESS : ::GetLastError();
+    const int runtimeError =
         ::_wputenv_s(variableName.c_str(), nativePath.c_str());
-    if (nativeError == 0) {
+    if (operatingSystemUpdated && runtimeError == 0) {
         return true;
     }
 #else
@@ -64,9 +69,10 @@ bool setEnvironmentPath(const char *name, const QString &path, QString *error)
 #ifdef Q_OS_WIN
         *error = QStringLiteral(
                      "Unable to set isolated environment variable %1 "
-                     "(Windows runtime error %2).")
+                     "(Windows error %2, runtime error %3).")
                      .arg(QString::fromLatin1(name),
-                          QString::number(nativeError));
+                          QString::number(operatingSystemError),
+                          QString::number(runtimeError));
 #else
         *error = QStringLiteral("Unable to set isolated environment variable %1.")
                      .arg(QString::fromLatin1(name));
