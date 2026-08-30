@@ -12,6 +12,7 @@ inline constexpr std::chrono::milliseconds spinnerFrameInterval {16};
 inline constexpr int spinnerDegreesPerSecond = 240;
 inline constexpr int spinnerSweepDegrees = 82;
 inline constexpr int spinnerSupersample = 4;
+inline constexpr std::chrono::milliseconds handoffFadeDuration {220};
 inline constexpr std::array<int, 7> splashIconPhysicalSizes {
     112, 140, 168, 196, 224, 252, 256};
 
@@ -30,18 +31,11 @@ struct SplashMetrics {
     int spinnerThickness = 2;
     int titleFontHeight = 30;
     int statusFontHeight = 16;
-    int buttonFontHeight = 15;
     int titleTop = 168;
     int titleBottom = 208;
     int statusTop = 216;
     int statusBottom = 244;
     int horizontalTextMargin = 48;
-    int buttonWidth = 76;
-    int buttonHeight = 30;
-    int buttonRightMargin = 28;
-    int buttonBottomMargin = 24;
-    int buttonCornerRadius = 10;
-    int buttonFocusInset = 4;
 };
 
 [[nodiscard]] constexpr int scaleForDpi(
@@ -73,18 +67,40 @@ struct SplashMetrics {
         std::max(2, scaleForDpi(2, effectiveDpi)),
         scaleForDpi(30, effectiveDpi),
         scaleForDpi(16, effectiveDpi),
-        scaleForDpi(15, effectiveDpi),
         scaleForDpi(168, effectiveDpi),
         scaleForDpi(208, effectiveDpi),
         scaleForDpi(216, effectiveDpi),
         scaleForDpi(244, effectiveDpi),
         scaleForDpi(48, effectiveDpi),
-        scaleForDpi(76, effectiveDpi),
-        scaleForDpi(30, effectiveDpi),
-        scaleForDpi(28, effectiveDpi),
-        scaleForDpi(24, effectiveDpi),
-        scaleForDpi(10, effectiveDpi),
-        scaleForDpi(4, effectiveDpi),
+    };
+}
+
+struct HandoffFadeFrame {
+    std::uint8_t opacity = 255;
+    bool complete = false;
+};
+
+[[nodiscard]] constexpr HandoffFadeFrame handoffFadeFrameAt(
+    std::chrono::milliseconds elapsed) noexcept
+{
+    const auto elapsedMilliseconds = elapsed.count();
+    if (elapsedMilliseconds <= 0)
+        return {};
+
+    const auto durationMilliseconds = handoffFadeDuration.count();
+    if (elapsedMilliseconds >= durationMilliseconds)
+        return {0, true};
+
+    // Match QML's Easing.OutCubic fade. Because opacity moves from one to
+    // zero, the remaining opacity is (1 - progress)^3.
+    const auto remaining = static_cast<std::uint64_t>(
+        durationMilliseconds - elapsedMilliseconds);
+    const auto duration = static_cast<std::uint64_t>(durationMilliseconds);
+    const auto denominator = duration * duration * duration;
+    const auto numerator = 255ULL * remaining * remaining * remaining;
+    return {
+        static_cast<std::uint8_t>((numerator + denominator / 2) / denominator),
+        false,
     };
 }
 

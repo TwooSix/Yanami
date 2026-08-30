@@ -22,6 +22,9 @@ get_filename_component(app_dir "${YANAMI_EXECUTABLE}" DIRECTORY)
 get_filename_component(mpv_name "${YANAMI_MPV_RUNTIME}" NAME)
 get_filename_component(vulkan_name "${YANAMI_VULKAN_RUNTIME}" NAME)
 get_filename_component(sdl3_name "${YANAMI_SDL3_RUNTIME}" NAME)
+if(NOT DEFINED YANAMI_INCLUDE_OFFSCREEN_PLUGIN)
+    set(YANAMI_INCLUDE_OFFSCREEN_PLUGIN OFF)
+endif()
 
 # Limit dependency and ownership scans to files that windeployqt can place in
 # the runnable application tree.  The build root may also contain nested CPack
@@ -85,23 +88,131 @@ file(COPY_FILE
 # without making the built application depend on that developer PATH.
 set(ENV{PATH}
     "${YANAMI_QT_PREFIX}/share/qt6/bin;${YANAMI_QT_PREFIX}/bin;$ENV{PATH}")
-# Keep qwindows for end users and add qoffscreen for package smoke tests on
-# hosted Windows runners. The same offscreen QPA is exercised by the desktop
-# test suite, so the release smoke uses a runner-proven headless path.
+# windeployqt updates files that belong to the requested deployment, but it
+# does not remove plug-ins or libraries left by an earlier, broader deployment.
+# Clean the excluded locations first so incremental and fresh trees agree.
+file(REMOVE_RECURSE
+    "${app_dir}/qmltooling"
+    "${app_dir}/generic")
+if(NOT YANAMI_INCLUDE_OFFSCREEN_PLUGIN)
+    file(REMOVE "${app_dir}/platforms/qoffscreen.dll")
+endif()
+
+set(unused_quick_controls_libraries
+    Qt6QuickControls2FluentWinUI3StyleImpl.dll
+    Qt6QuickControls2Fusion.dll
+    Qt6QuickControls2FusionStyleImpl.dll
+    Qt6QuickControls2Imagine.dll
+    Qt6QuickControls2ImagineStyleImpl.dll
+    Qt6QuickControls2Material.dll
+    Qt6QuickControls2MaterialStyleImpl.dll
+    Qt6QuickControls2Universal.dll
+    Qt6QuickControls2UniversalStyleImpl.dll
+    Qt6QuickControls2WindowsStyleImpl.dll)
+foreach(unused_library IN LISTS unused_quick_controls_libraries)
+    file(REMOVE "${app_dir}/${unused_library}")
+endforeach()
+
+# Production keeps qwindows only. The build tree additionally keeps qoffscreen
+# for headless CTest targets, while install/CPack trees omit it. QML debugging
+# and TUIO plug-ins are not product runtime dependencies.
+set(windeployqt_arguments
+    --release
+    --qmldir "${YANAMI_QML_DIR}"
+    --compiler-runtime
+    --no-translations
+    --skip-plugin-types qmltooling,generic
+    --no-quickcontrols2fluentwinui3styleimpl
+    --no-quickcontrols2fusion
+    --no-quickcontrols2fusionstyleimpl
+    --no-quickcontrols2imagine
+    --no-quickcontrols2imaginestyleimpl
+    --no-quickcontrols2material
+    --no-quickcontrols2materialstyleimpl
+    --no-quickcontrols2universal
+    --no-quickcontrols2universalstyleimpl
+    --no-quickcontrols2windowsstyleimpl
+    --force)
+if(YANAMI_INCLUDE_OFFSCREEN_PLUGIN)
+    list(APPEND windeployqt_arguments --include-plugins qoffscreen)
+endif()
 execute_process(
     COMMAND "${YANAMI_WINDEPLOYQT}"
-        --release
-        --qmldir "${YANAMI_QML_DIR}"
-        --compiler-runtime
-        --no-translations
-        --include-plugins qoffscreen
-        --force
+        ${windeployqt_arguments}
         "${YANAMI_EXECUTABLE}"
     RESULT_VARIABLE deploy_result
     COMMAND_ECHO STDOUT)
 if(NOT deploy_result EQUAL 0)
     message(FATAL_ERROR "windeployqt failed with exit code ${deploy_result}")
 endif()
+
+# main.cpp pins QQuickStyle to Basic before any QML loads. windeployqt still
+# discovers style-selector variants inside QtQuick.Dialogs, so remove every
+# alternative style module before calculating the retained dependency closure.
+foreach(unused_style IN ITEMS
+        FluentWinUI3
+        Fusion
+        Imagine
+        Material
+        Universal
+        Windows)
+    file(REMOVE_RECURSE
+        "${app_dir}/qml/QtQuick/Controls/${unused_style}")
+endforeach()
+file(REMOVE_RECURSE "${app_dir}/qml/QtQuick/NativeStyle")
+foreach(unused_dialog_style IN ITEMS
+        +Fusion
+        +Imagine
+        +Material
+        +Universal)
+    file(REMOVE_RECURSE
+        "${app_dir}/qml/QtQuick/Dialogs/quickimpl/qml/${unused_dialog_style}")
+endforeach()
+foreach(unused_library IN LISTS unused_quick_controls_libraries)
+    file(REMOVE "${app_dir}/${unused_library}")
+endforeach()
+
+set(required_runtimes
+    "${app_dir}/platforms/qwindows.dll"
+    "${app_dir}/qml/QtQuick/Controls/Basic/qmldir"
+    "${app_dir}/qml/QtQuick/Dialogs/qmldir"
+    "${app_dir}/qml/QtQuick/Dialogs/quickimpl/qmldir")
+if(YANAMI_INCLUDE_OFFSCREEN_PLUGIN)
+    list(APPEND required_runtimes
+        "${app_dir}/platforms/qoffscreen.dll")
+endif()
+foreach(required_runtime IN LISTS required_runtimes)
+    if(NOT EXISTS "${required_runtime}")
+        message(FATAL_ERROR
+            "Required production Qt runtime is missing: ${required_runtime}")
+    endif()
+endforeach()
+set(forbidden_runtimes
+    "${app_dir}/qmltooling"
+    "${app_dir}/generic"
+    "${app_dir}/qml/QtQuick/Controls/FluentWinUI3"
+    "${app_dir}/qml/QtQuick/Controls/Fusion"
+    "${app_dir}/qml/QtQuick/Controls/Imagine"
+    "${app_dir}/qml/QtQuick/Controls/Material"
+    "${app_dir}/qml/QtQuick/Controls/Universal"
+    "${app_dir}/qml/QtQuick/Controls/Windows"
+    "${app_dir}/qml/QtQuick/NativeStyle"
+    "${app_dir}/qml/QtQuick/Dialogs/quickimpl/qml/+Fusion"
+    "${app_dir}/qml/QtQuick/Dialogs/quickimpl/qml/+Imagine"
+    "${app_dir}/qml/QtQuick/Dialogs/quickimpl/qml/+Material"
+    "${app_dir}/qml/QtQuick/Dialogs/quickimpl/qml/+Universal")
+foreach(unused_library IN LISTS unused_quick_controls_libraries)
+    list(APPEND forbidden_runtimes "${app_dir}/${unused_library}")
+endforeach()
+if(NOT YANAMI_INCLUDE_OFFSCREEN_PLUGIN)
+    list(APPEND forbidden_runtimes "${app_dir}/platforms/qoffscreen.dll")
+endif()
+foreach(forbidden_runtime IN LISTS forbidden_runtimes)
+    if(EXISTS "${forbidden_runtime}")
+        message(FATAL_ERROR
+            "Development-only Qt runtime leaked into the package: ${forbidden_runtime}")
+    endif()
+endforeach()
 
 # The MSYS2 Qt build keeps its compiled-in prefix even after deployment.
 # Point the standalone application at the adjacent plugin and QML folders.

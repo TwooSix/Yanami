@@ -350,10 +350,39 @@ jobs:
             throw "Package launcher, desktop, or bridge binary is missing."
           }
           $platformDirectory = Join-Path $executable.DirectoryName "platforms"
-          foreach ($platformPlugin in @("qwindows.dll", "qoffscreen.dll")) {
+          foreach ($platformPlugin in @("qwindows.dll")) {
             if (-not (Test-Path -LiteralPath (Join-Path $platformDirectory $platformPlugin) `
                 -PathType Leaf)) {
               throw "Required Windows platform plugin is missing: $platformPlugin"
+            }
+          }
+          foreach ($developmentOnlyPath in @(
+            "platforms\qoffscreen.dll",
+            "qmltooling",
+            "generic",
+            "qml\QtQuick\Controls\FluentWinUI3",
+            "qml\QtQuick\Controls\Fusion",
+            "qml\QtQuick\Controls\Imagine",
+            "qml\QtQuick\Controls\Material",
+            "qml\QtQuick\Controls\Universal",
+            "qml\QtQuick\Controls\Windows",
+            "qml\QtQuick\NativeStyle",
+            "qml\QtQuick\Dialogs\quickimpl\qml\+Fusion",
+            "qml\QtQuick\Dialogs\quickimpl\qml\+Imagine",
+            "qml\QtQuick\Dialogs\quickimpl\qml\+Material",
+            "qml\QtQuick\Dialogs\quickimpl\qml\+Universal",
+            "Qt6QuickControls2FluentWinUI3StyleImpl.dll",
+            "Qt6QuickControls2Fusion.dll",
+            "Qt6QuickControls2FusionStyleImpl.dll",
+            "Qt6QuickControls2Imagine.dll",
+            "Qt6QuickControls2ImagineStyleImpl.dll",
+            "Qt6QuickControls2Material.dll",
+            "Qt6QuickControls2MaterialStyleImpl.dll",
+            "Qt6QuickControls2Universal.dll",
+            "Qt6QuickControls2UniversalStyleImpl.dll",
+            "Qt6QuickControls2WindowsStyleImpl.dll")) {
+            if (Test-Path -LiteralPath (Join-Path $executable.DirectoryName $developmentOnlyPath)) {
+              throw "Development or unused Qt runtime leaked into the package: $developmentOnlyPath"
             }
           }
           $vulkanLoader = Join-Path $executable.DirectoryName "vulkan-1.dll"
@@ -492,10 +521,10 @@ jobs:
             $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
             $env:APPDATA = Join-Path $isolatedData "Roaming"
             $env:LOCALAPPDATA = Join-Path $isolatedData "Local"
-            # Hosted runners do not provide an interactive desktop. The
-            # offscreen path is already exercised by this project's Qt tests;
-            # CI also verifies that qwindows remains in the end-user package.
-            $env:QT_QPA_PLATFORM = "offscreen"
+            # Exercise the same qwindows plug-in that end users receive. Unit
+            # tests cover qoffscreen from the build environment; it is not a
+            # production runtime dependency.
+            $env:QT_QPA_PLATFORM = "windows"
             $env:QT_QUICK_BACKEND = "software"
             $env:YANAMI_DEV_AUTOPLAY_FIRST = "1"
             $env:YANAMI_DEV_SCREENSHOT_PATH = $screenshot

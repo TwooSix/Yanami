@@ -59,6 +59,24 @@ int main()
     expect(YanamiBootstrap::spinnerSupersample >= 4,
            "the native spinner must retain its anti-aliasing quality floor");
 
+    using YanamiBootstrap::handoffFadeFrameAt;
+    const auto fadeInitial = handoffFadeFrameAt(0ms);
+    const auto fadeQuarter = handoffFadeFrameAt(55ms);
+    const auto fadeMidpoint = handoffFadeFrameAt(110ms);
+    const auto fadeLate = handoffFadeFrameAt(165ms);
+    const auto fadeComplete = handoffFadeFrameAt(220ms);
+    expect(fadeInitial.opacity == 255 && !fadeInitial.complete,
+           "the handoff must begin fully opaque");
+    expect(fadeQuarter.opacity > fadeMidpoint.opacity
+               && fadeMidpoint.opacity > fadeLate.opacity,
+           "the handoff opacity must decrease monotonically");
+    expect(fadeMidpoint.opacity == 32,
+           "the handoff fade must match an OutCubic midpoint");
+    expect(fadeComplete.opacity == 0 && fadeComplete.complete,
+           "the handoff must finish at the shared 220 ms boundary");
+    expect(handoffFadeFrameAt(500ms).complete,
+           "elapsed handoff frames must remain complete");
+
     const auto metrics100 = YanamiBootstrap::splashMetricsForDpi(96);
     const auto metrics150 = YanamiBootstrap::splashMetricsForDpi(144);
     const auto metrics200 = YanamiBootstrap::splashMetricsForDpi(192);

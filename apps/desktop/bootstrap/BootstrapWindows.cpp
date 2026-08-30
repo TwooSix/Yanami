@@ -34,14 +34,11 @@ constexpr wchar_t instanceMutexName[] = L"Local\\Yanami.Desktop.Instance.v1";
 constexpr wchar_t desktopExecutableName[] = L"yanami-desktop.exe";
 constexpr wchar_t readyFileName[] = L"desktop-ready.json";
 constexpr UINT_PTR animationTimerId = 1;
-constexpr int cancelButtonId = 1001;
-constexpr auto cancelRevealDelay = 1800ms;
-constexpr auto handoffDuration = 180ms;
 constexpr COLORREF spinnerColor = RGB(91, 149, 255);
 
 struct LauncherText {
     std::wstring windowTitle = L"Yanami is starting";
-    std::wstring cancel = L"Cancel";
+    std::wstring statusFontFamily = L"Segoe UI";
     std::wstring preparing = L"Preparing Yanami\u2026";
     std::wstring starting = L"Starting Yanami\u2026";
     std::wstring cancelling = L"Cancelling safely\u2026";
@@ -89,7 +86,7 @@ LauncherText localizedText(YanamiBootstrap::UiLanguage language)
     if (language != YanamiBootstrap::UiLanguage::SimplifiedChinese)
         return text;
     text.windowTitle = L"Yanami 正在启动";
-    text.cancel = L"取消";
+    text.statusFontFamily = L"Microsoft YaHei UI";
     text.preparing = L"正在准备 Yanami\u2026";
     text.starting = L"正在启动 Yanami\u2026";
     text.cancelling = L"正在安全取消\u2026";
@@ -125,7 +122,6 @@ LauncherText localizedText(YanamiBootstrap::UiLanguage language)
 
 struct SplashState {
     HWND window = nullptr;
-    HWND cancelButton = nullptr;
     HICON icon = nullptr;
     HICON brandIcon = nullptr;
     int brandIconSize = 0;
@@ -137,7 +133,6 @@ struct SplashState {
     HBRUSH spinnerMaskBrush = nullptr;
     HFONT titleFont = nullptr;
     HFONT statusFont = nullptr;
-    HFONT buttonFont = nullptr;
     HDC staticBuffer = nullptr;
     HBITMAP staticBufferBitmap = nullptr;
     HGDIOBJ previousStaticBufferBitmap = nullptr;
@@ -160,7 +155,6 @@ struct SplashState {
     bool cancelRequested = false;
     bool fading = false;
     bool fadeComplete = false;
-    bool cancelButtonShown = false;
     bool staticFrameDirty = true;
     std::uint64_t renderedSpinnerFrame =
         std::numeric_limits<std::uint64_t>::max();
@@ -202,13 +196,7 @@ void initializeDrawingResources(SplashState &state)
         FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_NATURAL_QUALITY,
-        DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-    state.buttonFont = CreateFontW(
-        -state.metrics.buttonFontHeight, 0, 0, 0, FW_NORMAL,
-        FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_NATURAL_QUALITY,
-        DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        DEFAULT_PITCH | FF_DONTCARE, state.text.statusFontFamily.c_str());
 }
 
 void releaseDrawingBuffer(
@@ -239,8 +227,6 @@ void releaseDrawingResources(SplashState &state)
     releaseDrawingBuffer(
         state.spinnerMaskBuffer, state.spinnerMaskBitmap,
         state.previousSpinnerMaskBitmap, state.spinnerMaskPixels);
-    if (state.buttonFont)
-        DeleteObject(state.buttonFont);
     if (state.statusFont)
         DeleteObject(state.statusFont);
     if (state.titleFont)
@@ -831,49 +817,6 @@ void setSplashStatus(SplashState &state, const std::wstring &status)
         InvalidateRect(state.window, nullptr, FALSE);
 }
 
-void drawCancelButton(
-    const DRAWITEMSTRUCT &drawItem, const SplashState &state)
-{
-    const bool disabled = (drawItem.itemState & ODS_DISABLED) != 0;
-    const bool pressed = (drawItem.itemState & ODS_SELECTED) != 0;
-    const COLORREF background = disabled ? RGB(18, 24, 37)
-        : pressed ? RGB(34, 45, 68) : RGB(24, 33, 51);
-    HBRUSH brush = CreateSolidBrush(background);
-    HPEN border = CreatePen(
-        PS_SOLID, state.metrics.borderThickness,
-        disabled ? RGB(42, 51, 70) : RGB(62, 78, 108));
-    HGDIOBJ oldBrush = SelectObject(drawItem.hDC, brush);
-    HGDIOBJ oldPen = SelectObject(drawItem.hDC, border);
-    RoundRect(
-        drawItem.hDC, drawItem.rcItem.left, drawItem.rcItem.top,
-        drawItem.rcItem.right, drawItem.rcItem.bottom,
-        state.metrics.buttonCornerRadius,
-        state.metrics.buttonCornerRadius);
-    SelectObject(drawItem.hDC, oldPen);
-    SelectObject(drawItem.hDC, oldBrush);
-    DeleteObject(border);
-    DeleteObject(brush);
-
-    SetBkMode(drawItem.hDC, TRANSPARENT);
-    SetTextColor(
-        drawItem.hDC, disabled ? RGB(91, 103, 126) : RGB(183, 195, 216));
-    HGDIOBJ oldFont = SelectObject(drawItem.hDC, state.buttonFont);
-    RECT textBounds = drawItem.rcItem;
-    DrawTextW(
-        drawItem.hDC, state.text.cancel.c_str(), -1, &textBounds,
-        DT_CENTER | DT_SINGLELINE | DT_VCENTER);
-    SelectObject(drawItem.hDC, oldFont);
-
-    if ((drawItem.itemState & ODS_FOCUS) != 0 && !disabled) {
-        RECT focusBounds = drawItem.rcItem;
-        InflateRect(
-            &focusBounds,
-            -state.metrics.buttonFocusInset,
-            -state.metrics.buttonFocusInset);
-        DrawFocusRect(drawItem.hDC, &focusBounds);
-    }
-}
-
 unsigned int dpiForWindow(HWND window)
 {
     using GetDpiForWindowFunction = UINT(WINAPI *)(HWND);
@@ -955,16 +898,6 @@ LRESULT CALLBACK splashWindowProcedure(
                 state->brandIconSize = loadedSize->cx;
             }
             initializeDrawingResources(*state);
-            state->cancelButton = CreateWindowExW(
-                0, L"BUTTON", state->text.cancel.c_str(),
-                WS_CHILD | WS_TABSTOP | BS_OWNERDRAW,
-                state->metrics.width - state->metrics.buttonRightMargin
-                    - state->metrics.buttonWidth,
-                state->metrics.height - state->metrics.buttonBottomMargin
-                    - state->metrics.buttonHeight,
-                state->metrics.buttonWidth, state->metrics.buttonHeight,
-                window, reinterpret_cast<HMENU>(cancelButtonId),
-                GetModuleHandleW(nullptr), nullptr);
             SetTimer(
                 window, animationTimerId,
                 static_cast<UINT>(
@@ -972,18 +905,10 @@ LRESULT CALLBACK splashWindowProcedure(
                 nullptr);
         }
         return 0;
-    case WM_COMMAND:
-        if (state && LOWORD(wordParameter) == cancelButtonId) {
-            state->cancelRequested = true;
-            setSplashStatus(*state, state->text.cancelling);
-            EnableWindow(state->cancelButton, FALSE);
-        }
-        return 0;
     case WM_CLOSE:
         if (state) {
             state->cancelRequested = true;
             setSplashStatus(*state, state->text.cancelling);
-            EnableWindow(state->cancelButton, FALSE);
         }
         return 0;
     case WM_TIMER:
@@ -991,24 +916,18 @@ LRESULT CALLBACK splashWindowProcedure(
             return 0;
         {
             const auto now = std::chrono::steady_clock::now();
-            if (!state->cancelButtonShown && !state->fading
-                && now - state->animationEpoch
-                >= cancelRevealDelay) {
-                ShowWindow(state->cancelButton, SW_SHOW);
-                state->cancelButtonShown = true;
-            }
             if (state->fading) {
                 const auto elapsed = now - state->fadeEpoch;
-                if (elapsed >= handoffDuration) {
+                const auto frame = YanamiBootstrap::handoffFadeFrameAt(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        elapsed));
+                if (frame.complete) {
                     state->fadeComplete = true;
                     ShowWindow(window, SW_HIDE);
                     KillTimer(window, animationTimerId);
                 } else {
-                    const auto remaining = handoffDuration - elapsed;
-                    const auto alpha = static_cast<BYTE>(
-                        255 * std::chrono::duration<double>(remaining).count()
-                        / std::chrono::duration<double>(handoffDuration).count());
-                    SetLayeredWindowAttributes(window, 0, alpha, LWA_ALPHA);
+                    SetLayeredWindowAttributes(
+                        window, 0, frame.opacity, LWA_ALPHA);
                 }
             } else {
                 // The logo, text and background live in an immutable memory
@@ -1019,13 +938,6 @@ LRESULT CALLBACK splashWindowProcedure(
             }
         }
         return 0;
-    case WM_DRAWITEM:
-        if (state && wordParameter == cancelButtonId) {
-            drawCancelButton(
-                *reinterpret_cast<DRAWITEMSTRUCT *>(longParameter), *state);
-            return TRUE;
-        }
-        return DefWindowProcW(window, message, wordParameter, longParameter);
     case WM_ERASEBKGND:
         return 1;
     case WM_PAINT:
@@ -1259,7 +1171,6 @@ bool requestSafeCancellation(ChildProcess &child, SplashState &splash)
     if (decision != IDYES) {
         splash.cancelRequested = false;
         setSplashStatus(splash, splash.text.continuing);
-        EnableWindow(splash.cancelButton, TRUE);
         return false;
     }
     TerminateProcess(
@@ -1353,8 +1264,6 @@ int monitorDesktop(
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
                 splash.fading = true;
                 splash.fadeEpoch = std::chrono::steady_clock::now();
-                EnableWindow(splash.cancelButton, FALSE);
-                ShowWindow(splash.cancelButton, SW_HIDE);
             } else {
                 splash.fadeComplete = true;
             }
@@ -1538,7 +1447,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         if (result == -1) {
             setSplashStatus(splash, text.retrying);
             splash.cancelRequested = false;
-            EnableWindow(splash.cancelButton, TRUE);
             continue;
         }
         break;

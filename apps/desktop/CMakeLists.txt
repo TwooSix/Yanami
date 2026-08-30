@@ -608,6 +608,7 @@ if(WIN32)
             "-DYANAMI_VULKAN_RUNTIME=${VULKAN_RUNTIME_DLL}"
             "-DYANAMI_SDL3_RUNTIME=${SDL3_RUNTIME_DLL}"
             "-DYANAMI_PACMAN=${PACMAN_EXECUTABLE}"
+            "-DYANAMI_INCLUDE_OFFSCREEN_PLUGIN=ON"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/DeployWindowsRuntime.cmake"
         DEPENDS yanami-desktop yanami-deploy-rust-bridge
         COMMENT "Deploying the Windows desktop runtime"
@@ -775,6 +776,13 @@ if(BUILD_TESTING)
     add_test(
         NAME yanami-bootstrap-protocol-tests
         COMMAND $<TARGET_FILE:yanami-bootstrap-protocol-tests>
+    )
+
+    add_test(
+        NAME yanami-bootstrap-presentation-policy
+        COMMAND "${CMAKE_COMMAND}"
+            "-DYANAMI_BOOTSTRAP_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/bootstrap"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/BootstrapPresentationPolicy.cmake"
     )
 
     add_test(

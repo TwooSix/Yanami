@@ -132,8 +132,6 @@ struct X11Splash {
     unsigned long purplePixel = 0;
     unsigned long textPixel = 0;
     unsigned long mutedTextPixel = 0;
-    unsigned long buttonPixel = 0;
-    unsigned long buttonTextPixel = 0;
     bool cancelRequested = false;
     std::string status = "Starting desktop services...";
     std::chrono::steady_clock::time_point epoch =
@@ -171,7 +169,7 @@ std::optional<X11Splash> createX11Splash()
     }
     XStoreName(display, window, "Yanami is starting");
     XSelectInput(display, window,
-                 ExposureMask | ButtonPressMask | StructureNotifyMask);
+                 ExposureMask | StructureNotifyMask);
     Atom deleteMessage = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, window, &deleteMessage, 1);
     const long processId = static_cast<long>(getpid());
@@ -194,8 +192,6 @@ std::optional<X11Splash> createX11Splash()
     splash.purplePixel = colorPixel(display, colormap, "#b25cff");
     splash.textPixel = colorPixel(display, colormap, "#eff5ff");
     splash.mutedTextPixel = colorPixel(display, colormap, "#97a6c2");
-    splash.buttonPixel = colorPixel(display, colormap, "#202a40");
-    splash.buttonTextPixel = colorPixel(display, colormap, "#b7c3d8");
     return splash;
 }
 
@@ -237,11 +233,6 @@ void drawX11Splash(X11Splash &splash)
                 statusX, 245, splash.status.c_str(),
                 static_cast<int>(splash.status.size()));
 
-    XSetForeground(display, splash.graphics, splash.buttonPixel);
-    XFillRectangle(display, splash.window, splash.graphics, 438, 276, 76, 28);
-    XSetForeground(display, splash.graphics, splash.buttonTextPixel);
-    XDrawString(display, splash.window, splash.graphics,
-                457, 295, "Cancel", 6);
     XFlush(display);
 }
 
@@ -253,9 +244,6 @@ void pumpX11(X11Splash &splash)
         if (event.type == ClientMessage
             && static_cast<Atom>(event.xclient.data.l[0])
                 == splash.deleteMessage) {
-            splash.cancelRequested = true;
-        } else if (event.type == ButtonPress
-                   && event.xbutton.x >= 430 && event.xbutton.y >= 268) {
             splash.cancelRequested = true;
         }
     }
@@ -320,16 +308,20 @@ void activateDesktopWindow(X11Splash &splash, pid_t child)
 
 void fadeAndClose(X11Splash &splash)
 {
-    constexpr int steps = 12;
-    for (int step = steps; step >= 0; --step) {
+    constexpr int steps = 11;
+    for (int step = 0; step <= steps; ++step) {
+        const double progress = static_cast<double>(step) / steps;
+        const double remaining = 1.0 - progress;
         const unsigned long opacity = static_cast<unsigned long>(
-            0xffffffffULL * static_cast<unsigned long long>(step) / steps);
+            std::llround(0xffffffffULL
+                * remaining * remaining * remaining));
         XChangeProperty(
             splash.display, splash.window, splash.opacityAtom, XA_CARDINAL,
             32, PropModeReplace,
             reinterpret_cast<const unsigned char *>(&opacity), 1);
         XFlush(splash.display);
-        std::this_thread::sleep_for(15ms);
+        if (step < steps)
+            std::this_thread::sleep_for(20ms);
     }
     XUnmapWindow(splash.display, splash.window);
     XFlush(splash.display);
@@ -458,7 +450,7 @@ int main(int argc, char *argv[])
         }
 
         if (!ready && std::chrono::steady_clock::now() >= deadline) {
-            splash->status = "Still starting - click Cancel to stop";
+            splash->status = "Yanami is taking longer than expected...";
             if (options.waitForDesktopExit()) {
                 kill(child, SIGTERM);
                 result = static_cast<int>(YanamiBootstrap::ExitCode::ReadyTimeout);
