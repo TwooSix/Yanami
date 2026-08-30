@@ -1,4 +1,7 @@
 #include <QGuiApplication>
+#ifdef Q_OS_WIN
+#include <QCursor>
+#endif
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEvent>
@@ -11,8 +14,12 @@
 #include <QLoggingCategory>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickStyle>
 #include <QQuickWindow>
 #include <QSaveFile>
+#ifdef Q_OS_WIN
+#include <QScreen>
+#endif
 #include <QSGRendererInterface>
 #include <QSysInfo>
 #include <QTimer>
@@ -233,6 +240,28 @@ bool hasCachedHomeContent(const ApplicationViewModel &viewModel)
             || store->resumeModel()->rowCount() > 0
             || !store->queryItems(QStringLiteral("latestSections")).isEmpty());
 }
+
+#ifdef Q_OS_WIN
+void centerBootstrapWindowOnPointerScreen(QWindow *window)
+{
+    if (!window)
+        return;
+    QScreen *screen = QGuiApplication::screenAt(QCursor::pos());
+    if (!screen)
+        screen = window->screen();
+    if (!screen)
+        screen = QGuiApplication::primaryScreen();
+    if (!screen)
+        return;
+
+    const QRect available = screen->availableGeometry();
+    const QSize size = window->size();
+    window->setPosition({
+        available.x() + (available.width() - size.width()) / 2,
+        available.y() + (available.height() - size.height()) / 2,
+    });
+}
+#endif
 
 QEvent::Type syntheticInteractionProbeEventType()
 {
@@ -578,6 +607,10 @@ int main(int argc, char *argv[])
 
     // libmpv's render API is OpenGL. Keeping Qt on the same graphics API avoids
     // cross-API copies and lets controls and video share one scene graph.
+    // Yanami imports the Basic controls explicitly; pin the global style too
+    // so QtQuick.Dialogs uses the matching Basic fallback instead of loading a
+    // platform-dependent style module that the production package omits.
+    QQuickStyle::setStyle(QStringLiteral("Basic"));
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
     QQuickWindow::setDefaultAlphaBuffer(false);
 
@@ -836,8 +869,13 @@ int main(int argc, char *argv[])
 
     if (!engine.rootObjects().isEmpty()) {
         auto *root = engine.rootObjects().constFirst();
-        if (auto *window = qobject_cast<QWindow *>(root))
+        if (auto *window = qobject_cast<QWindow *>(root)) {
+#ifdef Q_OS_WIN
+            if (bootstrapHandoff.usable())
+                centerBootstrapWindowOnPointerScreen(window);
+#endif
             windowController.configureWindow(window);
+        }
         if (auto *quickWindow = qobject_cast<QQuickWindow *>(root))
             applicationViewModel.upscaling()->observeWindow(quickWindow);
         if (YanamiPerformance::PerformanceTrace::enabled()) {

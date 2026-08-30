@@ -22,6 +22,7 @@ execute_process(
         "-DYANAMI_PACKAGE_ROOT=${installed_root}"
         "-DYANAMI_LICENSE_FALLBACK_ROOT=@YANAMI_WORKSPACE@/licenses/msys2-fallback"
         "-DYANAMI_COLLECT_PACKAGE_LICENSES=${collect_package_licenses}"
+        "-DYANAMI_INCLUDE_OFFSCREEN_PLUGIN=OFF"
         -P "@CMAKE_CURRENT_SOURCE_DIR@/cmake/DeployWindowsRuntime.cmake"
     RESULT_VARIABLE deploy_result
     COMMAND_ECHO STDOUT)

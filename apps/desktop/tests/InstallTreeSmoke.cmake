@@ -99,11 +99,40 @@ get_filename_component(executable_directory "${executable}" DIRECTORY)
 if(YANAMI_PLATFORM STREQUAL "Windows")
     foreach(relative_path IN ITEMS
             bin/platforms/qwindows.dll
-            bin/platforms/qoffscreen.dll
             bin/SDL3.dll
             bin/vulkan-1.dll)
         if(NOT EXISTS "${stage_root}/${relative_path}")
             message(FATAL_ERROR "Windows runtime closure is missing: ${relative_path}")
+        endif()
+    endforeach()
+    foreach(relative_path IN ITEMS
+            bin/platforms/qoffscreen.dll
+            bin/qmltooling
+            bin/generic
+            bin/qml/QtQuick/Controls/FluentWinUI3
+            bin/qml/QtQuick/Controls/Fusion
+            bin/qml/QtQuick/Controls/Imagine
+            bin/qml/QtQuick/Controls/Material
+            bin/qml/QtQuick/Controls/Universal
+            bin/qml/QtQuick/Controls/Windows
+            bin/qml/QtQuick/NativeStyle
+            bin/qml/QtQuick/Dialogs/quickimpl/qml/+Fusion
+            bin/qml/QtQuick/Dialogs/quickimpl/qml/+Imagine
+            bin/qml/QtQuick/Dialogs/quickimpl/qml/+Material
+            bin/qml/QtQuick/Dialogs/quickimpl/qml/+Universal
+            bin/Qt6QuickControls2FluentWinUI3StyleImpl.dll
+            bin/Qt6QuickControls2Fusion.dll
+            bin/Qt6QuickControls2FusionStyleImpl.dll
+            bin/Qt6QuickControls2Imagine.dll
+            bin/Qt6QuickControls2ImagineStyleImpl.dll
+            bin/Qt6QuickControls2Material.dll
+            bin/Qt6QuickControls2MaterialStyleImpl.dll
+            bin/Qt6QuickControls2Universal.dll
+            bin/Qt6QuickControls2UniversalStyleImpl.dll
+            bin/Qt6QuickControls2WindowsStyleImpl.dll)
+        if(EXISTS "${stage_root}/${relative_path}")
+            message(FATAL_ERROR
+                "Windows install tree contains a development or unused Qt runtime: ${relative_path}")
         endif()
     endforeach()
     file(GLOB mpv_runtime "${stage_root}/bin/*mpv*.dll")
@@ -137,7 +166,7 @@ set(runtime_environment
     "YANAMI_DEV_LOG_PATH=${data_root}/forbidden.log")
 if(YANAMI_PLATFORM STREQUAL "Windows")
     list(APPEND runtime_environment
-        "QT_QPA_PLATFORM=offscreen"
+        "QT_QPA_PLATFORM=windows"
         "PATH=${executable_directory}"
         "APPDATA=${data_root}/Roaming"
         "LOCALAPPDATA=${data_root}/Local")

@@ -426,10 +426,16 @@ private slots:
             "        bootstrapHandoffTemporaryRoots()"));
         const qsizetype isolatedProfileConfiguration = main.indexOf(
             QStringLiteral("ApplicationPaths::configureFromEnvironment()"));
+        const qsizetype basicStyle = main.indexOf(QStringLiteral(
+            "QQuickStyle::setStyle(QStringLiteral(\"Basic\"))"));
+        const qsizetype applicationConstruction = main.indexOf(
+            QStringLiteral("PerformanceGuiApplication app(argc, argv)"));
         const qsizetype handoffParsing = main.indexOf(QStringLiteral(
             "app.arguments(), bootstrapHandoffTrustedTemporaryRoots"));
         QVERIFY(temporaryRootCapture >= 0);
         QVERIFY(isolatedProfileConfiguration > temporaryRootCapture);
+        QVERIFY(basicStyle > isolatedProfileConfiguration);
+        QVERIFY(applicationConstruction > basicStyle);
         QVERIFY(handoffParsing > isolatedProfileConfiguration);
 
         const qsizetype contextProperty = main.indexOf(QStringLiteral(
@@ -446,6 +452,10 @@ private slots:
 
         const qsizetype handoffState = main.indexOf(QStringLiteral(
             "struct BootstrapHandoffFrameState"));
+        const qsizetype centeredBeforeHandoff = main.indexOf(QStringLiteral(
+            "centerBootstrapWindowOnPointerScreen(window)"), qmlLoad);
+        const qsizetype windowsCenterGuard = main.lastIndexOf(
+            QStringLiteral("#ifdef Q_OS_WIN"), centeredBeforeHandoff);
         const qsizetype transparentGateCleared = main.indexOf(QStringLiteral(
             "\"bootstrapHandoffPending\", false"), handoffState);
         const qsizetype secondFrameRequested = main.indexOf(QStringLiteral(
@@ -463,6 +473,12 @@ private slots:
             "QStringLiteral(\"desktop_ready_file_committed\")"),
             qmlRelease);
         QVERIFY(handoffState >= 0);
+        QVERIFY(centeredBeforeHandoff > qmlLoad);
+        QVERIFY(centeredBeforeHandoff < handoffState);
+        QVERIFY(windowsCenterGuard > qmlLoad);
+        QVERIFY(windowsCenterGuard < centeredBeforeHandoff);
+        QVERIFY(main.contains(QStringLiteral(
+            "QGuiApplication::screenAt(QCursor::pos())")));
         QVERIFY(transparentGateCleared > handoffState);
         QVERIFY(secondFrameRequested > transparentGateCleared);
         QVERIFY(secondFrameGuard > secondFrameRequested);

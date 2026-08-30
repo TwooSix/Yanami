@@ -41,6 +41,25 @@ private:
     }
 
 private slots:
+    void quickControlsImportsUseThePackagedBasicStyle()
+    {
+        const QRegularExpression controlsImport(QStringLiteral(
+            R"(^\s*import\s+QtQuick\.Controls(?:\.([A-Za-z0-9_]+))?(?:\s|$))"));
+        for (const QString &path : qmlFiles()) {
+            const QStringList lines = source(path).split(QLatin1Char('\n'));
+            for (int index = 0; index < lines.size(); ++index) {
+                const auto match = controlsImport.match(
+                    withoutLineComment(lines.at(index)));
+                if (!match.hasMatch())
+                    continue;
+                QVERIFY2(match.captured(1) == QStringLiteral("Basic"),
+                    qPrintable(QStringLiteral(
+                        "%1:%2 imports an unpackaged Qt Quick Controls style")
+                        .arg(path).arg(index + 1)));
+            }
+        }
+    }
+
     void customPopupsUseTheSharedBase()
     {
         const QRegularExpression rawPopup(QStringLiteral(R"(\bPopup\s*\{)"));
@@ -647,16 +666,22 @@ private slots:
         QVERIFY(content.contains(QStringLiteral("font.pixelSize: 16")));
         QVERIFY(content.contains(QStringLiteral(
             "font.weight: Font.DemiBold")));
+        QVERIFY(content.contains(QStringLiteral(
+            "? \"Microsoft YaHei UI\" : \"Segoe UI\")")));
         QVERIFY2(!content.contains(QStringLiteral(
             "objectName: \"bootstrapHandoffSpinner\"")),
             "QML must not restart the native spinner with a mismatched phase");
         QVERIFY2(!content.contains(QStringLiteral(
             "SequentialAnimation on scale")),
             "the handoff logo must remain on exact device-pixel boundaries");
-        QVERIFY(content.contains(QStringLiteral("interval: 200")));
+        QVERIFY2(!content.contains(QStringLiteral("id: bootstrapHandoffHold")),
+            "the desktop transition must not wait after the ready frame");
         QVERIFY(content.contains(QStringLiteral(
-            "running: window.bootstrapHandoffReady")));
-        QVERIFY(content.contains(QStringLiteral("duration: 180")));
+            "function onBootstrapHandoffReadyChanged()")));
+        QVERIFY(content.contains(QStringLiteral(
+            "bootstrapHandoffFade.start()")));
+        QVERIFY(content.contains(QStringLiteral("duration: 220")));
+        QVERIFY(content.contains(QStringLiteral("easing.type: Easing.OutCubic")));
         QVERIFY(content.contains(QStringLiteral(
             "window.bootstrapHandoffTransitionVisible = false")));
     }

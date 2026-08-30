@@ -30,20 +30,21 @@ constexpr char readyFileName[] = "desktop-ready.json";
 
 } // namespace
 
-@interface YanamiBootstrapController : NSObject
+@interface YanamiBootstrapController : NSObject <NSApplicationDelegate>
 @property(nonatomic, assign) BOOL cancelRequested;
 @property(nonatomic, strong) NSWindow *window;
 @property(nonatomic, strong) NSTextField *statusLabel;
-@property(nonatomic, strong) NSButton *cancelButton;
-- (void)cancelStartup:(id)sender;
 @end
 
 @implementation YanamiBootstrapController
-- (void)cancelStartup:(id)sender
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender
 {
     (void)sender;
     self.cancelRequested = YES;
     self.statusLabel.stringValue = @"Cancelling safely…";
+    // The polling loop owns child-process cleanup. Cancel AppKit termination
+    // now so Cmd-Q and Dock Quit take the same graceful path as other systems.
+    return NSTerminateCancel;
 }
 @end
 
@@ -186,21 +187,9 @@ YanamiBootstrapController *createSplash()
                                   alpha:1.0];
     [controller.window.contentView addSubview:controller.statusLabel];
 
-    controller.cancelButton = [NSButton buttonWithTitle:@"Cancel"
-                                                  target:controller
-                                                  action:@selector(cancelStartup:)];
-    controller.cancelButton.frame = NSMakeRect(438, 16, 76, 28);
-    controller.cancelButton.bezelStyle = NSBezelStyleInline;
-    controller.cancelButton.contentTintColor =
-        [NSColor colorWithCalibratedRed:183.0 / 255.0
-                                  green:195.0 / 255.0
-                                   blue:216.0 / 255.0
-                                  alpha:1.0];
-    controller.cancelButton.hidden = YES;
-    [controller.window.contentView addSubview:controller.cancelButton];
-
     [controller.window center];
     [controller.window makeKeyAndOrderFront:nil];
+    NSApp.delegate = controller;
     [NSApp activateIgnoringOtherApps:YES];
     return controller;
 }
@@ -296,7 +285,6 @@ int main(int argc, char *argv[])
             static_cast<std::uint64_t>(getpid()));
         trace.mark("bootstrap_entered", false, std::nullopt, "indeterminate");
         YanamiBootstrapController *controller = createSplash();
-        const auto splashEpoch = std::chrono::steady_clock::now();
         trace.mark(
             "bootstrap_first_visible", false, std::nullopt, "indeterminate");
 
@@ -338,10 +326,6 @@ int main(int argc, char *argv[])
         int result = 0;
         while (true) {
             pumpAppKitUntil(std::chrono::steady_clock::now() + 16ms);
-            if (controller.cancelButton.hidden
-                && std::chrono::steady_clock::now() - splashEpoch >= 1800ms) {
-                controller.cancelButton.hidden = NO;
-            }
             if (controller.cancelRequested) {
                 if (cancelChild(child, controller)) {
                     result = static_cast<int>(YanamiBootstrap::ExitCode::Cancelled);
@@ -366,10 +350,12 @@ int main(int argc, char *argv[])
                     [NSRunningApplication runningApplicationWithProcessIdentifier:child];
                 [application activateWithOptions:NSApplicationActivateIgnoringOtherApps];
                 [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
-                    context.duration = 0.18;
+                    context.duration = 0.22;
+                    context.timingFunction = [CAMediaTimingFunction
+                        functionWithName:kCAMediaTimingFunctionEaseOut];
                     controller.window.animator.alphaValue = 0.0;
                 } completionHandler:^{}];
-                pumpAppKitUntil(std::chrono::steady_clock::now() + 180ms);
+                pumpAppKitUntil(std::chrono::steady_clock::now() + 220ms);
                 [controller.window orderOut:nil];
                 handedOff = true;
                 trace.mark("handoff_complete", true,

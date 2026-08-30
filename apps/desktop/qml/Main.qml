@@ -1563,7 +1563,10 @@ ApplicationWindow {
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                         renderType: Text.NativeRendering
-                        font.family: Theme.fontForText(text)
+                        font.family: Qt.platform.os === "windows"
+                            ? (i18n.language === "zh_CN"
+                                ? "Microsoft YaHei UI" : "Segoe UI")
+                            : Theme.fontForText(text)
                         font.pixelSize: 16
                     }
                 }
@@ -1574,11 +1577,13 @@ ApplicationWindow {
                     hoverEnabled: true
                 }
 
-                Timer {
-                    id: bootstrapHandoffHold
-                    interval: 200
-                    running: window.bootstrapHandoffReady
-                    onTriggered: bootstrapHandoffFade.start()
+                Connections {
+                    target: window
+
+                    function onBootstrapHandoffReadyChanged() {
+                        if (window.bootstrapHandoffReady)
+                            bootstrapHandoffFade.start()
+                    }
                 }
 
                 NumberAnimation {
@@ -1587,7 +1592,7 @@ ApplicationWindow {
                     property: "opacity"
                     from: 1.0
                     to: 0.0
-                    duration: 180
+                    duration: 220
                     easing.type: Easing.OutCubic
                     onFinished: {
                         window.bootstrapHandoffTransitionVisible = false
