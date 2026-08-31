@@ -87,8 +87,26 @@ Assert-Match "Setup smoke verifies an unselected desktop shortcut stays absent" 
     'Setup created a desktop shortcut even though it was disabled'
 Assert-Count "selected shortcut smokes verify their exact installed targets" `
     'does not target the installed candidate' 2
+Assert-Match "Windows packaging runs the Unicode shortcut reader regression" `
+    '(?ms)^  windows-package:.*?run: \.\\\.github\\scripts\\Test-WindowsShortcut\.ps1'
+Assert-Count "both shortcut smokes load the Unicode-safe reader" `
+    '(?m)^\s*\. \./\.github/scripts/WindowsShortcut\.ps1$' 2
+Assert-Count "both shortcut smokes read through the Unicode-safe helper" `
+    'Get-WindowsShortcut -LiteralPath \$(?:shortcutPath|desktopShortcutPath)' 2
+Assert-Count "both shortcut targets retain exact case-insensitive comparisons" `
+    '\$actualTarget -ine \$expectedTarget' 2
+Assert-Count "both shortcut working directories retain exact case-insensitive comparisons" `
+    '\$actualWorkingDirectory -ine \$expectedWorkingDirectory' 2
+Assert-Count "shortcut mismatch diagnostics include expected and actual targets" `
+    'Expected TargetPath=''\$expectedTarget''; actual TargetPath=''\$actualTarget''' 2
+Assert-Count "shortcut mismatch diagnostics include expected and actual working directories" `
+    'Expected WorkingDirectory=''\$expectedWorkingDirectory''; actual WorkingDirectory=''\$actualWorkingDirectory''' 2
+Assert-Absent "shortcut smokes do not use the ANSI WScript shortcut reader" `
+    'WScript\.Shell|\.CreateShortcut\('
 Assert-Match "Setup smoke exercises the alternate shortcut selection" `
     '"--start-menu", "no", "--desktop", "yes", "--no-launch"'
+Assert-Match "alternate shortcut smoke retains its Unicode installation directory" `
+    '"Yanami 安装 desktop smoke \$env:GITHUB_RUN_ID-\$env:GITHUB_RUN_ATTEMPT"'
 Assert-Match "alternate shortcut uninstall checks for orphaned desktop links" `
     'Alternate shortcut uninstall left state behind'
 Assert-Match "aggregate manifest names the optional delta exactly" `
