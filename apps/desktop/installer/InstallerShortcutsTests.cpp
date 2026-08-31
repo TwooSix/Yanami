@@ -31,6 +31,42 @@ void expect(bool condition, const char* message) {
     if (!condition) { throw std::runtime_error(message); }
 }
 
+std::string utf8(const std::wstring& value) {
+    if (value.empty()) { return {}; }
+    const int size = WideCharToMultiByte(CP_UTF8, 0, value.data(),
+        static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+    std::string result(static_cast<std::size_t>(size), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+        result.data(), size, nullptr, nullptr);
+    return result;
+}
+
+std::wstring windowsPathSpelling(const std::filesystem::path& path) {
+    const auto lexical = path.lexically_normal().native();
+    std::array<wchar_t, 32768> longName{};
+    const DWORD length = GetLongPathNameW(
+        lexical.c_str(), longName.data(), static_cast<DWORD>(longName.size()));
+    return length != 0 && length < longName.size()
+        ? std::wstring(longName.data(), length) : lexical;
+}
+
+bool sameWindowsPath(const std::filesystem::path& actual,
+                     const std::filesystem::path& expected) {
+    // The Shell is allowed to expand an existing 8.3 name or normalize case.
+    // Do not resolve junctions/symlinks or collapse different Unicode names.
+    const auto actualName = windowsPathSpelling(actual);
+    const auto expectedName = windowsPathSpelling(expected);
+    const bool same = CompareStringOrdinal(actualName.c_str(), -1,
+        expectedName.c_str(), -1, TRUE) == CSTR_EQUAL;
+    if (!same) {
+        std::cerr << "Windows path mismatch (ACP=" << GetACP() << ")\nExpected raw: "
+                  << utf8(expected.native()) << "\nActual raw: " << utf8(actual.native())
+                  << "\nExpected long: " << utf8(expectedName)
+                  << "\nActual long: " << utf8(actualName) << '\n';
+    }
+    return same;
+}
+
 template <typename T>
 class ComPointer final {
 public:
@@ -145,13 +181,13 @@ void expectShortcut(const std::filesystem::path& path, const ShortcutRequest& ex
     std::array<wchar_t, 32768> buffer{};
     expect(SUCCEEDED(link->GetPath(buffer.data(), static_cast<int>(buffer.size()), nullptr, SLGP_RAWPATH)),
         "wide target should read");
-    expect(std::filesystem::path(buffer.data()) == expected.target, "exact Unicode target should match");
+    expect(sameWindowsPath(buffer.data(), expected.target), "exact Unicode target should match");
     expect(SUCCEEDED(link->GetArguments(buffer.data(), static_cast<int>(buffer.size()))),
         "arguments should read");
     expect(buffer[0] == L'\0', "installed shortcut should not retain stale launch arguments");
     expect(SUCCEEDED(link->GetWorkingDirectory(buffer.data(), static_cast<int>(buffer.size()))),
         "wide working directory should read");
-    expect(std::filesystem::path(buffer.data()) == expected.workingDirectory,
+    expect(sameWindowsPath(buffer.data(), expected.workingDirectory),
         "exact Unicode working directory should match");
     expect(SUCCEEDED(link->GetDescription(buffer.data(), static_cast<int>(buffer.size()))),
         "description should read");
@@ -159,7 +195,7 @@ void expectShortcut(const std::filesystem::path& path, const ShortcutRequest& ex
     int icon = -1;
     expect(SUCCEEDED(link->GetIconLocation(buffer.data(), static_cast<int>(buffer.size()), &icon)),
         "icon should read");
-    expect(icon == 0 && std::filesystem::path(buffer.data()) == expected.target,
+    expect(icon == 0 && sameWindowsPath(buffer.data(), expected.target),
         "icon should target this installation");
     ComPointer<IPropertyStore> properties;
     expect(SUCCEEDED(link->QueryInterface(IID_IPropertyStore,
@@ -185,7 +221,7 @@ void testNewAndRepeat(const std::filesystem::path& root) {
     const auto result = synchronizeInstallerShortcut(request);
     expect(result.ok && result.changed,
         "a new selected shortcut should be created without a warning");
-    expect(result.warning.empty() && result.shortcutPath == request.shortcutPath,
+    expect(result.warning.empty() && sameWindowsPath(result.shortcutPath, request.shortcutPath),
         "the canonical selected path should be returned");
     expectShortcut(result.shortcutPath, request);
     const auto original = readFile(request.shortcutPath);
@@ -205,7 +241,7 @@ void testNewAndRepeat(const std::filesystem::path& root) {
     request.description = L"Yanami updated description";
     const auto updated = synchronizeInstallerShortcut(request);
     if (!updated.ok) { std::wcerr << updated.warning << L'\n'; }
-    expect(updated.ok && updated.changed && updated.shortcutPath == request.shortcutPath,
+    expect(updated.ok && updated.changed && sameWindowsPath(updated.shortcutPath, request.shortcutPath),
         "an owned link should update atomically at the same path");
     expectShortcut(updated.shortcutPath, request);
     request.selected = false;
@@ -214,6 +250,41 @@ void testNewAndRepeat(const std::filesystem::path& root) {
         "deselection should remove an owned canonical link");
     expect(!std::filesystem::exists(request.shortcutPath), "owned link should be absent");
     expect(synchronizeInstallerShortcut(request).ok, "repeated deselection should succeed");
+}
+
+void testShortPathAliasOwnership(const std::filesystem::path& root) {
+    const auto longRoot = root / L"long directory with spaces for 8.3 alias";
+    auto request = requestFor(longRoot / L"Unicode 安装 \U0001F9EA [test]");
+    const auto longTarget = request.target;
+    std::array<wchar_t, 32768> shortName{};
+    const DWORD length = GetShortPathNameW(
+        longRoot.c_str(), shortName.data(), static_cast<DWORD>(shortName.size()));
+    expect(length != 0 && length < shortName.size(), "isolated short path query should succeed");
+    const std::filesystem::path shortRoot(shortName.data());
+    if (CompareStringOrdinal(shortRoot.c_str(), -1, longRoot.c_str(), -1, TRUE) == CSTR_EQUAL) {
+        std::cout << "SKIP: 8.3 alias ownership fixture; volume does not expose short names.\n";
+        return;
+    }
+    // Keep the CJK/supplementary-plane suffix intact while aliasing the parent,
+    // as GetTempPathW can do for the runneradmin account on hosted Windows.
+    request.target = shortRoot / request.target.lexically_relative(longRoot);
+    request.workingDirectory = request.target.parent_path();
+    request.shortcutPath = shortRoot / request.shortcutPath.lexically_relative(longRoot);
+    expect(request.target.native() != longTarget.native(), "alias fixture must use a genuinely different spelling");
+    const auto created = synchronizeInstallerShortcut(request);
+    expect(created.ok && created.changed, "short-alias selection should create its canonical link");
+    expectShortcut(created.shortcutPath, request);
+    const auto originalBytes = readFile(request.shortcutPath);
+    const auto repeated = synchronizeInstallerShortcut(request);
+    expect(repeated.ok && !repeated.changed,
+        "short-alias selection must recognize its expanded target and avoid rewriting matching bytes");
+    expect(readFile(request.shortcutPath) == originalBytes, "short-alias repeat must preserve exact shortcut bytes");
+    request.selected = false;
+    const auto removed = synchronizeInstallerShortcut(request);
+    expect(removed.ok && removed.changed && removed.shortcutPath.empty(),
+        "short-alias deselection must recognize and remove its exact expanded target");
+    expect(!std::filesystem::exists(request.shortcutPath), "short-alias owned link must be absent after deselection");
+    std::cout << "PASS: short-alias Unicode target remains idempotent and removable.\n";
 }
 
 void testUnselectedForeignAndInvalid(const std::filesystem::path& root) {
@@ -250,14 +321,14 @@ void testSelectedOverwrite(const std::filesystem::path& root) {
     const auto selected = synchronizeInstallerShortcut(request);
     expect(selected.ok && selected.changed && selected.warning.empty(),
         "selection should overwrite an older installation's canonical shortcut");
-    expect(selected.shortcutPath == request.shortcutPath,
+    expect(sameWindowsPath(selected.shortcutPath, request.shortcutPath),
         "selection should retain the requested canonical name");
     expectShortcut(request.shortcutPath, request);
     expect(readFile(request.shortcutPath) != original,
         "selection should replace the old target and AppUserModelID");
     expect(readFile(second) == invalid, "selection should not inspect or overwrite numbered names");
     const auto repeated = synchronizeInstallerShortcut(request);
-    expect(repeated.ok && !repeated.changed && repeated.shortcutPath == request.shortcutPath,
+    expect(repeated.ok && !repeated.changed && sameWindowsPath(repeated.shortcutPath, request.shortcutPath),
         "a repeated installation should reuse the canonical shortcut");
     writeFile(request.shortcutPath, "invalid shell link bytes");
     const auto repaired = synchronizeInstallerShortcut(request);
@@ -285,7 +356,7 @@ void testExactTargetOwnership(const std::filesystem::path& root) {
     expect(readFile(request.shortcutPath) == original, "parent-directory membership must not establish ownership");
     request.selected = true;
     const auto result = synchronizeInstallerShortcut(request);
-    expect(result.ok && result.shortcutPath == request.shortcutPath,
+    expect(result.ok && sameWindowsPath(result.shortcutPath, request.shortcutPath),
         "selected same-root foreign target should be overwritten at the canonical name");
     expect(readFile(request.shortcutPath) != original, "selected same-root foreign target should be updated");
     expectShortcut(result.shortcutPath, request);
@@ -299,13 +370,14 @@ void testFailureKeepsOldLink(const std::filesystem::path& root) {
         "isolated owned link should become read-only");
     request.description = L"new description must not truncate a read-only link";
     const auto update = synchronizeInstallerShortcut(request);
-    expect(!update.ok && !update.warning.empty() && update.shortcutPath == request.shortcutPath,
+    expect(!update.ok && !update.warning.empty() && sameWindowsPath(update.shortcutPath, request.shortcutPath),
         "read-only update failure should return a nonfatal shortcut warning");
     expect(readFile(request.shortcutPath) == original, "failed replacement must leave original bytes intact");
     request.selected = false;
     const auto remove = synchronizeInstallerShortcut(request);
     expect(!remove.ok && !remove.warning.empty(), "unremovable owned link should report a warning");
-    expect(remove.shortcutPath == request.shortcutPath, "failed deselection should identify its canonical path");
+    expect(sameWindowsPath(remove.shortcutPath, request.shortcutPath),
+        "failed deselection should identify its canonical path");
     expect(readFile(request.shortcutPath) == original, "failed removal must leave original bytes intact");
     expect(SetFileAttributesW(request.shortcutPath.c_str(), FILE_ATTRIBUTE_NORMAL),
         "isolated read-only attribute should be restored");
@@ -411,6 +483,7 @@ int main() {
     try {
         TemporaryDirectory directory;
         testNewAndRepeat(directory.path() / L"new");
+        testShortPathAliasOwnership(directory.path() / L"short-alias");
         testUnselectedForeignAndInvalid(directory.path() / L"unselected");
         testSelectedOverwrite(directory.path() / L"overwrite");
         testExactTargetOwnership(directory.path() / L"exact-target");

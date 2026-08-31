@@ -94,6 +94,20 @@ std::optional<std::filesystem::path> absolutePath(
         value.c_str(), static_cast<DWORD>(buffer.size()), buffer.data(), nullptr);
     if (written == 0 || written >= buffer.size()) { return std::nullopt; }
     auto normalized = std::filesystem::path(buffer.data()).lexically_normal();
+    // The Shell may expand an existing 8.3 spelling (for example RUNNER~1)
+    // when it saves/loads a link. GetFullPathName alone does not do that,
+    // causing the same target to lose ownership/idempotence on the next run.
+    // Expand names only, not junction/symlink destinations. Missing or
+    // inaccessible paths retain their lexical spelling for broken links.
+    const DWORD longLength = GetLongPathNameW(normalized.c_str(), nullptr, 0);
+    if (longLength != 0) {
+        std::vector<wchar_t> longBuffer(static_cast<std::size_t>(longLength) + 1);
+        const DWORD longWritten = GetLongPathNameW(
+            normalized.c_str(), longBuffer.data(), static_cast<DWORD>(longBuffer.size()));
+        if (longWritten != 0 && longWritten < longBuffer.size()) {
+            normalized = std::filesystem::path(longBuffer.data()).lexically_normal();
+        }
+    }
     // A directory trailing separator does not change its identity.
     while (normalized.has_relative_path() && normalized.filename().empty()) {
         normalized = normalized.parent_path();

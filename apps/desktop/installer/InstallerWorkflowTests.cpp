@@ -794,7 +794,11 @@ void assertControlBounds(const InstallerWindow& window, const std::string& scena
                 context + " has empty bounds");
         require(bounds.left >= 0 && bounds.top >= 0
                     && bounds.right <= client.right && bounds.bottom <= client.bottom,
-                context + " extends outside the client area");
+                context + " extends outside the client area: control=["
+                    + std::to_string(bounds.left) + "," + std::to_string(bounds.top) + ","
+                    + std::to_string(bounds.right) + "," + std::to_string(bounds.bottom)
+                    + "], client=" + std::to_string(client.right) + "x"
+                    + std::to_string(client.bottom));
         for (const auto& previous : controls) {
             RECT overlap{};
             require(IntersectRect(&overlap, &bounds, &previous.bounds) == FALSE,
@@ -1253,11 +1257,42 @@ void emptyBoundsDifferFromInvalidDrawing(const fs::path& root) {
 }
 
 void layoutsAtMultipleDpis(const fs::path& root) {
+    // These messages simulate DPI changes without changing the real monitor.
+    // The hosted runner's 1024x768 desktop otherwise clamps a 150%/200%
+    // window to its native maximum track size before the layout is checked.
+    // Relax only this synthetic fixture's size limit; real first-show and
+    // minimize/restore tests retain the operating system's native limits.
+    class SyntheticDpiViewport final {
+    public:
+        explicit SyntheticDpiViewport(HWND window) : window_(window) {
+            require(SetWindowSubclass(window_, procedure, 0x59445049, 0) != FALSE,
+                    "Could not reserve the synthetic DPI viewport");
+        }
+        ~SyntheticDpiViewport() {
+            RemoveWindowSubclass(window_, procedure, 0x59445049);
+        }
+        SyntheticDpiViewport(const SyntheticDpiViewport&) = delete;
+        SyntheticDpiViewport& operator=(const SyntheticDpiViewport&) = delete;
+    private:
+        static LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wParam,
+                                          LPARAM lParam, UINT_PTR, DWORD_PTR) {
+            const LRESULT result = DefSubclassProc(window, message, wParam, lParam);
+            if (message == WM_GETMINMAXINFO) {
+                auto& limits = *reinterpret_cast<MINMAXINFO*>(lParam);
+                const SIZE largest = InstallerWindowTestAccess::baselineSize(192);
+                limits.ptMaxTrackSize.x = std::max(limits.ptMaxTrackSize.x, largest.cx);
+                limits.ptMaxTrackSize.y = std::max(limits.ptMaxTrackSize.y, largest.cy);
+            }
+            return result;
+        }
+        HWND window_;
+    };
     for (const UiLanguage language : {UiLanguage::English, UiLanguage::SimplifiedChinese}) {
         for (const std::wstring scenario : {L"options", L"conflict", L"recovery", L"complete-warning", L"repair"}) {
             const std::wstring name = L"layout-" + scenario
                 + (language == UiLanguage::English ? L"-en" : L"-zh");
             WindowFixture fixture(root, name, scenario == L"repair", language);
+            SyntheticDpiViewport viewport(fixture.window.handle());
             prepareScenario(fixture, scenario);
             for (const UINT dpi : {96U, 144U, 192U}) {
                 RECT suggested{};
