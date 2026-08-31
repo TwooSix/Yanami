@@ -28,6 +28,9 @@ int assertions = 0;
 
 void expect(bool condition, const char* message) {
     ++assertions;
+    // CTest kills a timed-out process before buffered stdout is flushed.
+    // Keep the last completed operation visible for slow Shell/COM calls.
+    std::cout << "CHECK " << assertions << ": " << message << '\n';
     if (!condition) { throw std::runtime_error(message); }
 }
 
@@ -477,24 +480,38 @@ void testRejectDirectoryAndReparse(const std::filesystem::path& root) {
 } // namespace
 
 int main() {
+    std::cout << std::unitbuf;
+    std::cout << "BEGIN: COM initialization (ACP=" << GetACP() << ")\n";
     const HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     if (FAILED(initialized)) { std::cerr << "COM initialization failed\n"; return 1; }
+    std::cout << "PASS: COM initialization\n";
     int result = 0;
     try {
         TemporaryDirectory directory;
-        testNewAndRepeat(directory.path() / L"new");
-        testShortPathAliasOwnership(directory.path() / L"short-alias");
-        testUnselectedForeignAndInvalid(directory.path() / L"unselected");
-        testSelectedOverwrite(directory.path() / L"overwrite");
-        testExactTargetOwnership(directory.path() / L"exact-target");
-        testFailureKeepsOldLink(directory.path() / L"failure");
-        testRejectDirectoryAndReparse(directory.path() / L"reparse-policy");
+        const auto runCase = [&directory](const wchar_t* name, const char* label,
+                void (*test)(const std::filesystem::path&)) {
+            const auto started = GetTickCount64();
+            std::cout << "BEGIN: " << label << '\n';
+            test(directory.path() / name);
+            std::cout << "PASS: " << label << " (" << GetTickCount64() - started << " ms)\n";
+        };
+        runCase(L"new", "new and repeated selection", testNewAndRepeat);
+        runCase(L"short-alias", "short path alias ownership", testShortPathAliasOwnership);
+        runCase(L"unselected", "unselected foreign and invalid links", testUnselectedForeignAndInvalid);
+        runCase(L"overwrite", "selected canonical replacement", testSelectedOverwrite);
+        runCase(L"exact-target", "exact target ownership", testExactTargetOwnership);
+        runCase(L"failure", "failed writes preserve the old link", testFailureKeepsOldLink);
+        runCase(L"reparse-policy", "directory and reparse rejection", testRejectDirectoryAndReparse);
+        std::cout << "BEGIN: staging inspection\n";
         expectNoStaging(directory.path());
         std::cout << "Installer shortcut tests passed (" << assertions << " assertions).\n";
+        std::cout << "BEGIN: fixture cleanup\n";
     } catch (const std::exception& exception) {
         std::cerr << "Installer shortcut tests failed: " << exception.what() << '\n';
         result = 1;
     }
+    std::cout << "BEGIN: COM cleanup\n";
     CoUninitialize();
+    std::cout << "PASS: COM cleanup\n";
     return result;
 }
