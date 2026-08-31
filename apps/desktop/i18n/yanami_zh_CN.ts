@@ -4,162 +4,232 @@
 <context>
     <name>AboutPage</name>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="20"/>
+        <location filename="../qml/pages/AboutPage.qml" line="27"/>
         <source>Checking GitHub Releases…</source>
         <translation>正在检查 GitHub Release…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="22"/>
-        <source>Check whether a newer stable release is available.</source>
-        <translation>检查是否有更新的稳定版本。</translation>
+        <location filename="../qml/pages/AboutPage.qml" line="20"/>
+        <source>Closing Yanami and starting the installer…</source>
+        <translation>正在关闭 Yanami 并启动安装程序…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="26"/>
+        <location filename="../qml/pages/AboutPage.qml" line="22"/>
+        <source>Downloading update · %1% complete</source>
+        <translation>正在下载更新 · 已完成 %1%</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/AboutPage.qml" line="25"/>
+        <source>The update is ready. Restart Yanami to install it.</source>
+        <translation>更新已准备就绪。重启 Yanami 即可安装。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/AboutPage.qml" line="29"/>
+        <source>Check whether a newer release is available.</source>
+        <translation>检查是否有更新版本。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/AboutPage.qml" line="33"/>
         <source>No published release was found yet.</source>
         <translation>暂未找到已发布的版本。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="28"/>
+        <location filename="../qml/pages/AboutPage.qml" line="37"/>
+        <source>Version %1 is available as an incremental update (%2).</source>
+        <translation>发现新版本 %1，可使用增量更新（%2）。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/AboutPage.qml" line="42"/>
+        <source>Version %1 is available (%2 download).</source>
+        <translation>发现新版本 %1（需下载 %2）。</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/AboutPage.qml" line="46"/>
         <source>Version %1 is available.</source>
         <translation>发现新版本 %1。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="29"/>
+        <location filename="../qml/pages/AboutPage.qml" line="47"/>
         <source>You are using the latest published version.</source>
         <translation>你正在使用最新发布版本。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="50"/>
+        <location filename="../qml/pages/AboutPage.qml" line="52"/>
+        <source>size unknown</source>
+        <translation>大小未知</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/AboutPage.qml" line="54"/>
+        <source>%1 GB</source>
+        <translation>%1 GB</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/AboutPage.qml" line="56"/>
+        <source>%1 MB</source>
+        <translation>%1 MB</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/AboutPage.qml" line="57"/>
+        <source>%1 KB</source>
+        <translation>%1 KB</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/AboutPage.qml" line="78"/>
         <source>ABOUT</source>
         <translation>关于</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="58"/>
+        <location filename="../qml/pages/AboutPage.qml" line="86"/>
         <source>About Yanami</source>
         <translation>关于 Yanami</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="65"/>
+        <location filename="../qml/pages/AboutPage.qml" line="93"/>
         <source>Software information, diagnostics, support, and updates.</source>
         <translation>软件信息、诊断反馈、项目支持与版本更新。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="99"/>
+        <location filename="../qml/pages/AboutPage.qml" line="127"/>
         <source>Version %1</source>
         <translation>版本 %1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="107"/>
+        <location filename="../qml/pages/AboutPage.qml" line="135"/>
         <source>A modern desktop client for browsing and playing media from Emby.</source>
         <translation>一款用于浏览和播放 Emby 媒体的现代桌面客户端。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="132"/>
+        <location filename="../qml/pages/AboutPage.qml" line="160"/>
         <source>Project</source>
         <translation>项目信息</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="139"/>
+        <location filename="../qml/pages/AboutPage.qml" line="167"/>
         <source>Author  ·  TwooSix</source>
         <translation>作者  ·  TwooSix</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="145"/>
+        <location filename="../qml/pages/AboutPage.qml" line="173"/>
         <source>License  ·  GPL-3.0-or-later</source>
         <translation>许可证  ·  GPL-3.0-or-later</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="152"/>
+        <location filename="../qml/pages/AboutPage.qml" line="180"/>
         <source>Open project on GitHub</source>
         <translation>在 GitHub 上打开项目</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="156"/>
+        <location filename="../qml/pages/AboutPage.qml" line="184"/>
         <source>Could not open the project page.</source>
         <translation>无法打开项目页面。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="174"/>
+        <location filename="../qml/pages/AboutPage.qml" line="202"/>
         <source>Software updates</source>
         <translation>软件更新</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="197"/>
+        <location filename="../qml/pages/AboutPage.qml" line="251"/>
         <source>Checking…</source>
         <translation>正在检查…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="197"/>
+        <location filename="../qml/pages/AboutPage.qml" line="251"/>
         <source>Check for updates</source>
         <translation>检查更新</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="205"/>
+        <location filename="../qml/pages/AboutPage.qml" line="264"/>
+        <source>Cancel download</source>
+        <translation>取消下载</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/AboutPage.qml" line="266"/>
+        <source>Download incremental update</source>
+        <translation>下载增量更新</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/AboutPage.qml" line="267"/>
+        <source>Download update</source>
+        <translation>下载更新</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/AboutPage.qml" line="279"/>
+        <source>Starting installer…</source>
+        <translation>正在启动安装程序…</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/AboutPage.qml" line="280"/>
+        <source>Restart and install</source>
+        <translation>重启并安装</translation>
+    </message>
+    <message>
+        <location filename="../qml/pages/AboutPage.qml" line="290"/>
         <source>View release</source>
         <translation>查看新版本</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="209"/>
+        <location filename="../qml/pages/AboutPage.qml" line="295"/>
         <source>Could not open the release page.</source>
         <translation>无法打开版本页面。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="231"/>
+        <location filename="../qml/pages/AboutPage.qml" line="317"/>
         <source>Diagnostics and feedback</source>
         <translation>诊断与反馈</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="239"/>
+        <location filename="../qml/pages/AboutPage.qml" line="325"/>
         <source>Export recent runtime logs as one file to help investigate a problem.</source>
         <translation>将近期运行日志导出为单个文件，便于排查问题。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="247"/>
+        <location filename="../qml/pages/AboutPage.qml" line="333"/>
         <source>Known credentials, URL details, and your home-folder path are hidden. Logs may still contain media titles or device details; review them before sharing.</source>
         <translation>已隐藏已知凭据、URL 详情和你的用户主目录路径。日志仍可能包含媒体标题或设备信息；分享前请先检查。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="259"/>
+        <location filename="../qml/pages/AboutPage.qml" line="345"/>
         <source>Saved to %1</source>
         <translation>已保存到 %1</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="273"/>
+        <location filename="../qml/pages/AboutPage.qml" line="359"/>
         <source>Exporting…</source>
         <translation>正在导出…</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="273"/>
+        <location filename="../qml/pages/AboutPage.qml" line="359"/>
         <source>Export logs</source>
         <translation>导出日志</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="282"/>
+        <location filename="../qml/pages/AboutPage.qml" line="368"/>
         <source>Open folder</source>
         <translation>打开文件夹</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="301"/>
+        <location filename="../qml/pages/AboutPage.qml" line="387"/>
         <source>Support the project</source>
         <translation>支持项目</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="309"/>
+        <location filename="../qml/pages/AboutPage.qml" line="395"/>
         <source>If Yanami is useful to you, you can sponsor the author and support its continued development.</source>
         <translation>如果 Yanami 对你有所帮助，可以赞助作者，支持项目持续开发。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="317"/>
+        <location filename="../qml/pages/AboutPage.qml" line="403"/>
         <source>Sponsor the author</source>
         <translation>赞助作者</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="322"/>
+        <location filename="../qml/pages/AboutPage.qml" line="408"/>
         <source>Could not open the sponsorship page.</source>
         <translation>无法打开赞助页面。</translation>
     </message>
     <message>
-        <location filename="../qml/pages/AboutPage.qml" line="336"/>
+        <location filename="../qml/pages/AboutPage.qml" line="422"/>
         <source>Diagnostics exported successfully.</source>
         <translation>诊断日志导出成功。</translation>
     </message>
@@ -1405,13 +1475,13 @@
 <context>
     <name>Main</name>
     <message>
-        <location filename="../qml/Main.qml" line="1560"/>
+        <location filename="../qml/Main.qml" line="1568"/>
         <source>Starting Yanami…</source>
         <translation>正在启动 Yanami…</translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="629"/>
-        <location filename="../qml/Main.qml" line="1292"/>
+        <location filename="../qml/Main.qml" line="1300"/>
         <source>Favorites</source>
         <translation>收藏</translation>
     </message>
@@ -1461,71 +1531,71 @@
         <translation>删除</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1256"/>
+        <location filename="../qml/Main.qml" line="1264"/>
         <source>Controller</source>
         <translation>控制器</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1271"/>
+        <location filename="../qml/Main.qml" line="1279"/>
         <source>Menu</source>
         <translation>菜单</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1274"/>
+        <location filename="../qml/Main.qml" line="1282"/>
         <source>Back</source>
         <translation>返回</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1287"/>
+        <location filename="../qml/Main.qml" line="1295"/>
         <source>Navigate</source>
         <translation>导航</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1295"/>
+        <location filename="../qml/Main.qml" line="1303"/>
         <source>Minimize window</source>
         <translation>最小化窗口</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1298"/>
+        <location filename="../qml/Main.qml" line="1306"/>
         <source>Restore window</source>
         <translation>还原窗口</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1298"/>
+        <location filename="../qml/Main.qml" line="1306"/>
         <source>Maximize window</source>
         <translation>最大化窗口</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1299"/>
+        <location filename="../qml/Main.qml" line="1307"/>
         <source>Close Yanami</source>
         <translation>关闭 Yanami</translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="602"/>
-        <location filename="../qml/Main.qml" line="1290"/>
+        <location filename="../qml/Main.qml" line="1298"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="613"/>
-        <location filename="../qml/Main.qml" line="1291"/>
+        <location filename="../qml/Main.qml" line="1299"/>
         <source>Search</source>
         <translation>搜索</translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="642"/>
-        <location filename="../qml/Main.qml" line="1293"/>
+        <location filename="../qml/Main.qml" line="1301"/>
         <source>About</source>
         <translation>关于</translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="654"/>
-        <location filename="../qml/Main.qml" line="1294"/>
+        <location filename="../qml/Main.qml" line="1302"/>
         <source>Settings</source>
         <translation>设置</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1202"/>
+        <location filename="../qml/Main.qml" line="1210"/>
         <source>Added to playlist</source>
         <translation>已添加到播放列表</translation>
     </message>
@@ -3564,16 +3634,30 @@
 <context>
     <name>UpdateChecker</name>
     <message>
-        <location filename="../native/UpdateChecker.cpp" line="139"/>
-        <location filename="../native/UpdateChecker.cpp" line="187"/>
+        <location filename="../native/UpdateChecker.cpp" line="190"/>
+        <location filename="../native/UpdateChecker.cpp" line="490"/>
         <source>Could not check for updates. Please try again later.</source>
         <translation>无法检查更新，请稍后重试。</translation>
     </message>
     <message>
-        <location filename="../native/UpdateChecker.cpp" line="195"/>
-        <location filename="../native/UpdateChecker.cpp" line="209"/>
+        <location filename="../native/UpdateChecker.cpp" line="309"/>
+        <location filename="../native/UpdateChecker.cpp" line="499"/>
+        <location filename="../native/UpdateChecker.cpp" line="505"/>
+        <location filename="../native/UpdateChecker.cpp" line="544"/>
         <source>The update service returned an invalid response.</source>
         <translation>更新服务返回了无效响应。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpdateChecker.cpp" line="368"/>
+        <location filename="../native/UpdateChecker.cpp" line="414"/>
+        <source>Could not download the update. Please try again later.</source>
+        <translation>无法下载更新，请稍后重试。</translation>
+    </message>
+    <message>
+        <location filename="../native/UpdateChecker.cpp" line="372"/>
+        <location filename="../native/UpdateChecker.cpp" line="422"/>
+        <source>Could not start the installer. Please try again.</source>
+        <translation>无法启动安装程序，请重试。</translation>
     </message>
 </context>
 <context>

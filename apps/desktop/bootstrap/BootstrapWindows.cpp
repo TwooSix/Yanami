@@ -32,6 +32,8 @@ using namespace std::chrono_literals;
 constexpr wchar_t windowClassName[] = L"YanamiBootstrapWindow.v1";
 constexpr wchar_t instanceMutexName[] = L"Local\\Yanami.Desktop.Instance.v1";
 constexpr wchar_t desktopExecutableName[] = L"yanami-desktop.exe";
+constexpr wchar_t updaterExecutableName[] = L"yanami-updater.exe";
+constexpr wchar_t velopackManifestName[] = L"sq.version";
 constexpr wchar_t readyFileName[] = L"desktop-ready.json";
 constexpr UINT_PTR animationTimerId = 1;
 constexpr COLORREF spinnerColor = RGB(91, 149, 255);
@@ -316,6 +318,64 @@ std::wstring quoteCommandLineArgument(const std::wstring &argument)
     quoted.append(backslashes * 2, L'\\');
     quoted.push_back(L'"');
     return quoted;
+}
+
+bool isVelopackFastHook(std::wstring_view argument)
+{
+    return argument == L"--veloapp-install"
+        || argument == L"--veloapp-updated"
+        || argument == L"--veloapp-obsolete"
+        || argument == L"--veloapp-uninstall";
+}
+
+std::optional<int> runVelopackStartup(
+    const std::filesystem::path &applicationDirectory,
+    const std::vector<std::wstring> &arguments)
+{
+    const bool fastHook = !arguments.empty()
+        && isVelopackFastHook(arguments.front());
+    std::error_code filesystemError;
+    const bool installed = std::filesystem::is_regular_file(
+        applicationDirectory / velopackManifestName, filesystemError);
+    if (!fastHook && (!installed || filesystemError))
+        return std::nullopt;
+
+    const std::filesystem::path updaterPath =
+        applicationDirectory / updaterExecutableName;
+    if (!std::filesystem::is_regular_file(updaterPath, filesystemError)
+        || filesystemError) {
+        return static_cast<int>(ERROR_FILE_NOT_FOUND);
+    }
+
+    std::wstring commandLine = quoteCommandLineArgument(updaterPath.wstring());
+    commandLine += L" startup";
+    for (const std::wstring &argument : arguments) {
+        commandLine.push_back(L' ');
+        commandLine += quoteCommandLineArgument(argument);
+    }
+
+    STARTUPINFOW startupInfo {};
+    startupInfo.cb = sizeof(startupInfo);
+    PROCESS_INFORMATION processInfo {};
+    const BOOL created = CreateProcessW(
+        updaterPath.c_str(), commandLine.data(), nullptr, nullptr, FALSE,
+        CREATE_NO_WINDOW, nullptr, applicationDirectory.c_str(),
+        &startupInfo, &processInfo);
+    if (!created)
+        return static_cast<int>(GetLastError());
+
+    CloseHandle(processInfo.hThread);
+    const DWORD waitResult = WaitForSingleObject(processInfo.hProcess, 30000);
+    DWORD exitCode = ERROR_TIMEOUT;
+    if (waitResult == WAIT_OBJECT_0) {
+        if (!GetExitCodeProcess(processInfo.hProcess, &exitCode))
+            exitCode = GetLastError();
+    } else {
+        TerminateProcess(processInfo.hProcess, ERROR_TIMEOUT);
+        WaitForSingleObject(processInfo.hProcess, 5000);
+    }
+    CloseHandle(processInfo.hProcess);
+    return static_cast<int>(exitCode);
 }
 
 std::wstring formatWindowsError(DWORD error)
@@ -1358,10 +1418,12 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     int argumentCount = 0;
     wchar_t **argumentValues = CommandLineToArgvW(
         GetCommandLineW(), &argumentCount);
+    std::vector<std::wstring> allArguments;
     std::vector<std::wstring> wideArguments;
     std::vector<std::string> encodedArguments;
     for (int index = 1; argumentValues && index < argumentCount; ++index) {
         const std::wstring argument(argumentValues[index]);
+        allArguments.push_back(argument);
         if (utf8(argument).starts_with(
                 YanamiBootstrap::timeoutArgumentPrefix)) {
             encodedArguments.push_back(utf8(argument));
@@ -1372,13 +1434,22 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
     }
     if (argumentValues)
         LocalFree(argumentValues);
+
+    const std::filesystem::path applicationDirectory(executableDirectory());
+    const bool velopackFastHook = !allArguments.empty()
+        && isVelopackFastHook(allArguments.front());
+    const std::optional<int> velopackStartup = runVelopackStartup(
+        applicationDirectory, allArguments);
+    if (velopackFastHook)
+        return velopackStartup.value_or(static_cast<int>(ERROR_FILE_NOT_FOUND));
+
     const YanamiBootstrap::LauncherOptions options =
         YanamiBootstrap::parseLauncherOptions(encodedArguments);
     const LauncherText text = localizedText(
         YanamiBootstrap::persistedUiLanguage());
 
     const std::filesystem::path desktopPath =
-        std::filesystem::path(executableDirectory()) / desktopExecutableName;
+        applicationDirectory / desktopExecutableName;
     if (!std::filesystem::is_regular_file(desktopPath)) {
         MessageBoxW(
             nullptr,

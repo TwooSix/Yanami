@@ -20,6 +20,10 @@ set(YANAMI_BUILD_RUN_ID "local" CACHE STRING
     "CI workflow run ID used for this build")
 set(YANAMI_RUNTIME_LICENSE_DIR "" CACHE PATH
     "Optional generated platform runtime license inventory")
+set(YANAMI_VELOPACK_RUNTIME "" CACHE FILEPATH
+    "Optional Velopack C ABI runtime bundled with Windows packages")
+set(YANAMI_VELOPACK_RUNTIME_SHA256
+    "c36d8b984639a8af9d3397088d3ffb8213fe1bd0917f555cf0c6e33f014403ec")
 set(YANAMI_RUST_LICENSE_INVENTORY
     "${CMAKE_CURRENT_BINARY_DIR}/generated-licenses/THIRD_PARTY_LICENSES.html"
     CACHE FILEPATH
@@ -92,6 +96,78 @@ if(WIN32)
             -municode -static -static-libgcc -static-libstdc++)
     elseif(MSVC)
         set_property(TARGET yanami-bootstrap PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
+
+    # Keep the update engine isolated from the Qt application and load the
+    # official Velopack C ABI at runtime. Yanami is built with MinGW, while the
+    # upstream SDK only ships MSVC import libraries; the C ABI is the stable
+    # compatibility boundary between those toolchains.
+    add_executable(yanami-updater
+        updater/VelopackUpdater.cpp
+    )
+    set_target_properties(yanami-updater PROPERTIES
+        OUTPUT_NAME "yanami-updater"
+    )
+    if(MINGW)
+        target_link_options(yanami-updater PRIVATE
+            -municode -static -static-libgcc -static-libstdc++)
+    elseif(MSVC)
+        set_property(TARGET yanami-updater PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
+
+    configure_file(
+        resources/windows/yanami-installer.rc
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/yanami-installer.rc"
+        @ONLY
+    )
+    add_executable(yanami-installer-stub WIN32
+        installer/InstallerCore.cpp
+        installer/InstallerCore.hpp
+        installer/InstallerMain.cpp
+        installer/InstallerLayout.hpp
+        installer/InstallerPainter.cpp
+        installer/InstallerPainter.hpp
+        installer/yanami-installer.manifest
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/yanami-installer.rc"
+        resources/windows/yanami.ico
+    )
+    set_target_properties(yanami-installer-stub PROPERTIES
+        AUTOMOC OFF
+        AUTOUIC OFF
+        AUTORCC OFF
+    )
+    target_include_directories(yanami-installer-stub PRIVATE installer)
+    target_compile_features(yanami-installer-stub PRIVATE cxx_std_20)
+    target_compile_definitions(yanami-installer-stub PRIVATE
+        UNICODE
+        _UNICODE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+        STRICT
+    )
+    target_link_libraries(yanami-installer-stub PRIVATE
+        advapi32
+        bcrypt
+        comctl32
+        d2d1
+        dwrite
+        dwmapi
+        gdi32
+        ole32
+        propsys
+        shell32
+        user32
+        uuid
+        uxtheme
+    )
+    if(MINGW)
+        target_link_options(yanami-installer-stub PRIVATE
+            -municode -static -static-libgcc -static-libstdc++)
+    elseif(MSVC)
+        target_compile_options(yanami-installer-stub PRIVATE /utf-8)
+        set_property(TARGET yanami-installer-stub PROPERTY
             MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     endif()
 elseif(APPLE)
@@ -361,6 +437,8 @@ qt_add_executable(yanami-desktop
     native/RuntimeLogger.hpp
     native/UpdateChecker.cpp
     native/UpdateChecker.hpp
+    native/UpdateHelperProcess.cpp
+    native/UpdateHelperProcess.hpp
     native/UpscalingAssetManager.cpp
     native/UpscalingAssetManager.hpp
     native/UpscalingCapabilityProbe.cpp
@@ -632,7 +710,12 @@ if(APPLE)
         DESTINATION "Yanami.app/Contents/MacOS"
     )
 else()
-    install(TARGETS yanami-bootstrap RUNTIME DESTINATION bin)
+    if(WIN32)
+        install(TARGETS yanami-bootstrap yanami-updater
+            RUNTIME DESTINATION bin)
+    else()
+        install(TARGETS yanami-bootstrap RUNTIME DESTINATION bin)
+    endif()
     install(FILES "${YANAMI_RUST_BRIDGE}"
         DESTINATION bin
     )
@@ -698,6 +781,28 @@ if(UNIX AND NOT APPLE)
 endif()
 
 if(WIN32)
+    if(YANAMI_VELOPACK_RUNTIME)
+        if(NOT EXISTS "${YANAMI_VELOPACK_RUNTIME}")
+            message(FATAL_ERROR
+                "YANAMI_VELOPACK_RUNTIME does not exist: ${YANAMI_VELOPACK_RUNTIME}")
+        endif()
+        file(SHA256 "${YANAMI_VELOPACK_RUNTIME}"
+            YANAMI_VELOPACK_RUNTIME_ACTUAL_SHA256)
+        if(NOT YANAMI_VELOPACK_RUNTIME_ACTUAL_SHA256 STREQUAL
+                YANAMI_VELOPACK_RUNTIME_SHA256)
+            message(FATAL_ERROR
+                "YANAMI_VELOPACK_RUNTIME is not the pinned Velopack 1.2.0 "
+                "Windows x64 runtime")
+        endif()
+        install(FILES "${YANAMI_VELOPACK_RUNTIME}"
+            DESTINATION bin
+            RENAME velopack_libc.dll
+        )
+        install(FILES "${YANAMI_WORKSPACE}/licenses/velopack-MIT.txt"
+            DESTINATION licenses/velopack
+            RENAME MIT.txt
+        )
+    endif()
     install(DIRECTORY
         "${YANAMI_QT_PREFIX}/share/licenses/qt6-base"
         "${YANAMI_QT_PREFIX}/share/licenses/qt6-declarative"
@@ -814,6 +919,67 @@ if(BUILD_TESTING)
     endif()
 
     if(WIN32)
+        add_executable(yanami-installer-core-tests
+            installer/InstallerCoreTests.cpp
+            installer/InstallerCore.cpp
+            installer/InstallerCore.hpp
+        )
+        set_target_properties(yanami-installer-core-tests PROPERTIES
+            AUTOMOC OFF
+            AUTOUIC OFF
+            AUTORCC OFF
+        )
+        target_include_directories(
+            yanami-installer-core-tests PRIVATE installer)
+        target_compile_features(
+            yanami-installer-core-tests PRIVATE cxx_std_20)
+        target_compile_definitions(yanami-installer-core-tests PRIVATE
+            UNICODE
+            _UNICODE
+            WIN32_LEAN_AND_MEAN
+            NOMINMAX
+            STRICT
+        )
+        target_link_libraries(
+            yanami-installer-core-tests PRIVATE bcrypt)
+        if(MINGW)
+            target_link_options(yanami-installer-core-tests PRIVATE
+                -static -static-libgcc -static-libstdc++)
+        elseif(MSVC)
+            target_compile_options(yanami-installer-core-tests PRIVATE /utf-8)
+            set_property(TARGET yanami-installer-core-tests PROPERTY
+                MSVC_RUNTIME_LIBRARY
+                "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+        endif()
+        add_test(
+            NAME yanami-installer-core-tests
+            COMMAND $<TARGET_FILE:yanami-installer-core-tests>
+        )
+
+        add_executable(yanami-installer-painter-tests
+            installer/InstallerPainterTests.cpp
+            installer/InstallerPainter.cpp
+            installer/InstallerPainter.hpp
+        )
+        set_target_properties(yanami-installer-painter-tests PROPERTIES
+            AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+        target_include_directories(yanami-installer-painter-tests PRIVATE installer)
+        target_compile_features(yanami-installer-painter-tests PRIVATE cxx_std_20)
+        target_compile_definitions(yanami-installer-painter-tests PRIVATE
+            UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX STRICT)
+        target_link_libraries(yanami-installer-painter-tests PRIVATE
+            d2d1 dwrite gdi32 user32 ole32 uuid)
+        if(MINGW)
+            target_link_options(yanami-installer-painter-tests PRIVATE
+                -static -static-libgcc -static-libstdc++)
+        elseif(MSVC)
+            target_compile_options(yanami-installer-painter-tests PRIVATE /utf-8)
+            set_property(TARGET yanami-installer-painter-tests PROPERTY
+                MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+        endif()
+        add_test(NAME yanami-installer-painter-tests
+            COMMAND $<TARGET_FILE:yanami-installer-painter-tests>)
+
         add_executable(yanami-bootstrap-locale-tests
             tests/BootstrapLocaleTests.cpp
             bootstrap/BootstrapLocale.cpp
@@ -1500,6 +1666,8 @@ if(BUILD_TESTING)
         native/RuntimeLogger.hpp
         native/UpdateChecker.cpp
         native/UpdateChecker.hpp
+        native/UpdateHelperProcess.cpp
+        native/UpdateHelperProcess.hpp
         native/UpscalingAssetManager.cpp
         native/UpscalingAssetManager.hpp
         native/UpscalingCapabilityProbe.cpp
@@ -1695,13 +1863,24 @@ if(BUILD_TESTING)
         LABELS "integration;mpv;offline;upscaling"
         TIMEOUT 30
     )
+    add_executable(yanami-update-helper-fixture
+        tests/UpdateHelperFixture.cpp
+    )
     add_executable(yanami-update-checker-tests
         tests/UpdateCheckerTests.cpp
         native/UpdateChecker.cpp
         native/UpdateChecker.hpp
+        native/UpdateHelperProcess.cpp
+        native/UpdateHelperProcess.hpp
+    )
+    add_dependencies(
+        yanami-update-checker-tests yanami-update-helper-fixture)
+    target_compile_definitions(yanami-update-checker-tests PRIVATE
+        YANAMI_UPDATE_HELPER_FIXTURE="$<TARGET_FILE:yanami-update-helper-fixture>"
     )
     target_include_directories(yanami-update-checker-tests PRIVATE native)
     target_link_libraries(yanami-update-checker-tests PRIVATE
+        Qt6::Concurrent
         Qt6::Network
         Qt6::Test
     )
@@ -1709,6 +1888,18 @@ if(BUILD_TESTING)
         NAME yanami-update-checker-tests
         COMMAND $<TARGET_FILE:yanami-update-checker-tests>
     )
+
+    add_executable(yanami-update-helper-process-tests
+        tests/UpdateHelperProcessTests.cpp
+        native/UpdateHelperProcess.cpp
+        native/UpdateHelperProcess.hpp
+    )
+    target_include_directories(yanami-update-helper-process-tests PRIVATE native)
+    target_link_libraries(yanami-update-helper-process-tests PRIVATE
+        Qt6::Core Qt6::Concurrent Qt6::Test)
+    add_test(NAME yanami-update-helper-process-tests
+        COMMAND $<TARGET_FILE:yanami-update-helper-process-tests>)
+    set_tests_properties(yanami-update-helper-process-tests PROPERTIES TIMEOUT 30)
 
     add_executable(yanami-performance-trace-tests
         tests/performance/PerformanceTraceTests.cpp
@@ -1840,6 +2031,7 @@ if(BUILD_TESTING)
             yanami-application-view-model-tests
             yanami-upscaling-perf-collect
             yanami-update-checker-tests
+            yanami-update-helper-process-tests
             yanami-performance-trace-tests
             yanami-desktop-perf-collect
             yanami-popup-quicktests

@@ -3,6 +3,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QSignalSpy>
 #include <QTest>
 #include <QTimer>
 
@@ -106,6 +107,45 @@ class UpdateCheckerTests final : public QObject
     Q_OBJECT
 
 private slots:
+    void helperCheckPublishesBusyStateBeforeDispatchCompletes()
+    {
+        FakeNetworkAccessManager network;
+        UpdateChecker checker(
+            &network, QUrl(QStringLiteral("https://api.example.test/releases")),
+            QStringLiteral("0.2.0-dev.15"),
+            QString::fromUtf8(YANAMI_UPDATE_HELPER_FIXTURE));
+        QSignalSpy changes(&checker, &UpdateChecker::stateChanged);
+
+        checker.check();
+        QVERIFY(checker.checking());
+        QCOMPARE(checker.hasChecked(), false);
+        QCOMPARE(changes.count(), 1);
+        checker.check();
+        QCOMPARE(changes.count(), 1);
+        QTRY_VERIFY(!checker.checking());
+        QVERIFY(checker.directUpdateSupported());
+        QCOMPARE(network.requestCount, 0);
+    }
+
+    void failedHelperStartFallsBackToNetwork()
+    {
+        FakeNetworkAccessManager network;
+        network.payload = releasePayload("v0.2.0-dev.16");
+        UpdateChecker checker(
+            &network, QUrl(QStringLiteral("https://api.example.test/releases")),
+            QStringLiteral("0.2.0-dev.15"),
+            QStringLiteral("missing-yanami-update-helper-fixture-64B19693"));
+
+        checker.check();
+        QVERIFY(checker.checking());
+        QCOMPARE(network.requestCount, 0);
+        QTRY_VERIFY(!checker.checking());
+        QCOMPARE(network.requestCount, 1);
+        QVERIFY(checker.updateAvailable());
+        QVERIFY(!checker.directUpdateSupported());
+        QCOMPARE(checker.errorMessage(), QString());
+    }
+
     void reportsNewerRelease()
     {
         FakeNetworkAccessManager network;
@@ -170,6 +210,178 @@ private slots:
         QTRY_VERIFY(!checker.checking());
         QCOMPARE(checker.releaseFound(), true);
         QCOMPARE(checker.updateAvailable(), true);
+    }
+
+    void selectsNewestPrereleaseFromReleaseList()
+    {
+        FakeNetworkAccessManager network;
+        network.payload = QByteArrayLiteral(
+            "[{\"tag_name\":\"v0.2.0-dev.14\","
+            "\"html_url\":\"https://github.com/TwooSix/Yanami/releases/tag/"
+            "v0.2.0-dev.14\",\"prerelease\":true},"
+            "{\"tag_name\":\"v0.2.0-dev.16\","
+            "\"html_url\":\"https://github.com/TwooSix/Yanami/releases/tag/"
+            "v0.2.0-dev.16\",\"prerelease\":true}]");
+        UpdateChecker checker(
+            &network,
+            QUrl(QStringLiteral("https://api.example.test/releases")),
+            QStringLiteral("0.2.0-dev.15"));
+
+        checker.check();
+        QTRY_VERIFY(!checker.checking());
+        QCOMPARE(checker.releaseFound(), true);
+        QCOMPARE(checker.updateAvailable(), true);
+        QCOMPARE(checker.latestVersion(), QStringLiteral("v0.2.0-dev.16"));
+    }
+
+    void stableChannelIgnoresPrereleaseEntries()
+    {
+        FakeNetworkAccessManager network;
+        network.payload = QByteArrayLiteral(
+            "[{\"tag_name\":\"v0.3.0-dev.1\","
+            "\"html_url\":\"https://github.com/TwooSix/Yanami/releases/tag/"
+            "v0.3.0-dev.1\",\"prerelease\":true},"
+            "{\"tag_name\":\"v0.2.1\","
+            "\"html_url\":\"https://github.com/TwooSix/Yanami/releases/tag/"
+            "v0.2.1\",\"prerelease\":false}]");
+        UpdateChecker checker(
+            &network,
+            QUrl(QStringLiteral("https://api.example.test/releases")),
+            QStringLiteral("0.2.0"));
+
+        checker.check();
+        QTRY_VERIFY(!checker.checking());
+        QCOMPARE(checker.releaseFound(), true);
+        QCOMPARE(checker.updateAvailable(), true);
+        QCOMPARE(checker.latestVersion(), QStringLiteral("v0.2.1"));
+    }
+
+    void installedHelperChecksAndDownloadsIncrementalUpdate()
+    {
+        FakeNetworkAccessManager network;
+        UpdateChecker checker(
+            &network,
+            QUrl(QStringLiteral("https://api.example.test/releases")),
+            QStringLiteral("0.2.0-dev.15"),
+            QString::fromUtf8(YANAMI_UPDATE_HELPER_FIXTURE));
+
+        checker.check();
+        QTRY_VERIFY(!checker.checking());
+        QCOMPARE(network.requestCount, 0);
+        QCOMPARE(checker.directUpdateSupported(), true);
+        QCOMPARE(checker.updateAvailable(), true);
+        QCOMPARE(checker.incrementalUpdate(), true);
+        QCOMPARE(checker.downloadSize(), 1048576);
+        QCOMPARE(checker.latestVersion(), QStringLiteral("v0.2.0-dev.16"));
+
+        checker.downloadUpdate();
+        QTRY_VERIFY(checker.updateReady());
+        QTRY_VERIFY(!checker.downloading());
+        QCOMPARE(checker.downloadProgress(), 100);
+        QCOMPARE(checker.errorMessage(), QString());
+    }
+
+    void ignoresDownloadClickUntilCheckHelperExits()
+    {
+        FakeNetworkAccessManager network;
+        UpdateChecker checker(
+            &network,
+            QUrl(QStringLiteral("https://api.example.test/releases")),
+            QStringLiteral("0.2.0-dev.15"),
+            QString::fromUtf8(YANAMI_UPDATE_HELPER_FIXTURE));
+
+        QVERIFY(qputenv(
+            "YANAMI_UPDATE_HELPER_FIXTURE_DELAY_CHECK_EXIT", "1"));
+        checker.check();
+        QTRY_VERIFY(checker.updateAvailable());
+        QVERIFY(checker.checking());
+
+        checker.downloadUpdate();
+        QCOMPARE(checker.downloading(), false);
+        QTRY_VERIFY(!checker.checking());
+        qunsetenv("YANAMI_UPDATE_HELPER_FIXTURE_DELAY_CHECK_EXIT");
+    }
+
+    void ignoresApplyClickUntilDownloadHelperExits()
+    {
+        FakeNetworkAccessManager network;
+        UpdateChecker checker(
+            &network,
+            QUrl(QStringLiteral("https://api.example.test/releases")),
+            QStringLiteral("0.2.0-dev.15"),
+            QString::fromUtf8(YANAMI_UPDATE_HELPER_FIXTURE));
+
+        checker.check();
+        QTRY_VERIFY(!checker.checking());
+        QVERIFY(qputenv(
+            "YANAMI_UPDATE_HELPER_FIXTURE_DELAY_DOWNLOAD_EXIT", "1"));
+        checker.downloadUpdate();
+        QTRY_VERIFY(checker.updateReady());
+        QVERIFY(checker.downloading());
+
+        checker.applyUpdate();
+        QCOMPARE(checker.applying(), false);
+        QTRY_VERIFY(!checker.downloading());
+        qunsetenv("YANAMI_UPDATE_HELPER_FIXTURE_DELAY_DOWNLOAD_EXIT");
+    }
+
+    void downloadSettlesWhenUpdateDisappearsAfterCheck()
+    {
+        FakeNetworkAccessManager network;
+        UpdateChecker checker(
+            &network,
+            QUrl(QStringLiteral("https://api.example.test/releases")),
+            QStringLiteral("0.2.0-dev.15"),
+            QString::fromUtf8(YANAMI_UPDATE_HELPER_FIXTURE));
+
+        checker.check();
+        QTRY_VERIFY(!checker.checking());
+        QVERIFY(checker.updateAvailable());
+
+        QVERIFY(qputenv(
+            "YANAMI_UPDATE_HELPER_FIXTURE_DOWNLOAD_RESULT", "current"));
+        checker.downloadUpdate();
+        QTRY_VERIFY(!checker.downloading());
+        qunsetenv("YANAMI_UPDATE_HELPER_FIXTURE_DOWNLOAD_RESULT");
+
+        QCOMPARE(checker.updateReady(), false);
+        QCOMPARE(checker.updateAvailable(), false);
+        QCOMPARE(checker.downloadProgress(), 0);
+        QCOMPARE(checker.errorMessage(), QString());
+    }
+
+    void cancelsDownloadDuringBackgroundDispatch()
+    {
+        FakeNetworkAccessManager network;
+        UpdateChecker checker(
+            &network, QUrl(QStringLiteral("https://api.example.test/releases")),
+            QStringLiteral("0.2.0-dev.15"),
+            QString::fromUtf8(YANAMI_UPDATE_HELPER_FIXTURE));
+        checker.check();
+        QTRY_VERIFY(!checker.checking());
+
+        checker.downloadUpdate();
+        QVERIFY(checker.downloading());
+        checker.cancelDownload();
+        QTRY_VERIFY(!checker.downloading());
+        QCOMPARE(checker.downloadProgress(), 0);
+        QVERIFY(!checker.updateReady());
+        QCOMPARE(checker.errorMessage(), QString());
+    }
+
+    void treatsEmptyReleaseListAsAValidResult()
+    {
+        FakeNetworkAccessManager network;
+        network.payload = QByteArrayLiteral("[]");
+        UpdateChecker checker(
+            &network,
+            QUrl(QStringLiteral("https://api.example.test/releases")),
+            QStringLiteral("0.2.0-dev.15"));
+
+        checker.check();
+        QTRY_VERIFY(!checker.checking());
+        QCOMPARE(checker.releaseFound(), false);
+        QCOMPARE(checker.errorMessage(), QString());
     }
 
     void treatsMissingPublishedReleaseAsAValidResult()

@@ -59,4 +59,41 @@ Assert-Match "macOS bootstrap smoke uses the resolved PowerShell path" `
 Assert-Absent "macOS isolated bootstrap smoke does not search for bare PowerShell" `
     '(?ms)PATH=/usr/bin:/bin:/usr/sbin:/sbin \\\r?\n\s*QT_QUICK_BACKEND=software \\\r?\n\s*pwsh -NoLogo -NoProfile -File \\'
 
+Assert-Match "Velopack libc archive is version and hash pinned" `
+    '(?s)velopack_libc_1\.2\.0\.zip.*?547262ed7a1ab1ff62f580aa53851ede2f1a451ac61b8974eb7bc01117488835'
+Assert-Match "Velopack libc DLL is independently hash pinned" `
+    'c36d8b984639a8af9d3397088d3ffb8213fe1bd0917f555cf0c6e33f014403ec'
+Assert-Match "release CMake receives the verified Velopack runtime" `
+    '-DYANAMI_VELOPACK_RUNTIME=\$env:YANAMI_VELOPACK_RUNTIME'
+Assert-Match "Windows package invokes the pinned Velopack packager" `
+    'scripts/package-windows-velopack\.ps1'
+Assert-Match "Windows packager receives the branded installer shell" `
+    'InstallerStubPath\s*=\s*\$installerStubPath'
+Assert-Match "published Setup verifies its embedded backend" `
+    'ArgumentList "--verify-payload"'
+Assert-Match "published Setup asset has the stable versioned name" `
+    'Yanami-\$\{\{ needs\.metadata\.outputs\.version \}\}-Windows-x86_64-Setup\.exe'
+Assert-Match "preview full package has an exact application id name" `
+    'io\.github\.TwooSix\.Yanami-\$YANAMI_RELEASE_VERSION-preview-full\.nupkg'
+Assert-Match "preview feed is a public release asset" `
+    'build/release-windows/releases\.preview\.json'
+Assert-Match "published full baseline is verified before delta generation" `
+    'Downloaded Velopack baseline failed its published size/SHA-256 check'
+Assert-Match "Setup smoke checks the per-user uninstall key" `
+    'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\io\.github\.TwooSix\.Yanami'
+Assert-Match "Setup smoke uses the public wizard automation contract" `
+    '"--install-dir", \$installRoot,\s*\r?\n\s*"--start-menu", "yes", "--desktop", "no", "--no-launch"'
+Assert-Match "Setup smoke verifies an unselected desktop shortcut stays absent" `
+    'Setup created a desktop shortcut even though it was disabled'
+Assert-Count "selected shortcut smokes verify their exact installed targets" `
+    'does not target the installed candidate' 2
+Assert-Match "Setup smoke exercises the alternate shortcut selection" `
+    '"--start-menu", "no", "--desktop", "yes", "--no-launch"'
+Assert-Match "alternate shortcut uninstall checks for orphaned desktop links" `
+    'Alternate shortcut uninstall left state behind'
+Assert-Match "aggregate manifest names the optional delta exactly" `
+    'delta_file="io\.github\.TwooSix\.Yanami-\$YANAMI_RELEASE_VERSION-preview-delta\.nupkg"'
+Assert-Absent "aggregate does not classify arbitrary zip files as portable packages" `
+    "-name '\*\.zip'"
+
 Write-Host "Release workflow contract tests passed ($assertions assertions)."

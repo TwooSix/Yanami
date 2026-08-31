@@ -75,6 +75,11 @@ $native = Invoke-Case -Path @("apps/desktop/native/WindowController.cpp")
 Assert-Equal $native.desktop $true "native desktop"
 Assert-Equal $native.nativeAnalysis $true "native analysis"
 
+$installer = Invoke-Case -Path @("apps/desktop/installer/WindowsInstaller.cpp")
+Assert-Equal $installer.desktop $true "installer desktop"
+Assert-Equal $installer.nativeAnalysis $true "installer native analysis"
+Assert-Equal $installer.package $true "installer package"
+
 $perf = Invoke-Case -Path @("perf/policy/calibration-v1.json")
 Assert-Equal $perf.rust $false "performance contract rust"
 Assert-Equal $perf.desktop $false "performance contract desktop"
@@ -113,6 +118,7 @@ Assert-Equal $attributes.performance $false "attributes performance"
 Assert-Equal $attributes.package $true "attributes package"
 
 foreach ($packageScriptPath in @(
+        "scripts/package-windows-velopack.ps1",
         "scripts/collect-linux-runtime-licenses.sh",
         "scripts/package-linux.sh",
         "scripts/package-macos.sh",

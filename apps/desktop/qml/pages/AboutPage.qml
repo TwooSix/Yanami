@@ -16,17 +16,45 @@ Item {
     }
 
     function updateStatusText() {
+        if (app.updates.applying)
+            return qsTr("Closing Yanami and starting the installer…")
+        if (app.updates.downloading)
+            return qsTr("Downloading update · %1% complete")
+                .arg(app.updates.downloadProgress)
+        if (app.updates.updateReady)
+            return qsTr("The update is ready. Restart Yanami to install it.")
         if (app.updates.checking)
             return qsTr("Checking GitHub Releases…")
         if (!app.updates.hasChecked)
-            return qsTr("Check whether a newer stable release is available.")
+            return qsTr("Check whether a newer release is available.")
         if (app.updates.errorMessage.length > 0)
             return app.updates.errorMessage
         if (!app.updates.releaseFound)
             return qsTr("No published release was found yet.")
+        if (app.updates.updateAvailable
+                && app.updates.directUpdateSupported
+                && app.updates.incrementalUpdate)
+            return qsTr("Version %1 is available as an incremental update (%2).")
+                .arg(app.updates.latestVersion)
+                .arg(root.formatBytes(app.updates.downloadSize))
+        if (app.updates.updateAvailable
+                && app.updates.directUpdateSupported)
+            return qsTr("Version %1 is available (%2 download).")
+                .arg(app.updates.latestVersion)
+                .arg(root.formatBytes(app.updates.downloadSize))
         if (app.updates.updateAvailable)
             return qsTr("Version %1 is available.").arg(app.updates.latestVersion)
         return qsTr("You are using the latest published version.")
+    }
+
+    function formatBytes(bytes) {
+        if (bytes <= 0)
+            return qsTr("size unknown")
+        if (bytes >= 1024 * 1024 * 1024)
+            return qsTr("%1 GB").arg((bytes / (1024 * 1024 * 1024)).toFixed(1))
+        if (bytes >= 1024 * 1024)
+            return qsTr("%1 MB").arg((bytes / (1024 * 1024)).toFixed(1))
+        return qsTr("%1 KB").arg(Math.ceil(bytes / 1024))
     }
 
     SmoothFlickable {
@@ -120,7 +148,7 @@ Item {
 
                 GlassPanel {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 202
+                    Layout.preferredHeight: 242
                     radius: Theme.radiusLarge
 
                     ColumnLayout {
@@ -160,7 +188,7 @@ Item {
 
                 GlassPanel {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 202
+                    Layout.preferredHeight: 242
                     radius: Theme.radiusLarge
                     border.color: app.updates.updateAvailable
                         ? "#70FF6687" : Theme.outline
@@ -188,22 +216,83 @@ Item {
                             font.pixelSize: 14
                             wrapMode: Text.WordWrap
                         }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 5
+                            visible: app.updates.downloading
+                                || app.updates.updateReady
+                            radius: height / 2
+                            color: "#22FFFFFF"
+
+                            Rectangle {
+                                width: parent.width
+                                    * Math.max(0, Math.min(100,
+                                        app.updates.downloadProgress)) / 100
+                                height: parent.height
+                                radius: height / 2
+                                color: Theme.accent
+
+                                Behavior on width {
+                                    NumberAnimation {
+                                        duration: 140
+                                        easing.type: Easing.OutCubic
+                                    }
+                                }
+                            }
+                        }
                         Item { Layout.fillHeight: true }
                         RowLayout {
                             spacing: 10
 
                             AppButton {
+                                visible: !app.updates.updateAvailable
+                                    && !app.updates.updateReady
                                 text: app.updates.checking
                                     ? qsTr("Checking…") : qsTr("Check for updates")
                                 iconName: "refresh"
                                 iconSpinning: app.updates.checking
                                 enabled: !app.updates.checking
+                                    && !app.updates.downloading
+                                    && !app.updates.applying
                                 onClicked: app.updates.check()
+                            }
+                            AppButton {
+                                visible: app.updates.updateAvailable
+                                    && app.updates.directUpdateSupported
+                                    && !app.updates.updateReady
+                                text: app.updates.downloading
+                                    ? qsTr("Cancel download")
+                                    : (app.updates.incrementalUpdate
+                                        ? qsTr("Download incremental update")
+                                        : qsTr("Download update"))
+                                kind: app.updates.downloading
+                                    ? "secondary" : "primary"
+                                iconName: app.updates.downloading
+                                    ? "close" : "download"
+                                enabled: !app.updates.checking
+                                    && !app.updates.applying
+                                onClicked: app.updates.downloading
+                                    ? app.updates.cancelDownload()
+                                    : app.updates.downloadUpdate()
+                            }
+                            AppButton {
+                                visible: app.updates.updateReady
+                                text: app.updates.applying
+                                    ? qsTr("Starting installer…")
+                                    : qsTr("Restart and install")
+                                kind: "primary"
+                                iconName: app.updates.applying
+                                    ? "refresh" : "download"
+                                iconSpinning: app.updates.applying
+                                enabled: !app.updates.downloading
+                                    && !app.updates.applying
+                                onClicked: app.updates.applyUpdate()
                             }
                             AppButton {
                                 visible: app.updates.updateAvailable
                                 text: qsTr("View release")
                                 iconName: "open"
+                                enabled: !app.updates.applying
                                 onClicked: root.openExternalUrl(
                                     app.updates.releaseUrl,
                                     qsTr("Could not open the release page."))

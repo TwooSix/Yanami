@@ -1140,7 +1140,9 @@ ApplicationWindow {
         Loader {
             id: metadataEditorLoader
             active: false
-            source: Qt.resolvedUrl("components/MetadataEditorDialog.qml")
+            sourceComponent: Component {
+                MetadataEditorDialog {}
+            }
         }
         Connections {
             target: metadataEditorLoader.item
@@ -1157,7 +1159,9 @@ ApplicationWindow {
         Loader {
             id: imageEditorLoader
             active: false
-            source: Qt.resolvedUrl("components/ImageEditorDialog.qml")
+            sourceComponent: Component {
+                ImageEditorDialog {}
+            }
         }
         Connections {
             target: imageEditorLoader.item
@@ -1171,7 +1175,9 @@ ApplicationWindow {
         Loader {
             id: refreshMetadataLoader
             active: false
-            source: Qt.resolvedUrl("components/RefreshMetadataDialog.qml")
+            sourceComponent: Component {
+                RefreshMetadataDialog {}
+            }
         }
         Connections {
             target: refreshMetadataLoader.item
@@ -1185,7 +1191,9 @@ ApplicationWindow {
         Loader {
             id: mediaTargetLoader
             active: false
-            source: Qt.resolvedUrl("components/MediaTargetDialog.qml")
+            sourceComponent: Component {
+                MediaTargetDialog {}
+            }
         }
         Connections {
             target: mediaTargetLoader.item

@@ -300,6 +300,16 @@ if(DEFINED YANAMI_COLLECT_PACKAGE_LICENSES AND YANAMI_COLLECT_PACKAGE_LICENSES)
         if(deployed_relative STREQUAL "yanami_desktop_bridge.dll")
             continue()
         endif()
+        if(DEFINED YANAMI_VELOPACK_RUNTIME
+                AND EXISTS "${YANAMI_VELOPACK_RUNTIME}"
+                AND DEFINED YANAMI_VELOPACK_RUNTIME_NAME)
+            if(deployed_name STREQUAL "${YANAMI_VELOPACK_RUNTIME_NAME}")
+                # This runtime is downloaded and hash-pinned by the release
+                # workflow and carries its own bundled MIT notice. It is not
+                # owned by pacman, so exclude it from the MSYS2 inventory.
+                continue()
+            endif()
+        endif()
 
         set(original_candidates)
         if(deployed_name STREQUAL "${mpv_name}")
