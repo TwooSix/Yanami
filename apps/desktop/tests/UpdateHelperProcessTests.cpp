@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QProcess>
+#include <QSemaphore>
 #include <QSignalSpy>
 #include <QTest>
 #include <QThread>
@@ -206,36 +207,51 @@ private slots:
     {
         auto enteredLaunch = std::make_shared<std::atomic_bool>(false);
         auto correctThread = std::make_shared<std::atomic_bool>(false);
+        auto launchReturned = std::make_shared<std::atomic_bool>(false);
+        auto gateAcquired = std::make_shared<std::atomic_bool>(false);
+        auto dispatchedDuringLaunch = std::make_shared<std::atomic_bool>(false);
+        auto releaseLaunch = std::make_shared<QSemaphore>();
         QThread *const ownerThread = thread();
         UpdateHelperProcess process(
-            [enteredLaunch, correctThread, ownerThread](QProcess &helper) {
+            [enteredLaunch, correctThread, launchReturned, gateAcquired,
+             releaseLaunch, ownerThread](QProcess &helper) {
                 correctThread->store(QThread::currentThread() != ownerThread
                     && helper.thread() == QThread::currentThread());
                 enteredLaunch->store(true);
-                QThread::msleep(300);
+                // The owner event loop must release startup. A finite guard
+                // makes an accidental synchronous implementation fail safely.
+                gateAcquired->store(releaseLaunch->tryAcquire(1, 10000));
+                launchReturned->store(true);
                 helper.start();
             }, nullptr);
         QSignalSpy finished(&process, &UpdateHelperProcess::finished);
-        int heartbeatCount = 0;
-        QTimer heartbeat;
-        heartbeat.setTimerType(Qt::PreciseTimer);
-        heartbeat.setInterval(10);
-        connect(&heartbeat, &QTimer::timeout, this, [&] { ++heartbeatCount; });
-        heartbeat.start();
+        QSignalSpy output(&process, &UpdateHelperProcess::outputReady);
 
-        QElapsedTimer elapsed;
-        elapsed.start();
         process.start(QCoreApplication::applicationFilePath(),
-            fixtureArguments(QStringLiteral("success")), 3000);
-        QVERIFY2(elapsed.elapsed() < 100,
-            "start() must return before synchronous OS process creation");
-        QTRY_VERIFY_WITH_TIMEOUT(enteredLaunch->load(), 1000);
-        QTest::qWait(150);
-        QVERIFY(heartbeatCount >= 5);
+            fixtureArguments(QStringLiteral("success")));
+        QTRY_VERIFY_WITH_TIMEOUT(enteredLaunch->load(), 3000);
+        QVERIFY2(!launchReturned->load(),
+            "start() must return while synchronous process creation is blocked");
         QVERIFY(finished.isEmpty());
         QVERIFY(correctThread->load());
+
+        // Assert ordering, not timer frequency: loaded CI runners can coalesce
+        // repeated timer events even when their owning thread remains free.
+        QTimer::singleShot(0, &process,
+            [enteredLaunch, launchReturned, dispatchedDuringLaunch,
+             releaseLaunch, ownerThread] {
+                dispatchedDuringLaunch->store(enteredLaunch->load()
+                    && !launchReturned->load()
+                    && QThread::currentThread() == ownerThread);
+                releaseLaunch->release();
+            });
+        QTRY_VERIFY_WITH_TIMEOUT(dispatchedDuringLaunch->load(), 3000);
         QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
+        QVERIFY(gateAcquired->load());
         QCOMPARE(finished.first().at(0).toInt(), 0);
+        QCOMPARE(finished.first().at(1).toBool(), false);
+        QCOMPARE(output.size(), 1);
+        QCOMPARE(output.first().at(0).toByteArray(), QByteArrayLiteral("done"));
     }
 
     void deadlineIncludesSynchronousLaunchTime()
