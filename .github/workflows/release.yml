@@ -214,6 +214,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Test Unicode-safe Windows shortcut inspection
+        shell: pwsh
+        run: .\.github\scripts\Test-WindowsShortcut.ps1
+
       - name: Download the generated Rust license inventory
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -862,6 +866,7 @@ jobs:
       - name: Smoke-test per-user installation and uninstall registration
         shell: pwsh
         run: |
+          . ./.github/scripts/WindowsShortcut.ps1
           $setupName =
             "Yanami-$env:YANAMI_RELEASE_VERSION-Windows-x86_64-Setup.exe"
           $setupPath = [IO.Path]::GetFullPath(
@@ -917,19 +922,19 @@ jobs:
             if (Test-Path -LiteralPath $desktopShortcutPath) {
               throw "Setup created a desktop shortcut even though it was disabled."
             }
-            $shortcutShell = New-Object -ComObject WScript.Shell
-            try {
-              $shortcut = $shortcutShell.CreateShortcut($shortcutPath)
-              if ([IO.Path]::GetFullPath([string]$shortcut.TargetPath) -ine
-                    [IO.Path]::GetFullPath(
-                      (Join-Path $installRoot "current\Yanami.exe")) -or
-                  [IO.Path]::GetFullPath([string]$shortcut.WorkingDirectory) -ine
-                    [IO.Path]::GetFullPath((Join-Path $installRoot "current"))) {
-                throw "The Start-menu shortcut does not target the installed candidate."
-              }
-            } finally {
-              [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject(
-                $shortcutShell)
+            $shortcut = Get-WindowsShortcut -LiteralPath $shortcutPath
+            $expectedTarget = [IO.Path]::GetFullPath(
+              (Join-Path $installRoot "current\Yanami.exe"))
+            $expectedWorkingDirectory = [IO.Path]::GetFullPath(
+              (Join-Path $installRoot "current"))
+            $actualTarget = [IO.Path]::GetFullPath([string]$shortcut.TargetPath)
+            $actualWorkingDirectory = [IO.Path]::GetFullPath(
+              [string]$shortcut.WorkingDirectory)
+            if ($actualTarget -ine $expectedTarget -or
+                $actualWorkingDirectory -ine $expectedWorkingDirectory) {
+              throw ("The Start-menu shortcut does not target the installed candidate. " +
+                "Expected TargetPath='$expectedTarget'; actual TargetPath='$actualTarget'. " +
+                "Expected WorkingDirectory='$expectedWorkingDirectory'; actual WorkingDirectory='$actualWorkingDirectory'.")
             }
             $uninstall = Get-ItemProperty -LiteralPath $registryPath
             $shortVersion = [Management.Automation.SemanticVersion]::Parse(
@@ -983,6 +988,7 @@ jobs:
       - name: Smoke-test the alternate desktop shortcut choice
         shell: pwsh
         run: |
+          . ./.github/scripts/WindowsShortcut.ps1
           $setupName =
             "Yanami-$env:YANAMI_RELEASE_VERSION-Windows-x86_64-Setup.exe"
           $setupPath = [IO.Path]::GetFullPath(
@@ -1027,19 +1033,19 @@ jobs:
             if (Test-Path -LiteralPath $startShortcutPath) {
               throw "Setup created a Start-menu shortcut even though it was disabled."
             }
-            $shortcutShell = New-Object -ComObject WScript.Shell
-            try {
-              $shortcut = $shortcutShell.CreateShortcut($desktopShortcutPath)
-              if ([IO.Path]::GetFullPath([string]$shortcut.TargetPath) -ine
-                    [IO.Path]::GetFullPath(
-                      (Join-Path $installRoot "current\Yanami.exe")) -or
-                  [IO.Path]::GetFullPath([string]$shortcut.WorkingDirectory) -ine
-                    [IO.Path]::GetFullPath((Join-Path $installRoot "current"))) {
-                throw "The desktop shortcut does not target the installed candidate."
-              }
-            } finally {
-              [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject(
-                $shortcutShell)
+            $shortcut = Get-WindowsShortcut -LiteralPath $desktopShortcutPath
+            $expectedTarget = [IO.Path]::GetFullPath(
+              (Join-Path $installRoot "current\Yanami.exe"))
+            $expectedWorkingDirectory = [IO.Path]::GetFullPath(
+              (Join-Path $installRoot "current"))
+            $actualTarget = [IO.Path]::GetFullPath([string]$shortcut.TargetPath)
+            $actualWorkingDirectory = [IO.Path]::GetFullPath(
+              [string]$shortcut.WorkingDirectory)
+            if ($actualTarget -ine $expectedTarget -or
+                $actualWorkingDirectory -ine $expectedWorkingDirectory) {
+              throw ("The desktop shortcut does not target the installed candidate. " +
+                "Expected TargetPath='$expectedTarget'; actual TargetPath='$actualTarget'. " +
+                "Expected WorkingDirectory='$expectedWorkingDirectory'; actual WorkingDirectory='$actualWorkingDirectory'.")
             }
             if (-not (Test-Path -LiteralPath $registryPath)) {
               throw "The alternate shortcut installation was not registered for uninstall."
