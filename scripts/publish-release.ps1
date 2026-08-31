@@ -94,16 +94,40 @@ if ($manifest.sourceVersion -notmatch '^([0-9]+\.[0-9]+\.[0-9]+-dev)\.0$' -or
     throw "The release manifest does not contain a valid development candidate version."
 }
 
-$expectedNames = @(
+$requiredNames = @(
     "Yanami-$($manifest.version)-Windows-x86_64.zip",
+    "Yanami-$($manifest.version)-Windows-x86_64-Setup.exe",
+    "io.github.TwooSix.Yanami-$($manifest.version)-preview-full.nupkg",
+    "releases.preview.json",
     "Yanami-$($manifest.version)-Linux-x86_64.AppImage",
     "Yanami-$($manifest.version)-macOS-arm64.dmg",
     "Yanami-$($manifest.version)-macOS-x86_64.dmg"
 ) | Sort-Object
-$manifestNames = @($manifest.files.name) | Sort-Object
-if (Compare-Object $expectedNames $manifestNames) {
-    throw "The candidate does not contain the expected four platform packages."
+$optionalDeltaName =
+    "io.github.TwooSix.Yanami-$($manifest.version)-preview-delta.nupkg"
+$manifestNames = @($manifest.files | ForEach-Object { [string]$_.name }) |
+    Sort-Object
+if ($manifestNames.Count -ne @($manifestNames | Select-Object -Unique).Count) {
+    throw "The release manifest contains duplicate asset names."
 }
+foreach ($name in $manifestNames) {
+    if ([string]::IsNullOrWhiteSpace($name) -or
+        [IO.Path]::GetFileName($name) -cne $name) {
+        throw "The release manifest contains an unsafe asset name: $name"
+    }
+}
+$missingRequired = @(Compare-Object $requiredNames $manifestNames |
+    Where-Object SideIndicator -eq '<=' | ForEach-Object InputObject)
+if ($missingRequired.Count -ne 0) {
+    throw "The candidate is missing required release assets: $($missingRequired -join ', ')"
+}
+$unexpectedNames = @($manifestNames | Where-Object {
+    $_ -notin $requiredNames -and $_ -cne $optionalDeltaName
+})
+if ($unexpectedNames.Count -ne 0) {
+    throw "The candidate contains unexpected release assets: $($unexpectedNames -join ', ')"
+}
+$expectedNames = $manifestNames
 
 foreach ($entry in $manifest.files) {
     $assetPath = Join-Path $candidateRoot $entry.name
@@ -117,12 +141,74 @@ foreach ($entry in $manifest.files) {
     }
     $checksumPath = "$assetPath.sha256"
     if (-not (Test-Path -LiteralPath $checksumPath -PathType Leaf)) {
-        throw "Per-platform checksum is missing: $($entry.name).sha256"
+        throw "Per-asset checksum is missing: $($entry.name).sha256"
     }
-    $recordedHash = ((Get-Content -LiteralPath $checksumPath -Raw) -split '\s+')[0]
-    if ($recordedHash.ToLowerInvariant() -ne $hash) {
-        throw "Per-platform checksum does not match: $($entry.name)"
+    $checksumText = (Get-Content -LiteralPath $checksumPath -Raw).Trim()
+    $checksumMatch = [regex]::Match($checksumText,
+        "^([0-9a-fA-F]{64})\s+\*?$([regex]::Escape($entry.name))$")
+    if (-not $checksumMatch.Success -or
+        $checksumMatch.Groups[1].Value.ToLowerInvariant() -ne $hash) {
+        throw "Per-asset checksum does not match: $($entry.name)"
     }
+}
+
+$feedPath = Join-Path $candidateRoot "releases.preview.json"
+$feed = Get-Content -LiteralPath $feedPath -Raw | ConvertFrom-Json
+$feedAssets = @($feed.Assets)
+if ($feedAssets.Count -eq 0) {
+    throw "The Velopack preview feed contains no assets."
+}
+$feedNames = @($feedAssets | ForEach-Object { [string]$_.FileName })
+if ($feedNames.Count -ne @($feedNames | Select-Object -Unique).Count) {
+    throw "The Velopack preview feed contains duplicate file names."
+}
+foreach ($feedEntry in $feedAssets) {
+    $feedName = [string]$feedEntry.FileName
+    if ([string]$feedEntry.PackageId -cne "io.github.TwooSix.Yanami" -or
+        $feedName -notmatch '^io\.github\.TwooSix\.Yanami-[0-9A-Za-z.+-]+-preview-(full|delta)\.nupkg$' -or
+        [string]$feedEntry.Type -notin @("Full", "Delta") -or
+        [string]$feedEntry.SHA256 -notmatch '^[0-9a-fA-F]{64}$' -or
+        [int64]$feedEntry.Size -le 0) {
+        throw "The Velopack preview feed contains an invalid asset entry: $feedName"
+    }
+    $nameKind = if ($feedName.EndsWith('-full.nupkg')) { "Full" } else { "Delta" }
+    if ([string]$feedEntry.Type -cne $nameKind) {
+        throw "The Velopack feed type disagrees with its file name: $feedName"
+    }
+}
+
+function Assert-CurrentFeedAsset {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Type
+    )
+
+    $entries = @($feedAssets | Where-Object {
+        [string]$_.FileName -ceq $Name -and
+        [string]$_.Version -ceq [string]$manifest.version -and
+        [string]$_.Type -ceq $Type
+    })
+    if ($entries.Count -ne 1) {
+        throw "The Velopack preview feed must contain exactly one current $Type asset: $Name"
+    }
+    $manifestEntry = @($manifest.files | Where-Object name -CEQ $Name)
+    if ($manifestEntry.Count -ne 1 -or
+        [string]$entries[0].SHA256.ToLowerInvariant() -cne
+            [string]$manifestEntry[0].sha256.ToLowerInvariant() -or
+        [int64]$entries[0].Size -ne [int64]$manifestEntry[0].size) {
+        throw "The Velopack feed hash/size disagrees with the release manifest: $Name"
+    }
+}
+
+$fullName = "io.github.TwooSix.Yanami-$($manifest.version)-preview-full.nupkg"
+Assert-CurrentFeedAsset -Name $fullName -Type "Full"
+if ($optionalDeltaName -in $manifestNames) {
+    Assert-CurrentFeedAsset -Name $optionalDeltaName -Type "Delta"
+} elseif ($feedAssets | Where-Object {
+        [string]$_.Version -ceq [string]$manifest.version -and
+        [string]$_.Type -ceq "Delta"
+    }) {
+    throw "The Velopack feed references a current delta that is not published."
 }
 
 $combinedChecksum = Join-Path $candidateRoot "SHA256SUMS.txt"
@@ -141,7 +227,7 @@ foreach ($line in Get-Content -LiteralPath $combinedChecksum) {
     $combinedEntries[$Matches[2]] = $Matches[1].ToLowerInvariant()
 }
 if (Compare-Object $expectedNames @($combinedEntries.Keys)) {
-    throw "The combined checksum does not cover the expected four packages."
+    throw "The combined checksum does not cover exactly the manifest assets."
 }
 foreach ($entry in $manifest.files) {
     if ($combinedEntries[$entry.name] -ne $entry.sha256) {

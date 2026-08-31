@@ -77,6 +77,12 @@ jobs:
       - name: Test the packaging contract
         shell: pwsh
         run: .\.github\scripts\Test-PackagingPolicy.ps1
+      - name: Test the Windows Velopack packaging contract
+        shell: pwsh
+        run: .\.github\scripts\Test-WindowsVelopackPackage.ps1
+      - name: Test the user-local Linux installer
+        shell: bash
+        run: .github/scripts/Test-LinuxInstaller.sh
       - name: Validate repository script syntax
         shell: bash
         run: |

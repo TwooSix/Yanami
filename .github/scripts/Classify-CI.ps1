@@ -79,10 +79,10 @@ $runWorkflows = $workflowFiles.Count -gt 0 -or $toolingFiles.Count -gt 0
 $nativeFiles = @($changed | Where-Object {
     $_ -match '(^|/)CMakeLists\.txt$' -or
     $_ -match '^apps/desktop/cmake/' -or
-    $_ -match '^apps/desktop/(native|tests)/.*\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$'
+    $_ -match '^apps/desktop/(bootstrap|installer|native|tests|updater)/.*\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$'
 })
 $runNativeAnalysis = $nativeFiles.Count -gt 0 -or $unknownProductFiles.Count -gt 0
-$packageInputPattern = '^(apps/desktop/|crates/(?!yanami-performance-probe/)|Cargo\.(toml|lock)$|rust-toolchain(?:\.toml)?$|VERSION$|about\.toml$|licenses/|README\.md$|README\.zh-CN\.md$|LICENSE$|THIRD_PARTY_NOTICES\.md$|\.gitattributes$|\.github/workflows/release\.yml$|scripts/performance/(?:PerfGate\.psm1|run-gate\.ps1|Test-BootstrapPackage\.ps1)$|scripts/(?:collect-linux-runtime-licenses|generate-rust-license-inventory|package-linux|package-macos|verify-macos-bundle)\.sh$)'
+$packageInputPattern = '^(apps/desktop/|crates/(?!yanami-performance-probe/)|Cargo\.(toml|lock)$|rust-toolchain(?:\.toml)?$|VERSION$|about\.toml$|licenses/|README\.md$|README\.zh-CN\.md$|LICENSE$|THIRD_PARTY_NOTICES\.md$|\.gitattributes$|\.github/workflows/release\.yml$|scripts/performance/(?:PerfGate\.psm1|run-gate\.ps1|Test-BootstrapPackage\.ps1)$|scripts/package-windows-velopack\.ps1$|scripts/(?:collect-linux-runtime-licenses|generate-rust-license-inventory|package-linux|package-macos|verify-macos-bundle)\.sh$)'
 $packageFiles = @($changed | Where-Object { $_ -match $packageInputPattern })
 $runPackage = $packageFiles.Count -gt 0 -or $unknownProductFiles.Count -gt 0
 

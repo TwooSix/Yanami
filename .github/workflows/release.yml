@@ -159,6 +159,7 @@ jobs:
             ~/.cargo/git/db
           key: cargo-registry-v1-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-registry-v1-${{ runner.os }}-
+
       - name: Cache the pinned license tool
         id: license-tool
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -252,6 +253,35 @@ jobs:
           key: cargo-registry-v1-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-registry-v1-${{ runner.os }}-
 
+      - name: Download and verify the pinned Velopack native runtime
+        shell: pwsh
+        run: |
+          $runtimeRoot = [IO.Path]::GetFullPath("build\velopack-runtime\1.2.0")
+          New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
+          $archive = Join-Path $runtimeRoot "velopack_libc_1.2.0.zip"
+          Invoke-WebRequest `
+            -Uri "https://github.com/velopack/velopack/releases/download/1.2.0/velopack_libc_1.2.0.zip" `
+            -OutFile $archive
+          $archiveHash = (Get-FileHash -LiteralPath $archive `
+            -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($archiveHash -cne
+              "547262ed7a1ab1ff62f580aa53851ede2f1a451ac61b8974eb7bc01117488835") {
+            throw "Velopack libc 1.2.0 archive SHA-256 mismatch."
+          }
+          $expanded = Join-Path $runtimeRoot "expanded"
+          Expand-Archive -LiteralPath $archive -DestinationPath $expanded
+          $runtime = Join-Path $expanded "lib\velopack_libc_win_x64_msvc.dll"
+          if (-not (Test-Path -LiteralPath $runtime -PathType Leaf)) {
+            throw "Velopack libc archive is missing the Windows x64 runtime."
+          }
+          $runtimeHash = (Get-FileHash -LiteralPath $runtime `
+            -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($runtimeHash -cne
+              "c36d8b984639a8af9d3397088d3ffb8213fe1bd0917f555cf0c6e33f014403ec") {
+            throw "Velopack libc Windows x64 DLL SHA-256 mismatch."
+          }
+          "YANAMI_VELOPACK_RUNTIME=$runtime" >> $env:GITHUB_ENV
+
       - name: Validate the immutable main candidate
         shell: pwsh
         run: |
@@ -300,6 +330,7 @@ jobs:
             "-DYANAMI_BUILD_COMMIT=$env:YANAMI_RELEASE_SHA" `
             "-DYANAMI_BUILD_RUN_ID=$env:GITHUB_RUN_ID" `
             "-DYANAMI_RUST_LICENSE_INVENTORY=${{ github.workspace }}\build\generated-licenses\THIRD_PARTY_LICENSES.html" `
+            "-DYANAMI_VELOPACK_RUNTIME=$env:YANAMI_VELOPACK_RUNTIME" `
             -DYANAMI_PACKAGE_ARCHITECTURE=x86_64
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$ucrtBin\cmake.exe" --build build/release-windows --parallel
@@ -344,10 +375,21 @@ jobs:
           $launcher = Get-ChildItem $extractRoot -Filter Yanami.exe -Recurse |
             Where-Object { $_.DirectoryName -eq $executable.DirectoryName } |
             Select-Object -First 1
+          $updater = Get-ChildItem $extractRoot -Filter yanami-updater.exe -Recurse |
+            Where-Object { $_.DirectoryName -eq $executable.DirectoryName } |
+            Select-Object -First 1
           $bridge = Get-ChildItem $extractRoot -Filter yanami_desktop_bridge.dll -Recurse |
             Select-Object -First 1
-          if (-not $executable -or -not $launcher -or -not $bridge) {
-            throw "Package launcher, desktop, or bridge binary is missing."
+          if (-not $executable -or -not $launcher -or -not $updater -or -not $bridge) {
+            throw "Package launcher, updater, desktop, or bridge binary is missing."
+          }
+          $velopackRuntime = Join-Path $executable.DirectoryName "velopack_libc.dll"
+          if (-not (Test-Path -LiteralPath $velopackRuntime -PathType Leaf)) {
+            throw "The pinned Velopack native update runtime is missing."
+          }
+          if ((Get-FileHash -LiteralPath $velopackRuntime -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+              "c36d8b984639a8af9d3397088d3ffb8213fe1bd0917f555cf0c6e33f014403ec") {
+            throw "The packaged Velopack native runtime SHA-256 is unexpected."
           }
           $platformDirectory = Join-Path $executable.DirectoryName "platforms"
           foreach ($platformPlugin in @("qwindows.dll")) {
@@ -400,6 +442,7 @@ jobs:
               "BUILD_INFO.json",
               "SHA256SUMS.txt",
               "licenses\rust\THIRD_PARTY_LICENSES.html",
+              "licenses\velopack\MIT.txt",
               "licenses\ffmpeg\GPL-3.0-or-later.txt",
               "licenses\libass\ISC.txt",
               "licenses\mpv\GPL-2.0-or-later.txt",
@@ -487,7 +530,8 @@ jobs:
               throw "Runtime owner has no packaged license or notice text: $owner"
             }
           }
-          foreach ($binary in @($launcher.FullName, $executable.FullName, $bridge.FullName)) {
+          foreach ($binary in @($launcher.FullName, $updater.FullName,
+              $executable.FullName, $bridge.FullName)) {
             $binaryText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($binary))
             if ($binaryText -match 'YANAMI_DEV_') {
               throw "A production binary contains a development hook: $binary"
@@ -498,7 +542,8 @@ jobs:
           if (-not $bridgeText.Contains($env:YANAMI_RELEASE_VERSION)) {
             throw "The Rust bridge does not contain the candidate version."
           }
-          foreach ($binary in @($launcher.FullName, $executable.FullName, $bridge.FullName)) {
+          foreach ($binary in @($launcher.FullName, $updater.FullName,
+              $executable.FullName, $bridge.FullName)) {
             if ((Get-AuthenticodeSignature -LiteralPath $binary).Status -ne "NotSigned") {
               throw "The unsigned release unexpectedly contains an Authenticode signature: $binary"
             }
@@ -596,6 +641,452 @@ jobs:
           if (Test-Path $screenshot) { throw "A production development hook created a screenshot." }
           if (Test-Path $devLog) { throw "A production development hook created a log." }
 
+      - name: Restore the hash-verified Velopack tool cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: build/tools/velopack/1.2.0
+          key: velopack-1.2.0-dotnet-runtime-10.0.0-windows-x86_64
+
+      - name: Download the latest published preview full package
+        id: velopack-baseline
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YANAMI_REPOSITORY: ${{ github.repository }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+            throw "GITHUB_TOKEN is required to query the published Velopack feed."
+          }
+          $headers = @{
+            Accept = "application/vnd.github+json"
+            Authorization = "Bearer $env:GH_TOKEN"
+            "X-GitHub-Api-Version" = "2022-11-28"
+            "User-Agent" = "Yanami release packaging"
+          }
+          $api = "https://api.github.com/repos/$env:YANAMI_REPOSITORY/releases?per_page=10"
+          $releases = @(Invoke-RestMethod -Uri $api -Headers $headers)
+          $currentVersion = [Management.Automation.SemanticVersion]::Parse(
+            $env:YANAMI_RELEASE_VERSION)
+          $candidateByName = @{}
+
+          foreach ($release in $releases) {
+            if ([bool]$release.draft) { continue }
+            $feedAssets = @($release.assets | Where-Object {
+              [string]$_.name -ceq "releases.preview.json"
+            })
+            if ($feedAssets.Count -gt 1) {
+              throw "A published release contains duplicate releases.preview.json assets."
+            }
+            if ($feedAssets.Count -eq 0) { continue }
+
+            $feed = Invoke-RestMethod `
+              -Uri ([string]$feedAssets[0].browser_download_url) `
+              -Headers $headers
+            foreach ($entry in @($feed.Assets | Where-Object {
+                [string]$_.PackageId -ceq "io.github.TwooSix.Yanami" -and
+                [string]$_.Type -ceq "Full"
+              })) {
+              $entryVersionText = [string]$entry.Version
+              try {
+                $entryVersion = [Management.Automation.SemanticVersion]::Parse(
+                  $entryVersionText)
+              } catch {
+                throw "Published Velopack feed contains an invalid version: $entryVersionText"
+              }
+              $expectedName =
+                "io.github.TwooSix.Yanami-$entryVersionText-preview-full.nupkg"
+              if ([string]$entry.FileName -cne $expectedName -or
+                  [string]$entry.SHA256 -notmatch '^[0-9a-fA-F]{64}$' -or
+                  [int64]$entry.Size -le 0) {
+                throw "Published Velopack feed contains an invalid full entry: $($entry.FileName)"
+              }
+              $releasePackages = @($release.assets | Where-Object {
+                [string]$_.name -ceq $expectedName
+              })
+              if ($releasePackages.Count -gt 1) {
+                throw "A published release contains duplicate Velopack full assets: $expectedName"
+              }
+              # Historical entries can remain in a feed. Only the package
+              # physically attached to this release is a baseline candidate.
+              if ($releasePackages.Count -eq 0) { continue }
+              if ($entryVersion -ge $currentVersion) {
+                throw "Published Velopack baseline $entryVersionText is not older than candidate $env:YANAMI_RELEASE_VERSION."
+              }
+              if ([int64]$releasePackages[0].size -ne [int64]$entry.Size) {
+                throw "GitHub and releases.preview.json disagree on baseline size: $expectedName"
+              }
+              if (-not $candidateByName.ContainsKey($expectedName)) {
+                $candidateByName[$expectedName] = [pscustomobject]@{
+                  version = $entryVersion
+                  entry = $entry
+                  asset = $releasePackages[0]
+                }
+              }
+            }
+          }
+
+          $baselineRoot = [IO.Path]::GetFullPath(
+            (Join-Path $env:GITHUB_WORKSPACE "build\velopack-baseline"))
+          New-Item -ItemType Directory -Path $baselineRoot -Force | Out-Null
+          $selected = @($candidateByName.Values |
+            Sort-Object version -Descending | Select-Object -First 1)
+          if ($selected.Count -eq 0) {
+            "available=false" >> $env:GITHUB_OUTPUT
+            "directory=$baselineRoot" >> $env:GITHUB_OUTPUT
+            Write-Host "No published preview full package exists; this candidate will not contain a delta."
+            exit 0
+          }
+
+          $baselineName = [string]$selected[0].entry.FileName
+          $baselinePath = Join-Path $baselineRoot $baselineName
+          Invoke-WebRequest -Uri ([string]$selected[0].asset.browser_download_url) `
+            -Headers $headers -OutFile $baselinePath
+          $baseline = Get-Item -LiteralPath $baselinePath
+          $actualHash = (Get-FileHash -LiteralPath $baselinePath `
+            -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expectedHash = ([string]$selected[0].entry.SHA256).ToLowerInvariant()
+          if ($baseline.Length -ne [int64]$selected[0].entry.Size -or
+              $actualHash -cne $expectedHash) {
+            throw "Downloaded Velopack baseline failed its published size/SHA-256 check."
+          }
+          "available=true" >> $env:GITHUB_OUTPUT
+          "directory=$baselineRoot" >> $env:GITHUB_OUTPUT
+          "name=$baselineName" >> $env:GITHUB_OUTPUT
+          Write-Host "Verified delta baseline $baselineName."
+
+      - name: Create and verify the Velopack installer and update feed
+        shell: pwsh
+        env:
+          VELOPACK_BASELINE_AVAILABLE: ${{ steps.velopack-baseline.outputs.available }}
+          VELOPACK_BASELINE_DIRECTORY: ${{ steps.velopack-baseline.outputs.directory }}
+        run: |
+          $archiveName = "Yanami-$env:YANAMI_RELEASE_VERSION-Windows-x86_64.zip"
+          $archivePath = [IO.Path]::GetFullPath(
+            (Join-Path "build\release-windows" $archiveName))
+          $inputRoot = Join-Path $env:RUNNER_TEMP `
+            "yanami-velopack-input-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (Test-Path -LiteralPath $inputRoot) {
+            throw "Velopack input staging already exists: $inputRoot"
+          }
+          New-Item -ItemType Directory -Path $inputRoot | Out-Null
+          Expand-Archive -LiteralPath $archivePath -DestinationPath $inputRoot
+
+          $workOutput = [IO.Path]::GetFullPath(
+            (Join-Path "build\release-windows" "velopack-work"))
+          $installerStubPath = [IO.Path]::GetFullPath(
+            "build\release-windows\yanami-installer-stub.exe")
+          if (-not (Test-Path -LiteralPath $installerStubPath -PathType Leaf) -or
+              (Get-Item -LiteralPath $installerStubPath).Length -le 0) {
+            throw "The Yanami installer shell was not built: $installerStubPath"
+          }
+          $installerHeader = [IO.File]::ReadAllBytes($installerStubPath)
+          if ($installerHeader.Length -lt 2 -or
+              $installerHeader[0] -ne 0x4d -or $installerHeader[1] -ne 0x5a) {
+            throw "The Yanami installer shell is not a Windows PE executable."
+          }
+          $parameters = @{
+            PackageRoot = $inputRoot
+            Version = $env:YANAMI_RELEASE_VERSION
+            OutputDirectory = $workOutput
+            InstallerStubPath = $installerStubPath
+          }
+          if ($env:VELOPACK_BASELINE_AVAILABLE -eq "true") {
+            $parameters.PreviousReleaseDirectory =
+              $env:VELOPACK_BASELINE_DIRECTORY
+          }
+          & scripts/package-windows-velopack.ps1 @parameters | Out-Host
+
+          $publicNames = [Collections.Generic.List[string]]::new()
+          $publicNames.Add(
+            "Yanami-$env:YANAMI_RELEASE_VERSION-Windows-x86_64-Setup.exe")
+          $publicNames.Add(
+            "io.github.TwooSix.Yanami-$env:YANAMI_RELEASE_VERSION-preview-full.nupkg")
+          $publicNames.Add("releases.preview.json")
+          $deltaName =
+            "io.github.TwooSix.Yanami-$env:YANAMI_RELEASE_VERSION-preview-delta.nupkg"
+          $deltaPath = Join-Path $workOutput $deltaName
+          if ($env:VELOPACK_BASELINE_AVAILABLE -eq "true") {
+            if (-not (Test-Path -LiteralPath $deltaPath -PathType Leaf)) {
+              throw "A verified previous full package did not produce the expected delta."
+            }
+            $publicNames.Add($deltaName)
+          } elseif (Test-Path -LiteralPath $deltaPath) {
+            throw "A delta was generated without a published previous full package."
+          }
+
+          $releaseRoot = [IO.Path]::GetFullPath("build\release-windows")
+          foreach ($name in $publicNames) {
+            $source = Join-Path $workOutput $name
+            $destination = Join-Path $releaseRoot $name
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+              throw "Velopack public asset is missing: $name"
+            }
+            if (Test-Path -LiteralPath $destination) {
+              throw "Refusing to overwrite an existing release asset: $destination"
+            }
+            Copy-Item -LiteralPath $source -Destination $destination
+            $hash = (Get-FileHash -LiteralPath $destination `
+              -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText(
+              "$destination.sha256", "$hash  $name`n",
+              [Text.UTF8Encoding]::new($false))
+          }
+
+          $setupPath = Join-Path $releaseRoot $publicNames[0]
+          $verifyStdout = Join-Path $env:RUNNER_TEMP "yanami-setup-verify.stdout.json"
+          $verifyStderr = Join-Path $env:RUNNER_TEMP "yanami-setup-verify.stderr.log"
+          $verifyProcess = Start-Process -FilePath $setupPath `
+            -ArgumentList "--verify-payload" -WindowStyle Hidden `
+            -RedirectStandardOutput $verifyStdout `
+            -RedirectStandardError $verifyStderr -PassThru
+          if (-not $verifyProcess.WaitForExit(30000)) {
+            Stop-Process -Id $verifyProcess.Id -Force
+            throw "The Yanami Setup payload check did not finish within 30 seconds."
+          }
+          if ($verifyProcess.ExitCode -ne 0) {
+            Get-Content -LiteralPath $verifyStderr -ErrorAction SilentlyContinue |
+              Write-Host
+            throw "The Yanami Setup payload check failed with exit code $($verifyProcess.ExitCode)."
+          }
+          $payloadContract = Get-Content -LiteralPath $verifyStdout -Raw |
+            ConvertFrom-Json
+          if ([int64]$payloadContract.payloadSize -le 0 -or
+              [string]$payloadContract.payloadSha256 -notmatch '^[0-9a-fA-F]{64}$') {
+            throw "The Yanami Setup payload check returned an invalid contract."
+          }
+          if ((Get-AuthenticodeSignature -LiteralPath $setupPath).Status -ne
+              "NotSigned") {
+            throw "The unsigned preview Setup.exe unexpectedly contains an Authenticode signature."
+          }
+
+      - name: Smoke-test per-user installation and uninstall registration
+        shell: pwsh
+        run: |
+          $setupName =
+            "Yanami-$env:YANAMI_RELEASE_VERSION-Windows-x86_64-Setup.exe"
+          $setupPath = [IO.Path]::GetFullPath(
+            (Join-Path "build\release-windows" $setupName))
+          $installRoot = Join-Path $env:RUNNER_TEMP `
+            "yanami-setup-smoke-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $registryPath =
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\io.github.TwooSix.Yanami"
+          $shortcutPath = Join-Path $env:APPDATA `
+            "Microsoft\Windows\Start Menu\Programs\Yanami.lnk"
+          $desktopShortcutPath = Join-Path `
+            ([Environment]::GetFolderPath('DesktopDirectory')) "Yanami.lnk"
+          if (Test-Path -LiteralPath $installRoot) {
+            throw "Setup smoke install root already exists: $installRoot"
+          }
+          if (Test-Path -LiteralPath $registryPath) {
+            throw "Setup smoke refuses to replace an existing Yanami uninstall entry."
+          }
+          if (Test-Path -LiteralPath $shortcutPath) {
+            throw "Setup smoke refuses to replace an existing Yanami Start-menu shortcut."
+          }
+          if (Test-Path -LiteralPath $desktopShortcutPath) {
+            throw "Setup smoke refuses to replace an existing Yanami desktop shortcut."
+          }
+
+          $installed = $false
+          try {
+            $installed = $true
+            $setupProcess = Start-Process -FilePath $setupPath `
+              -ArgumentList @("--silent", "--install-dir", $installRoot,
+                "--start-menu", "yes", "--desktop", "no", "--no-launch") `
+              -WindowStyle Hidden -PassThru
+            if (-not $setupProcess.WaitForExit(60000)) {
+              Stop-Process -Id $setupProcess.Id -Force
+              throw "Yanami Setup did not finish within 60 seconds."
+            }
+            if ($setupProcess.ExitCode -ne 0) {
+              throw "Yanami Setup failed with exit code $($setupProcess.ExitCode)."
+            }
+            foreach ($required in @(
+                "Update.exe",
+                "current\Yanami.exe",
+                "current\yanami-updater.exe",
+                "current\yanami-desktop.exe")) {
+              if (-not (Test-Path -LiteralPath (Join-Path $installRoot $required) `
+                  -PathType Leaf)) {
+                throw "Setup installation is missing: $required"
+              }
+            }
+            if (-not (Test-Path -LiteralPath $shortcutPath -PathType Leaf)) {
+              throw "Setup did not create the Start-menu shortcut."
+            }
+            if (Test-Path -LiteralPath $desktopShortcutPath) {
+              throw "Setup created a desktop shortcut even though it was disabled."
+            }
+            $shortcutShell = New-Object -ComObject WScript.Shell
+            try {
+              $shortcut = $shortcutShell.CreateShortcut($shortcutPath)
+              if ([IO.Path]::GetFullPath([string]$shortcut.TargetPath) -ine
+                    [IO.Path]::GetFullPath(
+                      (Join-Path $installRoot "current\Yanami.exe")) -or
+                  [IO.Path]::GetFullPath([string]$shortcut.WorkingDirectory) -ine
+                    [IO.Path]::GetFullPath((Join-Path $installRoot "current"))) {
+                throw "The Start-menu shortcut does not target the installed candidate."
+              }
+            } finally {
+              [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject(
+                $shortcutShell)
+            }
+            $uninstall = Get-ItemProperty -LiteralPath $registryPath
+            $shortVersion = [Management.Automation.SemanticVersion]::Parse(
+              $env:YANAMI_RELEASE_VERSION)
+            $expectedDisplayVersion =
+              "$($shortVersion.Major).$($shortVersion.Minor).$($shortVersion.Patch)"
+            if ([string]$uninstall.DisplayName -cne "Yanami" -or
+                [string]$uninstall.DisplayVersion -cne $expectedDisplayVersion -or
+                [IO.Path]::GetFullPath([string]$uninstall.InstallLocation) -cne
+                  [IO.Path]::GetFullPath($installRoot)) {
+              throw "Apps & Features registration does not identify the installed candidate."
+            }
+
+            $uninstallProcess = Start-Process `
+              -FilePath (Join-Path $installRoot "Update.exe") `
+              -ArgumentList @("--uninstall", "--silent") `
+              -WindowStyle Hidden -PassThru
+            if (-not $uninstallProcess.WaitForExit(60000)) {
+              Stop-Process -Id $uninstallProcess.Id -Force
+              throw "Velopack silent uninstall did not finish within 60 seconds."
+            }
+            if ($uninstallProcess.ExitCode -ne 0) {
+              throw "Velopack silent uninstall failed with exit code $($uninstallProcess.ExitCode)."
+            }
+            $installed = $false
+            $deadline = [DateTime]::UtcNow.AddSeconds(30)
+            while ((Test-Path -LiteralPath $installRoot) -and
+                [DateTime]::UtcNow -lt $deadline) {
+              Start-Sleep -Milliseconds 250
+            }
+            if ((Test-Path -LiteralPath $installRoot) -or
+                (Test-Path -LiteralPath $registryPath) -or
+                (Test-Path -LiteralPath $shortcutPath) -or
+                (Test-Path -LiteralPath $desktopShortcutPath)) {
+              throw "Velopack uninstall did not remove its files, registry entry, and shortcut."
+            }
+          } finally {
+            if ($installed -and
+                (Test-Path -LiteralPath (Join-Path $installRoot "Update.exe"))) {
+              $cleanupProcess = Start-Process `
+                -FilePath (Join-Path $installRoot "Update.exe") `
+                -ArgumentList @("--uninstall", "--silent") `
+                -WindowStyle Hidden -PassThru
+              if (-not $cleanupProcess.WaitForExit(30000)) {
+                Stop-Process -Id $cleanupProcess.Id -Force `
+                  -ErrorAction SilentlyContinue
+              }
+            }
+          }
+
+      - name: Smoke-test the alternate desktop shortcut choice
+        shell: pwsh
+        run: |
+          $setupName =
+            "Yanami-$env:YANAMI_RELEASE_VERSION-Windows-x86_64-Setup.exe"
+          $setupPath = [IO.Path]::GetFullPath(
+            (Join-Path "build\release-windows" $setupName))
+          $installRoot = Join-Path $env:RUNNER_TEMP `
+            "Yanami 安装 desktop smoke $env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $registryPath =
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\io.github.TwooSix.Yanami"
+          $startShortcutPath = Join-Path $env:APPDATA `
+            "Microsoft\Windows\Start Menu\Programs\Yanami.lnk"
+          $desktopShortcutPath = Join-Path `
+            ([Environment]::GetFolderPath('DesktopDirectory')) "Yanami.lnk"
+          foreach ($path in @($installRoot, $registryPath,
+              $startShortcutPath, $desktopShortcutPath)) {
+            if (Test-Path -LiteralPath $path) {
+              throw "Alternate shortcut smoke refuses to replace existing state: $path"
+            }
+          }
+
+          $installed = $false
+          try {
+            $installed = $true
+            $setupStart = [Diagnostics.ProcessStartInfo]::new()
+            $setupStart.FileName = $setupPath
+            $setupStart.UseShellExecute = $false
+            $setupStart.CreateNoWindow = $true
+            foreach ($argument in @("--silent", "--install-dir", $installRoot,
+                "--start-menu", "no", "--desktop", "yes", "--no-launch")) {
+              $setupStart.ArgumentList.Add($argument)
+            }
+            $setupProcess = [Diagnostics.Process]::Start($setupStart)
+            if (-not $setupProcess.WaitForExit(60000)) {
+              Stop-Process -Id $setupProcess.Id -Force
+              throw "Yanami Setup alternate shortcut smoke timed out."
+            }
+            if ($setupProcess.ExitCode -ne 0) {
+              throw "Yanami Setup alternate shortcut smoke failed with exit code $($setupProcess.ExitCode)."
+            }
+            if (-not (Test-Path -LiteralPath $desktopShortcutPath -PathType Leaf)) {
+              throw "Setup did not create the selected desktop shortcut."
+            }
+            if (Test-Path -LiteralPath $startShortcutPath) {
+              throw "Setup created a Start-menu shortcut even though it was disabled."
+            }
+            $shortcutShell = New-Object -ComObject WScript.Shell
+            try {
+              $shortcut = $shortcutShell.CreateShortcut($desktopShortcutPath)
+              if ([IO.Path]::GetFullPath([string]$shortcut.TargetPath) -ine
+                    [IO.Path]::GetFullPath(
+                      (Join-Path $installRoot "current\Yanami.exe")) -or
+                  [IO.Path]::GetFullPath([string]$shortcut.WorkingDirectory) -ine
+                    [IO.Path]::GetFullPath((Join-Path $installRoot "current"))) {
+                throw "The desktop shortcut does not target the installed candidate."
+              }
+            } finally {
+              [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject(
+                $shortcutShell)
+            }
+            if (-not (Test-Path -LiteralPath $registryPath)) {
+              throw "The alternate shortcut installation was not registered for uninstall."
+            }
+            $uninstall = Get-ItemProperty -LiteralPath $registryPath
+            if ([IO.Path]::GetFullPath([string]$uninstall.InstallLocation) -cne
+                [IO.Path]::GetFullPath($installRoot)) {
+              throw "The alternate shortcut installation registered the wrong location."
+            }
+
+            $uninstallProcess = Start-Process `
+              -FilePath (Join-Path $installRoot "Update.exe") `
+              -ArgumentList @("--uninstall", "--silent") `
+              -WindowStyle Hidden -PassThru
+            if (-not $uninstallProcess.WaitForExit(60000)) {
+              Stop-Process -Id $uninstallProcess.Id -Force
+              throw "Velopack alternate shortcut uninstall timed out."
+            }
+            if ($uninstallProcess.ExitCode -ne 0) {
+              throw "Velopack alternate shortcut uninstall failed with exit code $($uninstallProcess.ExitCode)."
+            }
+            $installed = $false
+            $deadline = [DateTime]::UtcNow.AddSeconds(30)
+            while ((Test-Path -LiteralPath $installRoot) -and
+                [DateTime]::UtcNow -lt $deadline) {
+              Start-Sleep -Milliseconds 250
+            }
+            foreach ($path in @($installRoot, $registryPath,
+                $startShortcutPath, $desktopShortcutPath)) {
+              if (Test-Path -LiteralPath $path) {
+                throw "Alternate shortcut uninstall left state behind: $path"
+              }
+            }
+          } finally {
+            if ($installed -and
+                (Test-Path -LiteralPath (Join-Path $installRoot "Update.exe"))) {
+              $cleanupProcess = Start-Process `
+                -FilePath (Join-Path $installRoot "Update.exe") `
+                -ArgumentList @("--uninstall", "--silent") `
+                -WindowStyle Hidden -PassThru
+              if (-not $cleanupProcess.WaitForExit(30000)) {
+                Stop-Process -Id $cleanupProcess.Id -Force `
+                  -ErrorAction SilentlyContinue
+              }
+            }
+          }
+
       - name: Upload the complete desktop candidate
         id: upload-candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -604,6 +1095,14 @@ jobs:
           path: |
             build/release-windows/Yanami-${{ needs.metadata.outputs.version }}-Windows-x86_64.zip
             build/release-windows/Yanami-${{ needs.metadata.outputs.version }}-Windows-x86_64.zip.sha256
+            build/release-windows/Yanami-${{ needs.metadata.outputs.version }}-Windows-x86_64-Setup.exe
+            build/release-windows/Yanami-${{ needs.metadata.outputs.version }}-Windows-x86_64-Setup.exe.sha256
+            build/release-windows/io.github.TwooSix.Yanami-${{ needs.metadata.outputs.version }}-preview-full.nupkg
+            build/release-windows/io.github.TwooSix.Yanami-${{ needs.metadata.outputs.version }}-preview-full.nupkg.sha256
+            build/release-windows/io.github.TwooSix.Yanami-${{ needs.metadata.outputs.version }}-preview-delta.nupkg
+            build/release-windows/io.github.TwooSix.Yanami-${{ needs.metadata.outputs.version }}-preview-delta.nupkg.sha256
+            build/release-windows/releases.preview.json
+            build/release-windows/releases.preview.json.sha256
           if-no-files-found: error
           overwrite: true
           retention-days: 30
@@ -1120,14 +1619,28 @@ jobs:
         run: |
           set -euo pipefail
           cd release-assets
-          mapfile -t candidates < <(find . -maxdepth 1 -type f \
-            \( -name '*.zip' -o -name '*.AppImage' -o -name '*.dmg' \) \
-            -printf '%f\n' | sort)
-          test "${#candidates[@]}" -eq 4
-          test "$(printf '%s\n' "${candidates[@]}" | grep -c -- '-Windows-x86_64.zip$')" -eq 1
-          test "$(printf '%s\n' "${candidates[@]}" | grep -c -- '-Linux-x86_64.AppImage$')" -eq 1
-          test "$(printf '%s\n' "${candidates[@]}" | grep -c -- '-macOS-arm64.dmg$')" -eq 1
-          test "$(printf '%s\n' "${candidates[@]}" | grep -c -- '-macOS-x86_64.dmg$')" -eq 1
+          required_candidates=(
+            "Yanami-$YANAMI_RELEASE_VERSION-Windows-x86_64.zip"
+            "Yanami-$YANAMI_RELEASE_VERSION-Windows-x86_64-Setup.exe"
+            "io.github.TwooSix.Yanami-$YANAMI_RELEASE_VERSION-preview-full.nupkg"
+            "releases.preview.json"
+            "Yanami-$YANAMI_RELEASE_VERSION-Linux-x86_64.AppImage"
+            "Yanami-$YANAMI_RELEASE_VERSION-macOS-arm64.dmg"
+            "Yanami-$YANAMI_RELEASE_VERSION-macOS-x86_64.dmg"
+          )
+          candidates=("${required_candidates[@]}")
+          for required_file in "${required_candidates[@]}"; do
+            test -f "$required_file"
+          done
+          delta_file="io.github.TwooSix.Yanami-$YANAMI_RELEASE_VERSION-preview-delta.nupkg"
+          if [[ -f "$delta_file" ]]; then
+            candidates+=("$delta_file")
+          fi
+          mapfile -t candidates < <(printf '%s\n' "${candidates[@]}" | sort)
+          mapfile -t discovered < <(find . -maxdepth 1 -type f \
+            ! -name '*.sha256' -printf '%f\n' | sort)
+          test "$(printf '%s\n' "${candidates[@]}")" = \
+            "$(printf '%s\n' "${discovered[@]}")"
 
           : > files.jsonl
           : > SHA256SUMS.txt

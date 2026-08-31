@@ -44,20 +44,63 @@
 
 ### Windows 10/11
 
-1. 从 [Releases](https://github.com/TwooSix/Yanami/releases) 下载 Windows ZIP。
-
-2. 解压 ZIP，打开解压后的目录并运行 `bin\Yanami.exe`。
-
-### Linux（实验性支持，尚未实测）
-
 1. 从 [Releases](https://github.com/TwooSix/Yanami/releases) 下载
-   `Yanami-<版本号>-Linux-x86_64.AppImage`。
-2. 在下载目录中打开终端并运行：
+   `Yanami-<版本号>-Windows-x86_64-Setup.exe`。
 
-   ```bash
-   chmod +x ./Yanami-*-Linux-x86_64.AppImage
-   ./Yanami-*-Linux-x86_64.AppImage
-   ```
+2. 运行安装程序。Yanami 安装向导会先展示欢迎页和安装选项，只有点击
+   **安装 Yanami** 后才会写入系统。可以选择当前用户可写的安装目录，并分别选择
+   是否添加到开始菜单的
+   “所有应用”和是否创建桌面快捷方式。默认目录是
+   `%LOCALAPPDATA%\Programs\Yanami`（通常为
+   `C:\Users\<用户名>\AppData\Local\Programs\Yanami`）；默认创建开始菜单入口，
+   不创建桌面快捷方式。安装范围仅限当前用户，正常情况下不请求管理员权限。
+
+3. 安装完成页会显示实际安装目录，并可选择打开目录、稍后关闭向导或立即启动
+   Yanami。卸载时进入**设置 → 应用 → 已安装的应用 → Yanami → 卸载**；也可以从
+   Windows 搜索“添加或删除程序”后找到 Yanami。
+
+普通 Windows 桌面安装程序不能在未经系统确认的情况下自动固定到开始菜单的
+“已固定”区域。向导创建的是可被搜索、也可由用户右键固定的“所有应用”入口，不会
+伪装成已经固定。
+
+安装版可在**关于 → 检查更新**中更新。Yanami 会先校验下载内容；发布源存在兼容的
+差分包时优先使用体积更小的差分包，否则安全回退到完整包。Windows ZIP 仍作为便携版
+备用，但不会注册为已安装应用，也不参与安装版的托管更新。
+预览版 Windows 产物尚未进行 Authenticode 签名，Windows 可能显示信誉警告；继续前请
+先使用相邻的 `.sha256` 文件校验下载内容。
+
+### Linux x86_64（实验性支持，尚未实测）
+
+无需 `sudo`，使用下面的命令为当前用户安装最新发布的预览版：
+
+```bash
+bash -c 'set -o pipefail; curl --proto "=https" --tlsv1.2 -fsSL https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh | bash'
+```
+
+脚本会使用发布的 SHA-256 校验 AppImage，在 `~/.local/bin` 中创建 `yanami` 命令，
+并添加桌面菜单入口。程序本体默认位于
+`${XDG_DATA_HOME:-~/.local/share}/yanami/Yanami.AppImage`。再次执行同一条命令
+即可更新；脚本依赖 Bash、curl 与 GNU coreutils。目前只提供 x86_64 安装包，
+但 `--uninstall` 在其他 Linux 架构上也可使用。也可指定版本或卸载：
+
+```bash
+bash -c 'set -o pipefail; curl --proto "=https" --tlsv1.2 -fsSL https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh | bash -s -- --version 0.2.0-dev.42'
+bash -c 'set -o pipefail; curl --proto "=https" --tlsv1.2 -fsSL https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh | bash -s -- --uninstall'
+```
+
+上述一行命令获取的是会变化的 `main` 分支。相邻的 SHA-256 文件可以发现 AppImage
+损坏或下载不完整，但它与安装包来自同一发布源，不能作为独立的发布者身份认证。
+如需更便于审查的流程，请先下载并检查脚本，再运行它（也可把 `main` 换成已审查的
+标签或提交）：
+
+```bash
+curl --proto '=https' --tlsv1.2 -fSLo yanami-install-linux.sh \
+  https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh && \
+less yanami-install-linux.sh
+bash ./yanami-install-linux.sh
+```
+
+如果不希望进行用户级安装，仍可从 Releases 直接下载并运行 AppImage。
 
 AppImage 已随包携带 Qt 和 libmpv 运行库，正常情况下无需额外安装。如果系统没有
 FUSE，可使用 `APPIMAGE_EXTRACT_AND_RUN=1` 运行。Linux 打包会经过 CI 检查，但尚未

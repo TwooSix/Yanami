@@ -595,19 +595,21 @@ private slots:
             const qsizetype loaderStart = mainWindow.lastIndexOf(
                 QStringLiteral("Loader {"), idPosition);
             const qsizetype loaderEnd = mainWindow.indexOf(
-                QLatin1Char('}'), idPosition);
+                QStringLiteral("Connections {"), idPosition);
             QVERIFY2(loaderStart >= 0 && idPosition > loaderStart
                     && loaderEnd > idPosition,
                 qPrintable(dialog + QStringLiteral(" must be owned by a Loader")));
             const QString loader = mainWindow.mid(
                 loaderStart, loaderEnd - loaderStart);
             QVERIFY2(loader.contains(QStringLiteral("active: false"))
-                    && loader.contains(dialog + QStringLiteral(".qml")),
-                qPrintable(dialog + QStringLiteral(" must start inactive")));
-            const QRegularExpression eagerDeclaration(
-                QStringLiteral(R"(\b%1\s*\{)").arg(dialog));
-            QVERIFY2(!eagerDeclaration.match(mainWindow).hasMatch(),
-                qPrintable(dialog + QStringLiteral(" must not be created by the first shell")));
+                    && loader.contains(QStringLiteral(
+                        "sourceComponent: Component {"))
+                    && loader.contains(dialog + QStringLiteral(" {")),
+                qPrintable(dialog + QStringLiteral(
+                    " must be instantiated only by its inactive Loader")));
+            QVERIFY2(!loader.contains(QStringLiteral("source:")),
+                qPrintable(dialog + QStringLiteral(
+                    " must resolve through the imported Yanami.Ui type, not a sibling URL")));
         }
         QVERIFY(mainWindow.contains(QStringLiteral("AppErrorDialog {"))
             && mainWindow.contains(QStringLiteral(
@@ -631,7 +633,8 @@ private slots:
             "opacity: bootstrapHandoffPending ? 0.0 : 1.0")));
         QVERIFY(content.contains(QStringLiteral(
             "active: window.bootstrapHandoffTransitionVisible")));
-        QCOMPARE(content.count(QStringLiteral("sourceComponent:")), 1);
+        QVERIFY(content.contains(QStringLiteral(
+            "sourceComponent: Component {\n            FocusScope {")));
         QVERIFY(content.contains(QStringLiteral(
             "objectName: \"bootstrapHandoffTransition\"")));
         QVERIFY(content.contains(QStringLiteral("color: \"#080D17\"")));

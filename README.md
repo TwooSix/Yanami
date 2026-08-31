@@ -46,21 +46,71 @@ whose platform and CPU architecture match your computer.
 
 ### Windows 10/11
 
-1. Download the Windows ZIP from
+1. Download `Yanami-<version>-Windows-x86_64-Setup.exe` from
    [Releases](https://github.com/TwooSix/Yanami/releases).
-2. Extract the ZIP, open the extracted folder, and run
-   `bin\Yanami.exe`.
+2. Run the installer. The Yanami setup wizard first shows a welcome page and
+   then the installation options; it does not change the system until you click
+   **Install Yanami**. You can select a current-user-writable install directory,
+   a Start menu **All apps** shortcut, and a desktop shortcut. The default
+   directory is
+   `%LOCALAPPDATA%\Programs\Yanami` (normally
+   `C:\Users\<name>\AppData\Local\Programs\Yanami`). The Start menu shortcut
+   is on by default; the desktop shortcut is off by default. Installation is
+   scoped to the current user and normally requires no administrator access.
+3. The completion page shows the exact installed location and lets you open
+   that folder, close the wizard for now, or launch Yanami. To uninstall, use
+   **Settings → Apps → Installed apps → Yanami → Uninstall** (or search Windows
+   for “Add or remove programs”).
 
-### Linux (experimental and untested)
+An ordinary Windows desktop installer cannot silently add itself to the Start
+menu's **Pinned** area. The wizard creates an **All apps** entry that Windows
+Search can find and that the user can pin manually; it does not claim that the
+app was already pinned.
 
-1. Download `Yanami-<version>-Linux-x86_64.AppImage` from
-   [Releases](https://github.com/TwooSix/Yanami/releases).
-2. Open a terminal in the download directory and run:
+Installed builds can use **About → Check for updates**. Yanami verifies the
+download before applying it and uses a smaller delta package when the release
+feed provides a compatible one; otherwise it safely falls back to the full
+package. The Windows ZIP remains available as a portable fallback, but it is
+not registered as an installed app and does not participate in managed updates.
+Preview Windows artifacts are not yet Authenticode-signed, so Windows may show
+a reputation warning; verify the adjacent `.sha256` file before continuing.
 
-   ```bash
-   chmod +x ./Yanami-*-Linux-x86_64.AppImage
-   ./Yanami-*-Linux-x86_64.AppImage
-   ```
+### Linux x86_64 (experimental and untested)
+
+Install the latest published preview for the current user without `sudo`:
+
+```bash
+bash -c 'set -o pipefail; curl --proto "=https" --tlsv1.2 -fsSL https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh | bash'
+```
+
+The script verifies the AppImage against its published SHA-256 checksum, adds a
+`yanami` command under `~/.local/bin`, and creates a desktop-menu entry. The
+payload itself is stored at
+`${XDG_DATA_HOME:-~/.local/share}/yanami/Yanami.AppImage`. Run the same command
+again to update. Bash, curl, and GNU coreutils are required. Installation is
+currently x86_64-only, but `--uninstall` also works on other Linux
+architectures. To select a release or uninstall:
+
+```bash
+bash -c 'set -o pipefail; curl --proto "=https" --tlsv1.2 -fsSL https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh | bash -s -- --version 0.2.0-dev.42'
+bash -c 'set -o pipefail; curl --proto "=https" --tlsv1.2 -fsSL https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh | bash -s -- --uninstall'
+```
+
+These one-liners fetch the mutable `main` branch. The adjacent SHA-256 file
+detects a corrupted or incomplete AppImage, but it is not independent publisher
+authentication because it is obtained from the same release origin. For a more
+reviewable flow, download the script first, inspect it, and only then run it (or
+replace `main` with a reviewed tag or commit):
+
+```bash
+curl --proto '=https' --tlsv1.2 -fSLo yanami-install-linux.sh \
+  https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh && \
+less yanami-install-linux.sh
+bash ./yanami-install-linux.sh
+```
+
+The AppImage can still be downloaded and run directly when a user-local install
+is not wanted.
 
 The AppImage includes the Qt and libmpv runtimes, so no separate installation
 should normally be required. If FUSE is unavailable, run it once with

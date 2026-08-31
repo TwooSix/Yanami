@@ -17,6 +17,7 @@ The package contains the following principal runtime components:
 | FFmpeg | 9.0-2 | GPL-3.0-or-later |
 | libass | 0.17.5-1 | ISC |
 | SQLite | bundled by rusqlite | Public domain |
+| Velopack (Windows) | 1.2.0 | MIT |
 
 Every package includes:
 
@@ -33,6 +34,7 @@ The Windows ZIP additionally includes:
 - `licenses/mpv/GPL-2.0-or-later.txt`;
 - `licenses/ffmpeg/GPL-3.0-or-later.txt`;
 - `licenses/libass/ISC.txt`;
+- `licenses/velopack/MIT.txt` for the installed-app update runtime;
 - `licenses/msys2/PACKAGE_METADATA.txt`, generated while staging and containing
   the package metadata for every MSYS2-owned runtime file that could be mapped;
 - `licenses/msys2/<package>`, license and notice texts for every runtime owner.

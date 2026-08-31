@@ -15,6 +15,16 @@ TestCase {
         id: editor
     }
 
+    Loader {
+        id: deferredEditorLoader
+        active: false
+        sourceComponent: Component {
+            MetadataEditorDialog {
+                objectName: "deferredMetadataEditor"
+            }
+        }
+    }
+
     function payload(id, title) {
         return {
             id: id,
@@ -41,6 +51,33 @@ TestCase {
 
     function cleanup() {
         closeEditor()
+        if (deferredEditorLoader.item
+                && (deferredEditorLoader.item.visible
+                    || deferredEditorLoader.item.opened)) {
+            deferredEditorLoader.item.saving = false
+            deferredEditorLoader.item.loaded = false
+            deferredEditorLoader.item.forceDismiss()
+            tryCompare(deferredEditorLoader.item, "opened", false)
+        }
+        deferredEditorLoader.active = false
+        tryCompare(deferredEditorLoader, "item", null)
+    }
+
+    function test_deferredEditorOpensOnFirstActivation() {
+        compare(deferredEditorLoader.item, null)
+        deferredEditorLoader.active = true
+
+        const deferredEditor = deferredEditorLoader.item
+        verify(deferredEditor)
+        const generation = deferredEditor.beginLoading({
+            id: "first-deferred-item",
+            itemType: "Series"
+        })
+        tryCompare(deferredEditor, "opened", true)
+        verify(deferredEditor.applyMetadata(
+                   payload("first-deferred-item", "First deferred title"),
+                   generation))
+        compare(deferredEditor.loaded, true)
     }
 
     function test_shellAndSameItemGenerationGuard() {
