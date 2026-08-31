@@ -116,10 +116,17 @@ export PATH="$fake_bin:$PATH"
 main_call_line="$(grep -n '^main "\$@"$' "$installer" | cut -d: -f1)"
 script_line_count="$(wc -l < "$installer")"
 test "$main_call_line" = "$script_line_count"
+# Keep quick-start commands safe and usable without coupling the tests to
+# optional explanatory prose in the simplified bilingual READMEs.
+readme_installer_prefix="bash -c 'set -o pipefail; curl --proto \"=https\" --tlsv1.2 -fsSL https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh | bash"
 for readme in "$workspace/README.md" "$workspace/README.zh-CN.md"; do
-    grep -Fq "bash -c 'set -o pipefail; curl" "$readme"
-    grep -Fq 'mutable `main`' "$readme" \
-        || grep -Fq '会变化的 `main`' "$readme"
+    for installer_args in "" " -s -- --version 0.2.0-dev.42" " -s -- --uninstall"; do
+        if ! grep -Fxq "$readme_installer_prefix$installer_args'" "$readme"; then
+            printf 'A safe install/version/uninstall command is missing from %s.\n' \
+                "$readme" >&2
+            exit 1
+        fi
+    done
     grep -Fq '${XDG_DATA_HOME:-~/.local/share}/yanami/Yanami.AppImage' "$readme"
 done
 
