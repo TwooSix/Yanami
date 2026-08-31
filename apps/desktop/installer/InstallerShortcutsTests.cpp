@@ -107,21 +107,91 @@ public:
         }
         throw std::runtime_error("temporary test directory could not be created");
     }
-    ~TemporaryDirectory() {
-        if (path_.empty() || path_.parent_path() != parent_
-            || !path_.filename().native().starts_with(L"yanami-installer-shortcuts-tests-")) {
-            return;
+    ~TemporaryDirectory() { cleanup(); }
+    bool cleanup() noexcept {
+        if (cleanupAttempted_) { return cleanupSucceeded_; }
+        cleanupAttempted_ = true;
+        try {
+            if (path_.empty() || !path_.is_absolute() || path_ == path_.root_path()
+                || path_.parent_path() != parent_
+                || !path_.filename().native().starts_with(L"yanami-installer-shortcuts-tests-")) {
+                return false;
+            }
+            const DWORD attributes = GetFileAttributesW(path_.c_str());
+            if (attributes == INVALID_FILE_ATTRIBUTES
+                || !(attributes & FILE_ATTRIBUTE_DIRECTORY)
+                || (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+                return cleanupFailure("validate fixture root", path_,
+                    attributes == INVALID_FILE_ATTRIBUTES ? GetLastError() : ERROR_ACCESS_DENIED);
+            }
+            cleanupSucceeded_ = removeFixtureEntry(path_);
+        } catch (const std::exception& error) {
+            std::cerr << "Fixture cleanup stopped: " << error.what() << '\n';
+        } catch (...) {
+            std::cerr << "Fixture cleanup stopped after an unexpected error\n";
         }
-        std::error_code error;
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(path_, error)) {
-            SetFileAttributesW(entry.path().c_str(), FILE_ATTRIBUTE_NORMAL);
-        }
-        std::filesystem::remove_all(path_, error);
+        return cleanupSucceeded_;
     }
     const std::filesystem::path& path() const { return path_; }
 private:
+    static bool cleanupFailure(const char* operation, const std::filesystem::path& path, DWORD error) {
+        std::cerr << "Fixture cleanup retained " << utf8(path.native())
+                  << ": " << operation << " failed with Windows error " << error << '\n';
+        return false;
+    }
+    static bool removeFixtureEntry(const std::filesystem::path& path) {
+        const DWORD attributes = GetFileAttributesW(path.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES) {
+            return cleanupFailure("read attributes", path, GetLastError());
+        }
+        // A fixture link may be dangling after its target was deleted. Use
+        // native link attributes and delete the link itself, never its target.
+        // In particular, do not pass reparse points to recursive remove_all.
+        const bool directory = (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        const bool reparse = (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+        if (directory && !reparse) {
+            WIN32_FIND_DATAW entry{};
+            const HANDLE value = FindFirstFileW((path / L"*").c_str(), &entry);
+            if (value == INVALID_HANDLE_VALUE) {
+                const DWORD error = GetLastError();
+                if (error != ERROR_FILE_NOT_FOUND) {
+                    return cleanupFailure("enumerate directory", path, error);
+                }
+            } else {
+                struct FindHandle {
+                    HANDLE value;
+                    ~FindHandle() { FindClose(value); }
+                } find{value};
+                for (;;) {
+                    const std::wstring name(entry.cFileName);
+                    if (name != L"." && name != L".."
+                        && !removeFixtureEntry(path / name)) {
+                        return false;
+                    }
+                    if (!FindNextFileW(find.value, &entry)) {
+                        const DWORD error = GetLastError();
+                        if (error != ERROR_NO_MORE_FILES) {
+                            return cleanupFailure("advance directory enumeration", path, error);
+                        }
+                        break;
+                    }
+                }
+            } // Close the enumeration handle before removing this directory.
+        }
+        if (!reparse && (attributes & FILE_ATTRIBUTE_READONLY)
+            && !SetFileAttributesW(path.c_str(), attributes & ~FILE_ATTRIBUTE_READONLY)) {
+            return cleanupFailure("clear fixture read-only attribute", path, GetLastError());
+        }
+        if (directory ? RemoveDirectoryW(path.c_str()) : DeleteFileW(path.c_str())) {
+            return true;
+        }
+        return cleanupFailure(directory ? "remove directory/link" : "delete file/link",
+            path, GetLastError());
+    }
     std::filesystem::path parent_;
     std::filesystem::path path_;
+    bool cleanupAttempted_ = false;
+    bool cleanupSucceeded_ = false;
 };
 
 void writeFile(const std::filesystem::path& path, const std::string& contents) {
@@ -408,7 +478,10 @@ void testRejectDirectoryAndReparse(const std::filesystem::path& root) {
     expect(synchronizeInstallerShortcut(request).ok,
         "unselected directory collision should be ignored");
 
-    auto reparse = requestFor(root / L"reparse");
+    // Keep the link's target outside the directory being cleaned, so both
+    // real symlinks and the unprivileged junction fallback prove no-follow.
+    TemporaryDirectory reparseDirectory;
+    auto reparse = requestFor(reparseDirectory.path());
     std::filesystem::create_directories(reparse.shortcutPath.parent_path());
     const auto foreign = root / L"foreign-link.lnk";
     fixtureShortcut(foreign, request);
@@ -423,6 +496,17 @@ void testRejectDirectoryAndReparse(const std::filesystem::path& root) {
         expect((GetFileAttributesW(reparse.shortcutPath.c_str()) & FILE_ATTRIBUTE_REPARSE_POINT) != 0,
             "the reparse point should remain intact");
         expect(readFile(foreign) == foreignBytes, "a foreign reparse destination must remain unchanged");
+        const auto missingTarget = root / L"never-created-target.exe";
+        const auto dangling = reparseDirectory.path() / L"dangling.lnk";
+        expect(CreateSymbolicLinkW(dangling.c_str(), missingTarget.c_str(),
+                                  SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE) != FALSE,
+            "isolated dangling file link should create");
+        expect(reparseDirectory.cleanup(),
+            "fixture cleanup should remove live and dangling links without following them");
+        expect(readFile(foreign) == foreignBytes,
+            "symbolic link cleanup must preserve the destination bytes");
+        expect(!std::filesystem::exists(missingTarget),
+            "dangling link cleanup must not create its missing target");
     } else {
         // Directory junctions exercise real reparse-point rejection without
         // requiring Developer Mode or SeCreateSymbolicLinkPrivilege.
@@ -472,8 +556,16 @@ void testRejectDirectoryAndReparse(const std::filesystem::path& root) {
             "unselected junction should be ignored");
         expect(readFile(foreignDirectory / L"keep.txt") == untouched,
             "junction destination bytes should remain unchanged");
-        expect(RemoveDirectoryW(reparse.shortcutPath.c_str()),
-            "the isolated junction should be removed without following it");
+        // Also exercise dangling reparse cleanup without symlink privileges.
+        // Preserve the destination in this suite's own directory before
+        // cleaning the now-dangling junction from the separate fixture.
+        const auto movedDirectory = root / L"preserved reparse directory";
+        expect(MoveFileExW(foreignDirectory.c_str(), movedDirectory.c_str(), 0) != FALSE,
+            "isolated junction target should move without replacing any path");
+        expect(reparseDirectory.cleanup(),
+            "fixture cleanup should remove a dangling junction without following it");
+        expect(readFile(movedDirectory / L"keep.txt") == untouched,
+            "junction cleanup must preserve the destination bytes");
     }
 }
 
@@ -504,8 +596,9 @@ int main() {
         runCase(L"reparse-policy", "directory and reparse rejection", testRejectDirectoryAndReparse);
         std::cout << "BEGIN: staging inspection\n";
         expectNoStaging(directory.path());
-        std::cout << "Installer shortcut tests passed (" << assertions << " assertions).\n";
         std::cout << "BEGIN: fixture cleanup\n";
+        expect(directory.cleanup(), "isolated fixture cleanup should complete");
+        std::cout << "Installer shortcut tests passed (" << assertions << " assertions).\n";
     } catch (const std::exception& exception) {
         std::cerr << "Installer shortcut tests failed: " << exception.what() << '\n';
         result = 1;
