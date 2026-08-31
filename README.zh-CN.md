@@ -32,46 +32,11 @@
 
 ## 快速开始
 
-预发布二进制文件将发布在官方
-[GitHub Releases](https://github.com/TwooSix/Yanami/releases) 页面，目前尚无
-稳定版发布通道。
-
-> **平台状态：** Windows 是当前主要开发平台。Linux 和 macOS 桌面版本
-> **尚未经过真机测试**，相关说明和后续二进制产物均应视为实验性支持。
-
-开发候选版本使用类似 `0.2.0-dev.42` 的版本号。请根据操作系统和 CPU 架构选择
-对应资源。
-
 ### Windows 10/11
 
-1. 从 [Releases](https://github.com/TwooSix/Yanami/releases) 下载
-   `Yanami-<版本号>-Windows-x86_64-Setup.exe`。
-
-2. 运行安装程序。Yanami 安装向导会先展示欢迎页和安装选项，只有点击
-   **安装 Yanami** 后才会写入系统。可以选择当前用户可写的安装目录，并分别选择
-   是否添加到开始菜单的
-   “所有应用”和是否创建桌面快捷方式。默认目录是
-   `%LOCALAPPDATA%\Programs\Yanami`（通常为
-   `C:\Users\<用户名>\AppData\Local\Programs\Yanami`）；默认创建开始菜单入口，
-   不创建桌面快捷方式。安装范围仅限当前用户，正常情况下不请求管理员权限。
-
-3. 安装完成页会显示实际安装目录，并可选择打开目录、稍后关闭向导或立即启动
-   Yanami。卸载时进入**设置 → 应用 → 已安装的应用 → Yanami → 卸载**；也可以从
-   Windows 搜索“添加或删除程序”后找到 Yanami。
-
-普通 Windows 桌面安装程序不能在未经系统确认的情况下自动固定到开始菜单的
-“已固定”区域。向导创建的是可被搜索、也可由用户右键固定的“所有应用”入口，不会
-伪装成已经固定。
-
-安装版可在**关于 → 检查更新**中更新。Yanami 会先校验下载内容；发布源存在兼容的
-差分包时优先使用体积更小的差分包，否则安全回退到完整包。Windows ZIP 仍作为便携版
-备用，但不会注册为已安装应用，也不参与安装版的托管更新。
-预览版 Windows 产物尚未进行 Authenticode 签名，Windows 可能显示信誉警告；继续前请
-先使用相邻的 `.sha256` 文件校验下载内容。
+从 [Releases](https://github.com/TwooSix/Yanami/releases) 下载 `Yanami-<版本号>-Windows-x86_64-Setup.exe`。
 
 ### Linux x86_64（实验性支持，尚未实测）
-
-无需 `sudo`，使用下面的命令为当前用户安装最新发布的预览版：
 
 ```bash
 bash -c 'set -o pipefail; curl --proto "=https" --tlsv1.2 -fsSL https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh | bash'
@@ -88,24 +53,6 @@ bash -c 'set -o pipefail; curl --proto "=https" --tlsv1.2 -fsSL https://raw.gith
 bash -c 'set -o pipefail; curl --proto "=https" --tlsv1.2 -fsSL https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh | bash -s -- --uninstall'
 ```
 
-上述一行命令获取的是会变化的 `main` 分支。相邻的 SHA-256 文件可以发现 AppImage
-损坏或下载不完整，但它与安装包来自同一发布源，不能作为独立的发布者身份认证。
-如需更便于审查的流程，请先下载并检查脚本，再运行它（也可把 `main` 换成已审查的
-标签或提交）：
-
-```bash
-curl --proto '=https' --tlsv1.2 -fSLo yanami-install-linux.sh \
-  https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh && \
-less yanami-install-linux.sh
-bash ./yanami-install-linux.sh
-```
-
-如果不希望进行用户级安装，仍可从 Releases 直接下载并运行 AppImage。
-
-AppImage 已随包携带 Qt 和 libmpv 运行库，正常情况下无需额外安装。如果系统没有
-FUSE，可使用 `APPIMAGE_EXTRACT_AND_RUN=1` 运行。Linux 打包会经过 CI 检查，但尚未
-在真实硬件上测试；如果仍提示缺少动态库，请将其作为打包问题反馈。
-
 ### macOS（实验性支持，尚未实测）
 
 1. Apple Silicon Mac 下载 `Yanami-<版本号>-macOS-arm64.dmg`，Intel Mac 下载
@@ -115,12 +62,6 @@ FUSE，可使用 `APPIMAGE_EXTRACT_AND_RUN=1` 运行。Linux 打包会经过 CI 
 DMG 已随包携带 Qt 和 libmpv，运行时无需安装 Homebrew。早期预览版本仅带有 ad-hoc
 完整性签名，尚未使用 Developer ID 签名或进行公证。如果 macOS 拦截程序，请先
 确认它来自本仓库，再前往**系统设置 → 隐私与安全性 → 仍要打开**。
-
-### 首次启动
-
-1. 打开**设置 → Emby 服务器**。
-2. 输入服务器地址、用户名和密码。在不受信任的局域网以外，强烈建议使用 HTTPS。
-3. 连接成功后返回首页，从媒体库中选择内容即可开始使用。
 
 ## 从源码构建并运行
 

@@ -389,6 +389,9 @@ bool hasPathPrefix(
     if (normalizedChild.size() == normalizedParent.size()) {
         return allowEqual;
     }
+    if (normalizedParent.size() == 3 && normalizedParent.back() == L'\\') {
+        return true;
+    }
     return normalizedChild[normalizedParent.size()] == L'\\';
 }
 
@@ -706,6 +709,14 @@ std::optional<std::wstring> normalizeAbsolutePath(
         error = L"The installation directory cannot be empty.";
         return std::nullopt;
     }
+    if (std::any_of(path.begin(), path.end(), [](wchar_t value) {
+            return value < L' ' || value == L'"' || value == L'<'
+                || value == L'>' || value == L'|' || value == L'?'
+                || value == L'*';
+        })) {
+        error = L"The installation directory contains an invalid character.";
+        return std::nullopt;
+    }
     if (!hasDriveAbsolutePrefix(path)) {
         error = L"The installation directory must be an absolute path on a local drive.";
         return std::nullopt;
@@ -768,6 +779,25 @@ PathValidationResult validateInstallPathPolicy(
         return result;
     }
 
+    // Registration authorizes repairing an existing installation, not writing
+    // into protected system roots. Apply these boundaries before the repair path.
+    for (const std::wstring* protectedRoot : {
+             &roots.windowsDirectory,
+             &roots.programFiles,
+             &roots.programFilesX86}) {
+        if (protectedRoot->empty()) {
+            continue;
+        }
+        std::wstring protectedError;
+        const auto normalizedProtected = normalizeAbsolutePath(
+            *protectedRoot, protectedError);
+        if (normalizedProtected.has_value()
+            && pathWithin(result.normalizedPath, *normalizedProtected, true)) {
+            result.error = L"Yanami cannot be installed inside Windows or Program Files.";
+            return result;
+        }
+    }
+
     if (registeredInstall.has_value()) {
         std::wstring installedError;
         const auto installed = normalizeAbsolutePath(
@@ -790,23 +820,6 @@ PathValidationResult validateInstallPathPolicy(
         return result;
     }
 
-    for (const std::wstring* protectedRoot : {
-             &roots.windowsDirectory,
-             &roots.programFiles,
-             &roots.programFilesX86}) {
-        if (protectedRoot->empty()) {
-            continue;
-        }
-        std::wstring protectedError;
-        const auto normalizedProtected = normalizeAbsolutePath(
-            *protectedRoot, protectedError);
-        if (normalizedProtected.has_value()
-            && pathWithin(result.normalizedPath, *normalizedProtected, true)) {
-            result.error = L"Yanami cannot be installed inside Windows or Program Files.";
-            return result;
-        }
-    }
-
     if (existingState == ExistingPathState::NotDirectory) {
         result.error = L"The installation directory is occupied by a file.";
         return result;
@@ -825,6 +838,32 @@ PathValidationResult validateInstallPathPolicy(
 }
 
 ExistingPathState inspectExistingPath(const std::wstring& normalizedPath) {
+    // Never follow an existing junction/symlink, including an ancestor of a
+    // missing target: a harmless-looking path could otherwise enter Windows,
+    // another installation, or unrelated user data through a reparse point.
+    std::size_t componentEnd = 3;
+    while (componentEnd <= normalizedPath.size()) {
+        const DWORD componentAttributes = GetFileAttributesW(
+            normalizedPath.substr(0, componentEnd).c_str());
+        if (componentAttributes == INVALID_FILE_ATTRIBUTES) {
+            const DWORD error = GetLastError();
+            return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND
+                ? ExistingPathState::Missing : ExistingPathState::Inaccessible;
+        }
+        if ((componentAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+            return ExistingPathState::Inaccessible;
+        }
+        if ((componentAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+            return ExistingPathState::NotDirectory;
+        }
+        if (componentEnd == normalizedPath.size()) {
+            break;
+        }
+        componentEnd = normalizedPath.find(L'\\', componentEnd + 1);
+        if (componentEnd == std::wstring::npos) {
+            componentEnd = normalizedPath.size();
+        }
+    }
     const DWORD attributes = GetFileAttributesW(normalizedPath.c_str());
     if (attributes == INVALID_FILE_ATTRIBUTES) {
         return GetLastError() == ERROR_FILE_NOT_FOUND
@@ -857,6 +896,56 @@ ExistingPathState inspectExistingPath(const std::wstring& normalizedPath) {
     return GetLastError() == ERROR_NO_MORE_FILES
         ? ExistingPathState::EmptyDirectory
         : ExistingPathState::Inaccessible;
+}
+
+PathValidationResult resolveInstallDirectory(
+    const std::wstring& selected,
+    const std::optional<std::wstring>& registeredInstall,
+    const PathPolicyRoots& roots) {
+    // Validate the selection's syntax and protected boundaries before deriving a
+    // child. Registration is checked against each actual installation target.
+    const auto policy = validateInstallPathPolicy(
+        selected, std::nullopt, roots, ExistingPathState::Missing);
+    if (!policy.ok) {
+        return policy;
+    }
+    const auto state = inspectExistingPath(policy.normalizedPath);
+    auto result = validateInstallPathPolicy(
+        policy.normalizedPath, registeredInstall, roots, state);
+    if (result.ok || state != ExistingPathState::NonEmptyDirectory) {
+        return result;
+    }
+
+    const std::filesystem::path parent(policy.normalizedPath);
+    std::optional<std::wstring> normalizedRegistered;
+    if (registeredInstall.has_value()) {
+        std::wstring registeredError;
+        normalizedRegistered = normalizeAbsolutePath(*registeredInstall, registeredError);
+        if (!normalizedRegistered.has_value()
+            || !samePath(std::filesystem::path(*normalizedRegistered).parent_path().wstring(),
+                         parent.wstring())) {
+            return result;
+        }
+    }
+    for (unsigned suffix = 1; suffix <= 100; ++suffix) {
+        const std::wstring name = suffix == 1 ? L"Yanami"
+            : L"Yanami (" + std::to_wstring(suffix) + L")";
+        const auto proposed = (parent / name).wstring();
+        if (normalizedRegistered.has_value()
+            && !samePath(proposed, *normalizedRegistered)) {
+            continue;
+        }
+        const auto proposedState = inspectExistingPath(proposed);
+        const auto validation = validateInstallPathPolicy(
+            proposed, registeredInstall, roots, proposedState);
+        if (validation.ok || normalizedRegistered.has_value()) {
+            return validation;
+        }
+    }
+    if (!registeredInstall.has_value()) {
+        result.error = L"No available installation directory was found inside the selected folder.";
+    }
+    return result;
 }
 
 std::wstring quoteWindowsArgument(const std::wstring& argument) {

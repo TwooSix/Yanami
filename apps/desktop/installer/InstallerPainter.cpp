@@ -9,6 +9,8 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <new>
+#include <vector>
 
 namespace yanami::installer::ui {
 namespace {
@@ -88,6 +90,33 @@ std::wstring installedFamily(IDWriteFontCollection* collection, bool chinese) {
 } // namespace
 
 struct InstallerPainter::Impl {
+    struct CachedLayer {
+        ID2D1Layer* value = nullptr;
+        bool active = false;
+        ~CachedLayer() { release(value); }
+    };
+
+    struct RoundedClip {
+        RECT bounds{};
+        float radius = 0.0f;
+        ComValue<ID2D1RoundedRectangleGeometry> geometry;
+        // One geometry may be nested inside itself. A layer is reusable only
+        // after PopLayer, so retain a small pool for that key's peak depth.
+        std::vector<std::unique_ptr<CachedLayer>> layers;
+
+        bool active() const noexcept {
+            return std::any_of(layers.begin(), layers.end(), [](const auto& layer) {
+                return layer->active;
+            });
+        }
+    };
+
+    enum class ClipKind { AxisAligned, Rounded };
+    struct ClipEntry {
+        ClipKind kind;
+        CachedLayer* layer = nullptr;
+    };
+
     ID2D1Factory* factory = nullptr;
     IDWriteFactory* writeFactory = nullptr;
     IDWriteFontCollection* fonts = nullptr;
@@ -97,18 +126,19 @@ struct InstallerPainter::Impl {
     std::wstring chineseFamily;
     std::wstring latinFamily;
     HRESULT error = S_OK;
-    unsigned clipDepth = 0;
+    std::vector<ClipEntry> clips;
+    std::vector<std::unique_ptr<RoundedClip>> roundedClips;
     bool drawing = false;
 
     ~Impl() {
         if (drawing && target) {
-            while (clipDepth) {
-                target->PopAxisAlignedClip();
-                --clipDepth;
+            while (!clips.empty()) {
+                popClip();
             }
             target->EndDraw();
         }
         discardTarget();
+        roundedClips.clear();
         release(renderingParams);
         release(fonts);
         release(writeFactory);
@@ -126,8 +156,67 @@ struct InstallerPainter::Impl {
     }
 
     void discardTarget() noexcept {
+        // Geometries belong to the factory and survive device loss; layers
+        // belong to this render target's resource domain and must not survive.
+        for (auto& clip : roundedClips) {
+            clip->layers.clear();
+        }
         release(brush);
         release(target);
+    }
+
+    void popClip() noexcept {
+        const auto entry = clips.back();
+        if (entry.kind == ClipKind::Rounded) {
+            target->PopLayer();
+            entry.layer->active = false;
+        } else {
+            target->PopAxisAlignedClip();
+        }
+        clips.pop_back();
+    }
+
+    RoundedClip* roundedClip(const RECT& bounds, float radius) {
+        for (const auto& clip : roundedClips) {
+            if (EqualRect(&clip->bounds, &bounds) && clip->radius == radius) {
+                return clip.get();
+            }
+        }
+        auto clip = std::make_unique<RoundedClip>();
+        clip->bounds = bounds;
+        clip->radius = radius;
+        if (!check(factory->CreateRoundedRectangleGeometry(
+                D2D1::RoundedRect(rectValue(bounds), radius, radius),
+                &clip->geometry.value))) {
+            return nullptr;
+        }
+        // Bound idle DPI/layout variants without ever evicting a layer that
+        // is still on the stack. The common animation key allocates only once.
+        constexpr size_t kIdleClipCacheSize = 8;
+        if (roundedClips.size() >= kIdleClipCacheSize) {
+            const auto reusable = std::find_if(roundedClips.begin(), roundedClips.end(),
+                [](const auto& candidate) { return !candidate->active(); });
+            if (reusable != roundedClips.end()) {
+                *reusable = std::move(clip);
+                return reusable->get();
+            }
+        }
+        roundedClips.push_back(std::move(clip));
+        return roundedClips.back().get();
+    }
+
+    CachedLayer* availableLayer(RoundedClip& clip) {
+        for (const auto& layer : clip.layers) {
+            if (!layer->active) {
+                return layer.get();
+            }
+        }
+        auto layer = std::make_unique<CachedLayer>();
+        if (!check(target->CreateLayer(nullptr, &layer->value))) {
+            return nullptr;
+        }
+        clip.layers.push_back(std::move(layer));
+        return clip.layers.back().get();
     }
 
     bool ensureFactories() {
@@ -229,7 +318,7 @@ bool InstallerPainter::begin(HDC dc, const RECT& pixelBounds) {
     impl_->target->SetTextRenderingParams(impl_->renderingParams);
     impl_->target->BeginDraw();
     impl_->drawing = true;
-    impl_->clipDepth = 0;
+    impl_->clips.clear();
     return true;
 }
 
@@ -237,9 +326,8 @@ bool InstallerPainter::end() {
     if (!impl_->drawing) {
         return impl_->check(D2DERR_WRONG_STATE);
     }
-    while (impl_->clipDepth) {
-        impl_->target->PopAxisAlignedClip();
-        --impl_->clipDepth;
+    while (!impl_->clips.empty()) {
+        impl_->popClip();
     }
     const HRESULT result = impl_->target->EndDraw();
     impl_->drawing = false;
@@ -267,14 +355,28 @@ void InstallerPainter::fillRect(const RECT& bounds, COLORREF color) {
 void InstallerPainter::roundedRect(const RECT& bounds, float radiusPixels,
                                    COLORREF fill, COLORREF outline,
                                    float strokePixels) {
-    if (!impl_->ready() || !nonEmpty(bounds)) {
+    roundedRectSubpixel(
+        PixelRect{static_cast<float>(bounds.left), static_cast<float>(bounds.top),
+                  static_cast<float>(bounds.right), static_cast<float>(bounds.bottom)},
+        radiusPixels, fill, outline, strokePixels);
+}
+
+void InstallerPainter::roundedRectSubpixel(
+    const PixelRect& bounds, float radiusPixels, COLORREF fill,
+    COLORREF outline, float strokePixels) {
+    if (!impl_->ready()) {
         return;
     }
-    if (!std::isfinite(radiusPixels) || !std::isfinite(strokePixels)) {
+    if (!std::isfinite(bounds.left) || !std::isfinite(bounds.top)
+        || !std::isfinite(bounds.right) || !std::isfinite(bounds.bottom)
+        || !std::isfinite(radiusPixels) || !std::isfinite(strokePixels)) {
         impl_->check(E_INVALIDARG);
         return;
     }
-    auto rect = rectValue(bounds);
+    if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) {
+        return;
+    }
+    auto rect = D2D1::RectF(bounds.left, bounds.top, bounds.right, bounds.bottom);
     const float maxRadius = std::min(rect.right - rect.left,
                                      rect.bottom - rect.top) / 2.0f;
     const float radius = std::clamp(radiusPixels, 0.0f, maxRadius);
@@ -380,17 +482,59 @@ void InstallerPainter::folderIcon(const RECT& bounds, COLORREF color,
 
 void InstallerPainter::pushClip(const RECT& bounds) {
     if (impl_->ready()) {
+        try {
+            // Reserve stack state before issuing the non-throwing D2D call.
+            impl_->clips.push_back({Impl::ClipKind::AxisAligned});
+        } catch (const std::bad_alloc&) {
+            impl_->check(E_OUTOFMEMORY);
+            return;
+        }
         impl_->target->PushAxisAlignedClip(rectValue(bounds),
                                            D2D1_ANTIALIAS_MODE_ALIASED);
-        ++impl_->clipDepth;
+    }
+}
+
+void InstallerPainter::pushRoundedClip(const RECT& bounds, float radiusPixels) {
+    if (!impl_->ready()) {
+        return;
+    }
+    if (!std::isfinite(radiusPixels)) {
+        impl_->check(E_INVALIDARG);
+        return;
+    }
+    if (!nonEmpty(bounds)) {
+        // An empty mask must suppress drawing, not silently remove clipping.
+        pushClip({bounds.left, bounds.top, bounds.left, bounds.top});
+        return;
+    }
+    const auto rectangle = rectValue(bounds);
+    const float radius = std::clamp(radiusPixels, 0.0f,
+        std::min(rectangle.right - rectangle.left,
+                 rectangle.bottom - rectangle.top) / 2.0f);
+    try {
+        auto* clip = impl_->roundedClip(bounds, radius);
+        if (!clip) {
+            return;
+        }
+        auto* layer = impl_->availableLayer(*clip);
+        if (!layer) {
+            return;
+        }
+        impl_->clips.push_back({Impl::ClipKind::Rounded, layer});
+        layer->active = true;
+        impl_->target->PushLayer(D2D1::LayerParameters(
+            rectangle, clip->geometry.value, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+            D2D1::Matrix3x2F::Identity(), 1.0f, nullptr, D2D1_LAYER_OPTIONS_NONE),
+            layer->value);
+    } catch (const std::bad_alloc&) {
+        impl_->check(E_OUTOFMEMORY);
     }
 }
 
 void InstallerPainter::popClip() {
     // Balance clips even if a subsequent draw operation failed.
-    if (impl_->drawing && impl_->target && impl_->clipDepth) {
-        impl_->target->PopAxisAlignedClip();
-        --impl_->clipDepth;
+    if (impl_->drawing && impl_->target && !impl_->clips.empty()) {
+        impl_->popClip();
     }
 }
 

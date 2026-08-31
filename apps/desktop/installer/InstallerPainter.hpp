@@ -8,6 +8,8 @@
 #endif
 #include <windows.h>
 
+#include "InstallerLayout.hpp"
+
 #include <memory>
 #include <string>
 #include <string_view>
@@ -33,6 +35,9 @@ public:
     void fillRect(const RECT& bounds, COLORREF color);
     void roundedRect(const RECT& bounds, float radiusPixels, COLORREF fill,
                      COLORREF outline, float strokePixels = 1.0f);
+    void roundedRectSubpixel(const PixelRect& bounds, float radiusPixels,
+                             COLORREF fill, COLORREF outline,
+                             float strokePixels = 1.0f);
     void ellipse(const RECT& bounds, COLORREF color);
     void line(float x1, float y1, float x2, float y2, COLORREF color,
               float widthPixels = 1.0f);
@@ -40,6 +45,9 @@ public:
     void folderIcon(const RECT& bounds, COLORREF color,
                     float strokePixels = 1.5f);
     void pushClip(const RECT& bounds);
+    // An antialiased mask with cached geometry/layers. Both clip kinds share
+    // the same LIFO stack, and end() also balances any remaining clips.
+    void pushRoundedClip(const RECT& bounds, float radiusPixels);
     void popClip();
     void text(std::wstring_view value, const RECT& bounds, float fontSizePixels,
               bool semibold, COLORREF color, TextAlign align = TextAlign::Left,

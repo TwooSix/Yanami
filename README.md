@@ -33,51 +33,12 @@
 
 ## Quick start
 
-Pre-release binaries will be published on the official
-[GitHub Releases](https://github.com/TwooSix/Yanami/releases) page. There is no
-stable release channel yet.
-
-> **Platform status:** Windows is the primary development platform. Linux and
-> macOS desktop builds have **not** been tested on real machines yet; their
-> instructions and future binaries should be treated as experimental.
-
-Development candidates use versions such as `0.2.0-dev.42`. Choose the asset
-whose platform and CPU architecture match your computer.
-
 ### Windows 10/11
 
-1. Download `Yanami-<version>-Windows-x86_64-Setup.exe` from
-   [Releases](https://github.com/TwooSix/Yanami/releases).
-2. Run the installer. The Yanami setup wizard first shows a welcome page and
-   then the installation options; it does not change the system until you click
-   **Install Yanami**. You can select a current-user-writable install directory,
-   a Start menu **All apps** shortcut, and a desktop shortcut. The default
-   directory is
-   `%LOCALAPPDATA%\Programs\Yanami` (normally
-   `C:\Users\<name>\AppData\Local\Programs\Yanami`). The Start menu shortcut
-   is on by default; the desktop shortcut is off by default. Installation is
-   scoped to the current user and normally requires no administrator access.
-3. The completion page shows the exact installed location and lets you open
-   that folder, close the wizard for now, or launch Yanami. To uninstall, use
-   **Settings → Apps → Installed apps → Yanami → Uninstall** (or search Windows
-   for “Add or remove programs”).
-
-An ordinary Windows desktop installer cannot silently add itself to the Start
-menu's **Pinned** area. The wizard creates an **All apps** entry that Windows
-Search can find and that the user can pin manually; it does not claim that the
-app was already pinned.
-
-Installed builds can use **About → Check for updates**. Yanami verifies the
-download before applying it and uses a smaller delta package when the release
-feed provides a compatible one; otherwise it safely falls back to the full
-package. The Windows ZIP remains available as a portable fallback, but it is
-not registered as an installed app and does not participate in managed updates.
-Preview Windows artifacts are not yet Authenticode-signed, so Windows may show
-a reputation warning; verify the adjacent `.sha256` file before continuing.
+Download `Yanami-<version>-Windows-x86_64-Setup.exe` from
+[Releases](https://github.com/TwooSix/Yanami/releases).
 
 ### Linux x86_64 (experimental and untested)
-
-Install the latest published preview for the current user without `sudo`:
 
 ```bash
 bash -c 'set -o pipefail; curl --proto "=https" --tlsv1.2 -fsSL https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh | bash'
@@ -96,27 +57,6 @@ bash -c 'set -o pipefail; curl --proto "=https" --tlsv1.2 -fsSL https://raw.gith
 bash -c 'set -o pipefail; curl --proto "=https" --tlsv1.2 -fsSL https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh | bash -s -- --uninstall'
 ```
 
-These one-liners fetch the mutable `main` branch. The adjacent SHA-256 file
-detects a corrupted or incomplete AppImage, but it is not independent publisher
-authentication because it is obtained from the same release origin. For a more
-reviewable flow, download the script first, inspect it, and only then run it (or
-replace `main` with a reviewed tag or commit):
-
-```bash
-curl --proto '=https' --tlsv1.2 -fSLo yanami-install-linux.sh \
-  https://raw.githubusercontent.com/TwooSix/Yanami/main/scripts/install-linux.sh && \
-less yanami-install-linux.sh
-bash ./yanami-install-linux.sh
-```
-
-The AppImage can still be downloaded and run directly when a user-local install
-is not wanted.
-
-The AppImage includes the Qt and libmpv runtimes, so no separate installation
-should normally be required. If FUSE is unavailable, run it once with
-`APPIMAGE_EXTRACT_AND_RUN=1`. Linux packaging is checked in CI but has not yet
-been tested on real hardware; report any missing library as a packaging issue.
-
 ### macOS (experimental and untested)
 
 1. Download `Yanami-<version>-macOS-arm64.dmg` for Apple Silicon or
@@ -128,13 +68,6 @@ preview builds carry only an ad-hoc integrity signature and are not Developer
 ID signed or notarized. If macOS blocks a build, use **System Settings → Privacy
 & Security → Open Anyway** only after verifying that it came from this
 repository.
-
-### First launch
-
-1. Open **Settings → Emby server**.
-2. Enter the server address, username, and password. HTTPS is strongly
-   recommended outside a trusted local network.
-3. Connect, return to Home, and choose something from your library.
 
 ## Build and run from source
 

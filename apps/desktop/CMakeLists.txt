@@ -129,6 +129,8 @@ if(WIN32)
         installer/InstallerLayout.hpp
         installer/InstallerPainter.cpp
         installer/InstallerPainter.hpp
+        installer/InstallerShortcuts.cpp
+        installer/InstallerShortcuts.hpp
         installer/yanami-installer.manifest
         "${CMAKE_CURRENT_BINARY_DIR}/generated/yanami-installer.rc"
         resources/windows/yanami.ico
@@ -979,6 +981,65 @@ if(BUILD_TESTING)
         endif()
         add_test(NAME yanami-installer-painter-tests
             COMMAND $<TARGET_FILE:yanami-installer-painter-tests>)
+
+        add_executable(yanami-installer-shortcuts-tests
+            installer/InstallerShortcutsTests.cpp
+            installer/InstallerShortcuts.cpp
+            installer/InstallerShortcuts.hpp
+        )
+        set_target_properties(yanami-installer-shortcuts-tests PROPERTIES
+            AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+        target_include_directories(yanami-installer-shortcuts-tests PRIVATE installer)
+        target_compile_features(yanami-installer-shortcuts-tests PRIVATE cxx_std_20)
+        target_compile_definitions(yanami-installer-shortcuts-tests PRIVATE
+            UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX STRICT)
+        target_link_libraries(yanami-installer-shortcuts-tests PRIVATE
+            ole32 propsys shell32 uuid)
+        if(MINGW)
+            target_link_options(yanami-installer-shortcuts-tests PRIVATE
+                -static -static-libgcc -static-libstdc++)
+        elseif(MSVC)
+            target_compile_options(yanami-installer-shortcuts-tests PRIVATE /utf-8)
+            set_property(TARGET yanami-installer-shortcuts-tests PROPERTY
+                MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+        endif()
+        add_test(NAME yanami-installer-shortcuts-tests
+            COMMAND $<TARGET_FILE:yanami-installer-shortcuts-tests>)
+        set_tests_properties(yanami-installer-shortcuts-tests PROPERTIES TIMEOUT 30)
+
+        add_executable(yanami-installer-workflow-tests
+            installer/InstallerWorkflowTests.cpp
+            installer/InstallerCore.cpp
+            installer/InstallerCore.hpp
+            installer/InstallerLayout.hpp
+            installer/InstallerPainter.cpp
+            installer/InstallerPainter.hpp
+            installer/InstallerShortcuts.cpp
+            installer/InstallerShortcuts.hpp
+            installer/yanami-installer.manifest
+            "${CMAKE_CURRENT_BINARY_DIR}/generated/yanami-installer.rc"
+            resources/windows/yanami.ico
+        )
+        set_target_properties(yanami-installer-workflow-tests PROPERTIES
+            AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+        target_include_directories(yanami-installer-workflow-tests PRIVATE installer)
+        target_compile_features(yanami-installer-workflow-tests PRIVATE cxx_std_20)
+        target_compile_definitions(yanami-installer-workflow-tests PRIVATE
+            UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX STRICT)
+        target_link_libraries(yanami-installer-workflow-tests PRIVATE
+            advapi32 bcrypt comctl32 d2d1 dwrite dwmapi gdi32 ole32
+            propsys shell32 user32 uuid uxtheme)
+        if(MINGW)
+            target_link_options(yanami-installer-workflow-tests PRIVATE
+                -static -static-libgcc -static-libstdc++)
+        elseif(MSVC)
+            target_compile_options(yanami-installer-workflow-tests PRIVATE /utf-8)
+            set_property(TARGET yanami-installer-workflow-tests PROPERTY
+                MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+        endif()
+        add_test(NAME yanami-installer-workflow-tests
+            COMMAND $<TARGET_FILE:yanami-installer-workflow-tests>)
+        set_tests_properties(yanami-installer-workflow-tests PROPERTIES TIMEOUT 60)
 
         add_executable(yanami-bootstrap-locale-tests
             tests/BootstrapLocaleTests.cpp
