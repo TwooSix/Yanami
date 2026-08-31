@@ -120,6 +120,17 @@ PathValidationResult validateInstallPathPolicy(
 
 ExistingPathState inspectExistingPath(const std::wstring& normalizedPath);
 
+// Read-only resolution of the user's selected directory. Empty/missing paths
+// are used directly. A non-empty unregistered selection uses an available
+// Yanami or Yanami (N) child, never recursively descending through occupied
+// children or changing the selected parent. A registered installation is
+// repaired in place. normalizedPath is the final destination to show in the UI;
+// the worker must revalidate it with the strict policy, not resolve it again.
+PathValidationResult resolveInstallDirectory(
+    const std::wstring& selected,
+    const std::optional<std::wstring>& registeredInstall,
+    const PathPolicyRoots& roots);
+
 std::wstring quoteWindowsArgument(const std::wstring& argument);
 
 } // namespace yanami::installer

@@ -1,4 +1,5 @@
 #include "InstallerPainter.hpp"
+#include "InstallerLayout.hpp"
 
 #include <dwrite.h>
 
@@ -7,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -230,6 +232,21 @@ void testGeometryAtScale(float scale) {
            "diagonal lines must have antialiased intermediate pixels");
     expectGrayscale(surface);
 
+    const auto integerGeometry = surface.rgbPixels();
+    expect(painter.begin(surface.dc(), surface.bounds()), "subpixel compatibility begin should succeed");
+    painter.clear(RGB(0, 0, 0));
+    painter.roundedRectSubpixel(
+        {static_cast<float>(rounded.left), static_cast<float>(rounded.top),
+         static_cast<float>(rounded.right), static_cast<float>(rounded.bottom)},
+        16.0f * scale, RGB(255, 255, 255), RGB(255, 255, 255), 0.0f);
+    painter.ellipse(circle, RGB(255, 255, 255));
+    painter.line(18.0f * scale, 100.0f * scale, 168.0f * scale,
+                 137.0f * scale, RGB(255, 255, 255), scale);
+    expect(painter.end(), "subpixel compatibility end should succeed");
+    GdiFlush();
+    expect(integerGeometry == surface.rgbPixels(),
+           "integer rounded rectangles must retain their exact rendering through the subpixel implementation");
+
     expect(painter.begin(surface.dc(), surface.bounds()), "button begin should succeed");
     painter.clear(RGB(9, 11, 16));
     painter.roundedRect(rounded, 12.0f * scale, RGB(255, 102, 135),
@@ -367,6 +384,273 @@ void testFolderIconAtScale(float scale) {
     }
 }
 
+void testProgressFramesAtScale(float scale) {
+    using yanami::installer::ui::indeterminateProgressSegments;
+    using yanami::installer::ui::kProgressCycleMilliseconds;
+    using yanami::installer::ui::PixelRect;
+    constexpr COLORREF trackColor = RGB(0x27, 0x2b, 0x35);
+    constexpr COLORREF segmentColor = RGB(0xff, 0x66, 0x87);
+    constexpr COLORREF outsideColor = RGB(0x0d, 0x3b, 0x25);
+    constexpr std::uint32_t trackPixel = 0x272b35;
+    constexpr std::uint32_t segmentPixel = 0xff6687;
+    constexpr std::uint32_t outsidePixel = 0x0d3b25;
+
+    Surface surface(static_cast<int>(296 * scale), static_cast<int>(22 * scale));
+    InstallerPainter painter;
+    // The production 280 x 6 DIP track, translated into a compact surface so
+    // two complete cycles can be checked pixel-by-pixel without a real window.
+    const RECT track = scaledRect(scale, 8, 8, 288, 14);
+    const LONG trackWidth = track.right - track.left;
+    const LONG trackHeight = track.bottom - track.top;
+    const float expectedWidth = static_cast<float>(trackWidth) * 2.0f / 7.0f;
+    const float tolerance = 0.001f * scale;
+    const auto sameRect = [tolerance](const PixelRect& left, const PixelRect& right) {
+        return std::abs(left.left - right.left) <= tolerance
+            && std::abs(left.top - right.top) <= tolerance
+            && std::abs(left.right - right.right) <= tolerance
+            && std::abs(left.bottom - right.bottom) <= tolerance;
+    };
+    expect(kProgressCycleMilliseconds == 2400,
+           "progress cycle should use the declared 2400ms duration");
+    const auto start = indeterminateProgressSegments(track, 0);
+    const auto afterOneMillisecond = indeterminateProgressSegments(track, 1);
+    const auto nextCycle = indeterminateProgressSegments(track, kProgressCycleMilliseconds);
+    expect(start[0].left == track.left,
+           "the right-moving progress segment should start at the track's left edge");
+    expect(sameRect(start[0], nextCycle[0]) && sameRect(start[1], nextCycle[1]),
+           "a complete cycle must join its initial state without an off-track reset");
+    const float subpixelStep = afterOneMillisecond[0].left - start[0].left;
+    expect(subpixelStep > 0.0f && subpixelStep < 1.0f,
+           "a one-millisecond time change must retain a positive subpixel displacement");
+    for (unsigned quarter = 1; quarter < 4; ++quarter) {
+        const auto segments = indeterminateProgressSegments(track, kProgressCycleMilliseconds * quarter / 4);
+        expect(std::abs(segments[0].left - (track.left + trackWidth * quarter / 4.0f)) <= tolerance,
+               "progress motion must remain linear and rightward throughout every quarter of the cycle");
+    }
+
+    std::vector<std::uint64_t> times;
+    for (std::uint64_t elapsed = 0; elapsed <= kProgressCycleMilliseconds * 2; elapsed += 16) {
+        times.push_back(elapsed);
+    }
+    // Explicitly inspect either side of the middle and cycle boundaries, not
+    // only regular frame times that can accidentally miss a reversal or gap.
+    for (const auto boundary : {kProgressCycleMilliseconds / 2, kProgressCycleMilliseconds,
+                                kProgressCycleMilliseconds * 3 / 2, kProgressCycleMilliseconds * 2}) {
+        times.push_back(boundary - 1);
+        times.push_back(boundary);
+        if (boundary < kProgressCycleMilliseconds * 2) {
+            times.push_back(boundary + 1);
+        }
+    }
+    for (std::uint64_t cycle = 0; cycle < 2; ++cycle) {
+        const auto split = cycle * kProgressCycleMilliseconds
+            + kProgressCycleMilliseconds * 5 / 7;
+        times.push_back(split - 1);
+        times.push_back(split);
+        times.push_back(split + 1);
+    }
+    times.push_back(1);
+    std::sort(times.begin(), times.end());
+    times.erase(std::unique(times.begin(), times.end()), times.end());
+
+    Surface clipEnvelope(surface.width(), surface.height());
+    expect(painter.begin(clipEnvelope.dc(), clipEnvelope.bounds()),
+           "rounded progress envelope begin should succeed");
+    painter.clear(outsideColor);
+    painter.roundedRect(track, 3.0f * scale, trackColor, trackColor, scale);
+    painter.pushRoundedClip(track, 3.0f * scale);
+    painter.fillRect(clipEnvelope.bounds(), segmentColor);
+    painter.popClip();
+    expect(painter.end(), "rounded progress envelope end should succeed");
+    GdiFlush();
+    const auto envelopePixels = clipEnvelope.rgbPixels();
+    for (const POINT corner : {POINT{track.left, track.top}, POINT{track.right - 1, track.top},
+                               POINT{track.left, track.bottom - 1}, POINT{track.right - 1, track.bottom - 1}}) {
+        expect(clipEnvelope.pixel(corner.x, corner.y) != segmentPixel,
+               "rounded track corners must never become fully opaque square corners");
+    }
+
+    expect(painter.begin(surface.dc(), surface.bounds()), "progress fixture begin should succeed");
+    painter.clear(outsideColor);
+    expect(painter.end(), "progress fixture end should succeed");
+    GdiFlush();
+
+    auto previous = start;
+    std::uint64_t previousTime = 0;
+    std::vector<std::uint32_t> firstFramePixels;
+    for (const auto elapsed : times) {
+        const auto segments = indeterminateProgressSegments(track, elapsed);
+        const auto laterCycle = indeterminateProgressSegments(track, elapsed + kProgressCycleMilliseconds * 13);
+        float visibleWidth = 0;
+        for (size_t index = 0; index < segments.size(); ++index) {
+            const auto& segment = segments[index];
+            expect(std::abs((segment.right - segment.left) - expectedWidth) <= tolerance && expectedWidth > 0,
+                   "both progress copies must retain the same nonempty segment width");
+            expect(segment.top == track.top && segment.bottom == track.bottom,
+                   "both progress copies must retain the track's vertical bounds");
+            expect(sameRect(segment, laterCycle[index]),
+                   "progress position must depend on elapsed time modulo the cycle, not invocation count");
+            visibleWidth += std::max(0.0f,
+                std::min(segment.right, static_cast<float>(track.right))
+                    - std::max(segment.left, static_cast<float>(track.left)));
+        }
+        expect(std::abs(visibleWidth - expectedWidth) <= tolerance,
+               "the clipped progress copies must join into one constant visible width, including wrap frames");
+        expect(std::abs((segments[0].left - segments[1].left) - trackWidth) <= tolerance,
+               "the entering copy must be exactly one track width behind the exiting copy");
+        float displacement = segments[0].left - previous[0].left;
+        if (displacement < 0) {
+            displacement += trackWidth;
+        }
+        const float expectedStep = static_cast<float>(trackWidth)
+            * static_cast<float>(elapsed - previousTime)
+            / static_cast<float>(kProgressCycleMilliseconds);
+        expect(std::abs(displacement - expectedStep) <= tolerance,
+               "every frame must advance rightward by elapsed time, including across the cycle seam");
+
+        expect(painter.begin(surface.dc(), surface.bounds()), "progress frame begin should succeed");
+        // Reset the backing pixels so the 1ms comparison cannot be satisfied
+        // by accumulating antialiasing over an otherwise stationary segment.
+        painter.clear(outsideColor);
+        painter.roundedRect(track, 3.0f * scale, trackColor, trackColor, scale);
+        painter.pushRoundedClip(track, 3.0f * scale);
+        for (const auto& segment : segments) {
+            painter.roundedRectSubpixel(segment, 3.0f * scale, segmentColor, segmentColor, scale);
+        }
+        painter.popClip();
+        expect(painter.end(), "progress frame end should succeed");
+        GdiFlush();
+
+        unsigned grayPixels = 0;
+        unsigned accentPixels = 0;
+        bool outsideUnchanged = true;
+        bool roundedOutlinePreserved = true;
+        for (int y = 0; y < surface.height(); ++y) {
+            for (int x = 0; x < surface.width(); ++x) {
+                const auto pixel = surface.pixel(x, y);
+                const auto envelopePixel = envelopePixels[y * surface.width() + x];
+                // Pink has the largest red channel used in the track. A solid
+                // pink fill through the rounded mask is therefore an upper
+                // bound on coverage, including antialiased endpoint corners.
+                roundedOutlinePreserved &= ((pixel >> 16) & 0xff)
+                    <= ((envelopePixel >> 16) & 0xff) + 1;
+                if (envelopePixel == outsidePixel) {
+                    roundedOutlinePreserved &= pixel == outsidePixel;
+                }
+                if (x < track.left || x >= track.right || y < track.top || y >= track.bottom) {
+                    outsideUnchanged &= pixel == outsidePixel;
+                } else {
+                    grayPixels += pixel == trackPixel;
+                    accentPixels += pixel == segmentPixel;
+                }
+            }
+        }
+        expect(grayPixels >= static_cast<unsigned>((trackWidth - expectedWidth) * trackHeight / 2),
+               "every painted frame must retain a visibly nonempty gray track");
+        expect(accentPixels >= static_cast<unsigned>(expectedWidth * trackHeight / 2),
+               "the painted progress segment must never vanish at a split or cycle boundary");
+        expect(outsideUnchanged, "progress drawing must never alter pixels outside its clip");
+        expect(roundedOutlinePreserved,
+               "wrapped progress segments must preserve the rounded track outline at every frame");
+        if (elapsed == 0) {
+            firstFramePixels = surface.rgbPixels();
+        } else if (elapsed == 1) {
+            expect(firstFramePixels != surface.rgbPixels(),
+                   "actual progress drawing must retain 1ms subpixel movement instead of rounding it away");
+        } else if (elapsed % kProgressCycleMilliseconds == 0) {
+            expect(firstFramePixels == surface.rgbPixels(),
+                   "painted cycles must close seamlessly onto the same initial pixels");
+        }
+        previous = segments;
+        previousTime = elapsed;
+    }
+}
+
+void testRoundedClipLifetime() {
+    Surface surface(160, 100);
+    InstallerPainter painter;
+    const RECT rounded{20, 20, 80, 80};
+
+    expect(painter.begin(surface.dc(), surface.bounds()), "mixed clip begin should succeed");
+    painter.clear(RGB(0, 0, 0));
+    painter.pushClip({10, 10, 100, 90});
+    painter.pushRoundedClip(rounded, 16.0f);
+    painter.fillRect(surface.bounds(), RGB(255, 255, 255));
+    painter.popClip();
+    painter.fillRect({84, 40, 90, 46}, RGB(255, 0, 0));
+    painter.popClip();
+    painter.fillRect({120, 40, 128, 48}, RGB(0, 255, 0));
+    expect(painter.end(), "mixed clip end should succeed");
+    GdiFlush();
+    expect(surface.pixel(40, 40) == 0xffffff && surface.pixel(20, 20) == 0,
+           "rounded clip must keep its center and exclude its corner");
+    expect(surface.pixel(86, 42) == 0xff0000 && surface.pixel(124, 44) == 0x00ff00,
+           "popping rounded then axis clips must restore their parent regions in order");
+
+    expect(painter.begin(surface.dc(), surface.bounds()), "reverse nested clip begin should succeed");
+    painter.clear(RGB(0, 0, 0));
+    painter.pushRoundedClip(rounded, 16.0f);
+    painter.pushClip({30, 30, 60, 60});
+    painter.fillRect(surface.bounds(), RGB(255, 255, 255));
+    painter.popClip();
+    painter.fillRect({64, 40, 70, 46}, RGB(255, 0, 0));
+    painter.popClip();
+    painter.fillRect({120, 40, 128, 48}, RGB(0, 255, 0));
+    expect(painter.end(), "reverse nested clip end should succeed");
+    GdiFlush();
+    expect(surface.pixel(40, 40) == 0xffffff && surface.pixel(20, 20) == 0
+               && surface.pixel(66, 42) == 0xff0000 && surface.pixel(124, 44) == 0x00ff00,
+           "popping axis then rounded clips must also restore their parent regions in order");
+
+    expect(painter.begin(surface.dc(), surface.bounds()), "same-key nested clip begin should succeed");
+    painter.clear(RGB(0, 0, 0));
+    painter.pushRoundedClip(rounded, 16.0f);
+    painter.pushRoundedClip(rounded, 16.0f);
+    painter.pushClip({35, 35, 45, 45});
+    painter.fillRect(surface.bounds(), RGB(255, 255, 255));
+    // Both rounded masks have the same cache key, but an active Direct2D layer
+    // cannot be pushed a second time. End must release all three stack entries.
+    expect(painter.end(), "end must balance nested same-key rounded and axis clips");
+    GdiFlush();
+    expect(surface.pixel(40, 40) == 0xffffff && surface.pixel(34, 40) == 0,
+           "same-key rounded masks must preserve their inner axis clip");
+    expect(painter.begin(surface.dc(), surface.bounds()), "frame after automatic clip balance should begin");
+    painter.clear(RGB(0, 0, 0));
+    painter.fillRect({120, 40, 128, 48}, RGB(0, 255, 0));
+    expect(painter.end(), "frame after automatic clip balance should finish");
+    GdiFlush();
+    expect(surface.pixel(124, 44) == 0x00ff00,
+           "automatically balanced clips must never leak into the next frame");
+
+    expect(painter.begin(surface.dc(), {60, 20, 120, 80}), "non-origin rounded clip begin should succeed");
+    painter.clear(RGB(0, 0, 0));
+    painter.pushRoundedClip({68, 28, 108, 68}, 12.0f);
+    painter.fillRect({60, 20, 120, 80}, RGB(255, 255, 255));
+    expect(painter.end(), "non-origin rounded clip end should succeed");
+    GdiFlush();
+    expect(surface.pixel(88, 48) == 0xffffff && surface.pixel(68, 28) == 0
+               && surface.pixel(67, 48) == 0 && surface.pixel(108, 48) == 0,
+           "rounded masks must preserve HDC coordinates when bound to a non-origin rectangle");
+
+    for (const float invalidRadius : {std::numeric_limits<float>::quiet_NaN(),
+                                      std::numeric_limits<float>::infinity()}) {
+        expect(painter.begin(surface.dc(), surface.bounds()), "invalid rounded radius test should begin");
+        painter.pushClip({10, 10, 100, 90});
+        painter.pushRoundedClip(rounded, 16.0f);
+        painter.pushRoundedClip(rounded, invalidRadius);
+        expect(!painter.end(), "nonfinite rounded radius must fail and balance existing clips");
+        expect(FAILED(painter.lastError()), "invalid rounded clip must expose a failure");
+        expect(painter.begin(surface.dc(), surface.bounds()), "rounded clip should recover on the next frame");
+        painter.clear(RGB(0, 0, 0));
+        painter.pushRoundedClip(rounded, 16.0f);
+        painter.fillRect(surface.bounds(), RGB(255, 255, 255));
+        expect(painter.end(), "cached geometry must work with a recreated target and layer");
+        GdiFlush();
+        expect(surface.pixel(40, 40) == 0xffffff && surface.pixel(20, 20) == 0,
+               "recreated rounded clipping must preserve its original shape");
+    }
+}
+
 void testInstalledFonts() {
     InstallerPainter painter;
     const auto chinese = painter.fontFamily(true);
@@ -445,9 +729,11 @@ int main() {
     try {
         testInstalledFonts();
         testLifetimeAndClip();
+        testRoundedClipLifetime();
         for (float scale : {1.0f, 1.5f, 2.0f}) {
             testGeometryAtScale(scale);
             testFolderIconAtScale(scale);
+            testProgressFramesAtScale(scale);
             testTextAtScale(scale, true);
             testTextAtScale(scale, false);
         }

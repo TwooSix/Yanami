@@ -1,6 +1,7 @@
 #include "InstallerCore.hpp"
 #include "InstallerLayout.hpp"
 #include "InstallerPainter.hpp"
+#include "InstallerShortcuts.hpp"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -71,6 +72,9 @@ enum ControlId : int {
     IdOpenFolder = 1008,
     IdFinish = 1009,
     IdLater = 1010,
+    IdRetry = 1011,
+    IdReviewOptions = 1012,
+    IdOpenLog = 1013,
 };
 
 enum class UiPage {
@@ -78,6 +82,7 @@ enum class UiPage {
     Options,
     Installing,
     Complete,
+    Recovery,
 };
 
 enum class UiLanguage {
@@ -98,6 +103,7 @@ struct InstallRequest {
 
 struct InstallOutcome {
     bool success = false;
+    bool shortcutsIncomplete = false;
     std::wstring installDirectory;
     std::wstring launchTarget;
     std::wstring error;
@@ -278,6 +284,12 @@ std::optional<std::wstring> knownFolder(REFKNOWNFOLDERID identifier) {
 }
 
 std::optional<std::wstring> readRegisteredInstallLocation() {
+#ifdef YANAMI_INSTALLER_TESTING
+    // Workflow tests supply an isolated registry snapshot; they must never
+    // consult or modify the user's real installation.
+    extern std::optional<std::wstring> testRegisteredInstallLocation;
+    return testRegisteredInstallLocation;
+#else
     DWORD bytes = 0;
     LSTATUS status = RegGetValueW(
         HKEY_CURRENT_USER, kUninstallKey, L"InstallLocation",
@@ -295,6 +307,7 @@ std::optional<std::wstring> readRegisteredInstallLocation() {
     value.resize(wcsnlen(value.c_str(), value.size()));
     return value.empty() ? std::nullopt
                          : std::optional<std::wstring>(std::move(value));
+#endif
 }
 
 PathPolicyRoots pathPolicyRoots() {
@@ -327,13 +340,15 @@ std::wstring localizedCoreError(UiLanguage language, const std::wstring& error) 
         {L"The installation directory cannot be empty.", L"安装位置不能为空。"},
         {L"The installation directory must be an absolute path on a local drive.", L"安装位置必须是本机磁盘上的绝对路径。"},
         {L"The installation directory cannot contain an alternate data stream.", L"安装位置不能包含备用数据流。"},
+        {L"The installation directory contains an invalid character.", L"安装位置包含 Windows 不支持的字符。"},
+        {L"No available installation directory was found inside the selected folder.", L"此文件夹内的安装目录名称均已被占用，请选择其他位置。"},
         {L"Installation directory names cannot end with a space or period.", L"目录名不能以空格或句点结尾。"},
         {L"A drive root cannot be used as the installation directory.", L"不能把磁盘根目录作为安装位置。"},
         {L"An existing Yanami installation must be upgraded or repaired in its registered directory.", L"检测到现有 Yanami；升级或修复必须使用已注册的位置。"},
         {L"The existing installation directory is not accessible.", L"现有安装位置不可访问。"},
         {L"Yanami cannot be installed inside Windows or Program Files.", L"不能安装到 Windows 或 Program Files 系统目录。"},
         {L"The installation directory is occupied by a file.", L"安装位置已被同名文件占用。"},
-        {L"A new installation directory must be empty.", L"新安装位置必须为空目录。"},
+        {L"A new installation directory must be empty.", L"安装位置的内容已发生变化，请返回设置重新确认位置。"},
         {L"The installation directory cannot be inspected.", L"无法检查安装位置。"},
         {L"The installation directory cannot be inspected for write access.", L"无法检查安装位置的写入权限。"},
         {L"The installation directory has no writable parent.", L"安装位置没有可写入的上级目录。"},
@@ -598,7 +613,7 @@ bool appendUtf8File(const std::filesystem::path& path, const std::string& value)
         && written == value.size();
 }
 
-std::wstring preserveFailureLog(
+std::wstring preserveInstallLog(
     const std::filesystem::path& temporaryLog,
     const std::wstring& localAppData,
     const std::wstring& outerError) {
@@ -616,9 +631,9 @@ std::wstring preserveFailureLog(
     GetLocalTime(&now);
     wchar_t name[96]{};
     swprintf_s(
-        name, L"Yanami-Installer-%04u%02u%02u-%02u%02u%02u-%lu.log",
+        name, L"Yanami-Installer-%04u%02u%02u-%02u%02u%02u-%03u-%lu.log",
         now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond,
-        GetCurrentProcessId());
+        now.wMilliseconds, GetCurrentProcessId());
     const std::filesystem::path destination = logDirectory / name;
     if (std::filesystem::exists(temporaryLog)
         && !CopyFileW(temporaryLog.c_str(), destination.c_str(), FALSE)) {
@@ -679,160 +694,82 @@ bool runBackend(
     return true;
 }
 
-bool loadShortcutTarget(
-    const std::filesystem::path& shortcut,
-    std::wstring& target) {
-    ComPointer<IShellLinkW> link;
-    if (FAILED(CoCreateInstance(
-            CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
-            IID_IShellLinkW, reinterpret_cast<void**>(link.put())))) {
-        return false;
-    }
-    ComPointer<IPersistFile> persist;
-    if (FAILED(link->QueryInterface(
-            IID_IPersistFile, reinterpret_cast<void**>(persist.put())))
-        || FAILED(persist->Load(shortcut.c_str(), STGM_READ))) {
-        return false;
-    }
-    std::array<wchar_t, 32768> buffer{};
-    WIN32_FIND_DATAW data{};
-    if (FAILED(link->GetPath(
-            buffer.data(), static_cast<int>(buffer.size()), &data,
-            SLGP_RAWPATH))) {
-        return false;
-    }
-    target.assign(buffer.data());
-    return !target.empty();
-}
-
-bool createShortcut(
-    const std::filesystem::path& shortcut,
-    const std::filesystem::path& target,
-    const std::filesystem::path& workingDirectory,
-    std::wstring& error) {
-    std::error_code filesystemError;
-    std::filesystem::create_directories(shortcut.parent_path(), filesystemError);
-    if (filesystemError) {
-        error = L"The shortcut directory could not be created.";
-        return false;
-    }
-    ComPointer<IShellLinkW> link;
-    if (FAILED(CoCreateInstance(
-            CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
-            IID_IShellLinkW, reinterpret_cast<void**>(link.put())))) {
-        error = L"Windows Shell Link could not be initialized.";
-        return false;
-    }
-    if (FAILED(link->SetPath(target.c_str()))
-        || FAILED(link->SetWorkingDirectory(workingDirectory.c_str()))
-        || FAILED(link->SetIconLocation(target.c_str(), 0))
-        || FAILED(link->SetDescription(L"Yanami"))) {
-        error = L"The Yanami shortcut properties could not be set.";
-        return false;
-    }
-    ComPointer<IPropertyStore> properties;
-    if (FAILED(link->QueryInterface(
-            IID_IPropertyStore, reinterpret_cast<void**>(properties.put())))) {
-        error = L"The Yanami shortcut AppUserModelID store is unavailable.";
-        return false;
-    }
-    static constexpr PROPERTYKEY appUserModelId = {
-        {0x9F4C2855, 0x9F79, 0x4B39,
-         {0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3}},
-        5};
-    PROPVARIANT value{};
-    value.vt = VT_LPWSTR;
-    value.pwszVal = const_cast<wchar_t*>(kAumid);
-    if (FAILED(properties->SetValue(appUserModelId, value))
-        || FAILED(properties->Commit())) {
-        error = L"The Yanami shortcut AppUserModelID could not be written.";
-        return false;
-    }
-    ComPointer<IPersistFile> persist;
-    if (FAILED(link->QueryInterface(
-            IID_IPersistFile, reinterpret_cast<void**>(persist.put())))
-        || FAILED(persist->Save(shortcut.c_str(), TRUE))) {
-        error = L"The Yanami shortcut could not be saved.";
-        return false;
-    }
-    return true;
-}
-
-bool synchronizeShortcut(
-    const std::filesystem::path& shortcut,
-    bool selected,
-    const std::filesystem::path& installRoot,
-    const std::filesystem::path& target,
-    const std::filesystem::path& workingDirectory,
-    std::wstring& error) {
-    if (std::filesystem::exists(shortcut)) {
-        std::wstring existingTarget;
-        std::wstring normalizeError;
-        const auto normalizedRoot = normalizeAbsolutePath(
-            installRoot.wstring(), normalizeError);
-        const auto normalizedTarget = loadShortcutTarget(shortcut, existingTarget)
-            ? normalizeAbsolutePath(existingTarget, normalizeError)
-            : std::nullopt;
-        if (!normalizedRoot.has_value() || !normalizedTarget.has_value()
-            || !pathWithin(*normalizedTarget, *normalizedRoot, true)) {
-            error = L"Yanami.lnk already exists but does not belong to this Yanami installation.";
-            return false;
+void recordShortcutResult(InstallOutcome& outcome, const ShortcutResult& result) {
+    outcome.shortcutsIncomplete = outcome.shortcutsIncomplete || !result.ok;
+    if (!result.warning.empty()) {
+        if (!outcome.error.empty()) {
+            outcome.error.append(L"\n");
         }
-        if (!selected) {
-            if (!DeleteFileW(shortcut.c_str())) {
-                error = L"The unselected Yanami shortcut could not be removed.";
-                return false;
-            }
-            return true;
+        outcome.error.append(result.warning);
+        if (!result.shortcutPath.empty()) {
+            outcome.error.append(L"\n").append(result.shortcutPath.wstring());
         }
-    } else if (!selected) {
-        return true;
     }
-    return createShortcut(shortcut, target, workingDirectory, error);
 }
 
-bool synchronizeShortcuts(
+void synchronizeShortcuts(
     const InstallRequest& request,
     const std::filesystem::path& currentDirectory,
     const std::filesystem::path& target,
-    std::wstring& error) {
-    const auto roaming = knownFolder(FOLDERID_RoamingAppData);
+    InstallOutcome& outcome) {
+    const auto programs = knownFolder(FOLDERID_Programs);
     const auto desktop = knownFolder(FOLDERID_Desktop);
-    if (!roaming.has_value() || !desktop.has_value()) {
-        error = L"Windows could not resolve the shortcut folders.";
-        return false;
-    }
-    const std::filesystem::path startShortcut =
-        std::filesystem::path(*roaming) / L"Microsoft" / L"Windows"
-        / L"Start Menu" / L"Programs" / L"Yanami.lnk";
-    const std::filesystem::path desktopShortcut =
-        std::filesystem::path(*desktop) / L"Yanami.lnk";
-    const std::filesystem::path root(request.installDirectory);
-    return synchronizeShortcut(
-               startShortcut, request.startMenu, root, target,
-               currentDirectory, error)
-        && synchronizeShortcut(
-               desktopShortcut, request.desktop, root, target,
-               currentDirectory, error);
+    // Optional shell integration must not change a successful application
+    // installation into a failure, or prevent the other option being applied.
+    const auto apply = [&](const std::optional<std::wstring>& folder, bool selected) {
+        if (!folder.has_value()) {
+            if (selected) {
+                outcome.shortcutsIncomplete = true;
+                outcome.error.append(L"Windows could not resolve a selected shortcut folder.\n");
+            }
+            return;
+        }
+        ShortcutRequest shortcut;
+        shortcut.shortcutPath = std::filesystem::path(*folder) / L"Yanami.lnk";
+        shortcut.target = target;
+        shortcut.workingDirectory = currentDirectory;
+        shortcut.appUserModelId = kAumid;
+        shortcut.selected = selected;
+        recordShortcutResult(outcome, synchronizeInstallerShortcut(shortcut));
+    };
+    apply(programs, request.startMenu);
+    apply(desktop, request.desktop);
 }
 
 InstallOutcome performInstall(const InstallRequest& request) {
     InstallOutcome outcome;
+    // A previous attempt or another installer may have registered the app
+    // since the options page was opened. Do not reuse its startup snapshot.
+    const auto registeredInstall = readRegisteredInstallLocation();
+    const auto saveLog = [&](const std::filesystem::path& backendLog) {
+        std::wstring details = L"Requested directory: " + request.installDirectory
+            + L"\nRegistered before attempt: " + registeredInstall.value_or(L"<none>")
+            + L"\nRegistered after attempt: "
+            + readRegisteredInstallLocation().value_or(L"<none>")
+            + L"\nApplication installed: " + (outcome.success ? L"yes" : L"no")
+            + L"\nStart menu selected: " + (request.startMenu ? L"yes" : L"no")
+            + L"\nDesktop selected: " + (request.desktop ? L"yes" : L"no")
+            + L"\n" + outcome.error;
+        outcome.preservedLog = preserveInstallLog(backendLog, request.localAppData, details);
+    };
     PathValidationResult validation;
     if (!validateInstallDirectory(
-            request.installDirectory, request.registeredInstall,
+            request.installDirectory, registeredInstall,
             request.roots, validation)) {
         outcome.error = validation.error;
+        saveLog({});
         return outcome;
     }
     outcome.installDirectory = validation.normalizedPath;
 
     if (!rollbackWritableProbe(validation.normalizedPath, outcome.error)) {
+        saveLog({});
         return outcome;
     }
     const auto tempDirectory = createUniqueTempDirectory();
     if (!tempDirectory.has_value()) {
         outcome.error = L"A private temporary installer directory could not be created.";
+        saveLog({});
         return outcome;
     }
     const std::filesystem::path backend =
@@ -871,16 +808,17 @@ InstallOutcome performInstall(const InstallRequest& request) {
                 || (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
                 outcome.error = L"Velopack completed but current\\Yanami.exe is missing.";
             } else {
+                // Files are installed and the application is usable. Shortcut
+                // warnings belong on the completion page, not the retry path.
+                outcome.success = true;
+                outcome.launchTarget = target.wstring();
                 const HRESULT initialized = CoInitializeEx(
                     nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
                 const bool shouldUninitialize = SUCCEEDED(initialized);
                 if (initialized == RPC_E_CHANGED_MODE || SUCCEEDED(initialized)) {
-                    if (synchronizeShortcuts(
-                            request, current, target, outcome.error)) {
-                        outcome.success = true;
-                        outcome.launchTarget = target.wstring();
-                    }
+                    synchronizeShortcuts(request, current, target, outcome);
                 } else {
+                    outcome.shortcutsIncomplete = true;
                     outcome.error = L"COM could not be initialized for shortcut creation.";
                 }
                 if (shouldUninitialize) {
@@ -890,10 +828,7 @@ InstallOutcome performInstall(const InstallRequest& request) {
         }
     }
 
-    if (!outcome.success) {
-        outcome.preservedLog = preserveFailureLog(
-            temporaryLog, request.localAppData, outcome.error);
-    }
+    saveLog(temporaryLog);
     cleanupTemporaryDirectory(*tempDirectory);
 
     if (outcome.success && request.launchAfterInstall) {
@@ -914,6 +849,7 @@ bool isHighContrast() {
 }
 
 class InstallerWindow final {
+    friend class InstallerWindowTestAccess;
 public:
     InstallerWindow(
         UiLanguage language,
@@ -955,17 +891,20 @@ public:
 
         const wchar_t* title = text(
             language_, L"Yanami 安装程序", L"Yanami Installer");
-        dpi_ = initialDpi();
-        const SIZE outerSize = baselineWindowSize(dpi_);
+        const RECT workArea = initialWorkArea();
+        const POINT seed = ui::centeredWindowPosition(workArea, SIZE{1, 1});
+        // Create a small, hidden window on the chosen monitor first. Its real
+        // per-monitor DPI determines the final frame size before the first
+        // ShowWindow; using system DPI here can select the wrong monitor.
         window_ = CreateWindowExW(
             0, kWindowClass, title,
             kWindowStyle,
-            CW_USEDEFAULT, CW_USEDEFAULT, outerSize.cx, outerSize.cy,
+            seed.x, seed.y, 1, 1,
             nullptr, nullptr, instance, this);
         if (window_ == nullptr) {
             return false;
         }
-        enableModernWindowBehavior();
+        enableModernWindowBehavior(workArea);
         ShowWindow(window_, SW_SHOW);
         UpdateWindow(window_);
         return true;
@@ -1032,6 +971,9 @@ public:
         case UiPage::Complete:
             primary = GetDlgItem(window_, IdFinish);
             break;
+        case UiPage::Recovery:
+            primary = GetDlgItem(window_, IdRetry);
+            break;
         case UiPage::Installing:
             break;
         }
@@ -1064,23 +1006,21 @@ private:
         return MulDiv(value, static_cast<int>(dpi_), 96);
     }
 
-    static UINT initialDpi() {
-        using GetDpiForSystemFunction = UINT(WINAPI*)();
-        const HMODULE user32 = GetModuleHandleW(L"user32.dll");
-        if (user32 != nullptr) {
-            const auto getDpi = reinterpret_cast<GetDpiForSystemFunction>(
-                GetProcAddress(user32, "GetDpiForSystem"));
-            if (getDpi != nullptr) {
-                return std::max<UINT>(96, getDpi());
-            }
+    static RECT initialWorkArea() {
+        POINT pointer{};
+        const HMONITOR monitor = GetCursorPos(&pointer)
+            ? MonitorFromPoint(pointer, MONITOR_DEFAULTTONEAREST)
+            : MonitorFromWindow(GetForegroundWindow(), MONITOR_DEFAULTTOPRIMARY);
+        MONITORINFO info{};
+        info.cbSize = sizeof(info);
+        if (monitor != nullptr && GetMonitorInfoW(monitor, &info)) {
+            return info.rcWork;
         }
-        HDC screen = GetDC(nullptr);
-        const UINT dpi = screen != nullptr
-            ? static_cast<UINT>(GetDeviceCaps(screen, LOGPIXELSX)) : 96;
-        if (screen != nullptr) {
-            ReleaseDC(nullptr, screen);
+        RECT primaryWorkArea{};
+        if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &primaryWorkArea, 0)) {
+            return primaryWorkArea;
         }
-        return std::max<UINT>(96, dpi);
+        return RECT{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
     }
 
     static SIZE baselineWindowSize(UINT dpi) {
@@ -1164,13 +1104,14 @@ private:
         }
     }
 
-    void enableModernWindowBehavior() {
+    void enableModernWindowBehavior(const RECT& workArea) {
         highContrast_ = isHighContrast();
         dpi_ = GetDpiForWindow(window_);
         const SIZE outerSize = baselineWindowSize(dpi_);
+        const POINT position = ui::centeredWindowPosition(workArea, outerSize);
         SetWindowPos(
-            window_, nullptr, 0, 0, outerSize.cx, outerSize.cy,
-            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+            window_, nullptr, position.x, position.y, outerSize.cx, outerSize.cy,
+            SWP_NOZORDER | SWP_NOACTIVATE);
         createFontsAndBrushes();
         if (!highContrast_) {
             BOOL dark = TRUE;
@@ -1209,6 +1150,22 @@ private:
                      RDW_INVALIDATE | RDW_ALLCHILDREN);
     }
 
+    bool hasDrawableSurface() const {
+        RECT client{};
+        return !IsIconic(window_) && GetClientRect(window_, &client)
+            && client.right > client.left && client.bottom > client.top;
+    }
+
+    void updateProgressTimer() {
+        KillTimer(window_, kProgressTimer);
+        if (page_ == UiPage::Installing && hasDrawableSurface()) {
+            // Keep the elapsed-time epoch across minimize/restore. There is
+            // no visible animation to refresh while the surface is absent.
+            // 15ms avoids the slower cadence observed with a 16ms USER timer.
+            SetTimer(window_, kProgressTimer, 15, nullptr);
+        }
+    }
+
     void requestRenderRecovery() const {
         renderHadFailure_ = true;
         if (!renderRecoveryQueued_ && !renderUnavailable_) {
@@ -1218,6 +1175,13 @@ private:
     }
 
     bool beginDrawing(HDC device, const RECT& bounds) const {
+        // A minimized window (or a transient zero-sized control) has no
+        // drawable surface. This is a normal lifecycle state, not device loss.
+        // Keep Painter's invalid-input contract for actual drawing attempts.
+        if (!hasDrawableSurface() || bounds.right <= bounds.left
+            || bounds.bottom <= bounds.top) {
+            return false;
+        }
         if (painter_.begin(device, bounds)) {
             return true;
         }
@@ -1521,10 +1485,10 @@ private:
         const wchar_t* label, int identifier,
         int x, int y, int width, bool primary = false,
         ButtonSurface surface = ButtonSurface::Root,
-        bool folderIcon = false) {
+        bool folderIcon = false, int height = 44) {
         HWND button = addControl(
             WC_BUTTONW, label, WS_TABSTOP | BS_OWNERDRAW,
-            identifier, x, y, width, folderIcon ? 36 : 44, 0, buttonFont_, false);
+            identifier, x, y, width, folderIcon ? 36 : height, 0, buttonFont_, false);
         SetPropW(button, L"YanamiPrimary", reinterpret_cast<HANDLE>(
             static_cast<INT_PTR>(primary ? 1 : 0)));
         SetPropW(button, L"YanamiButtonSurface", reinterpret_cast<HANDLE>(
@@ -1658,19 +1622,27 @@ private:
         }
     }
 
-    void renderPage() {
-        captureControlState();
+    void renderPage(bool captureState = true) {
+        if (captureState) {
+            captureControlState();
+        }
         KillTimer(window_, kProgressTimer);
+        if (page_ != UiPage::Installing) {
+            progressStartedAt_.reset();
+        }
         destroyChildren();
         switch (page_) {
         case UiPage::Welcome: renderWelcome(); break;
         case UiPage::Options: renderOptions(); break;
         case UiPage::Installing:
-            progressPhase_ = 0;
-            SetTimer(window_, kProgressTimer, 35, nullptr);
+            if (!progressStartedAt_) {
+                progressStartedAt_ = std::chrono::steady_clock::now();
+            }
+            updateProgressTimer();
             renderInstalling();
             break;
         case UiPage::Complete: renderComplete(); break;
+        case UiPage::Recovery: renderRecovery(); break;
         }
         InvalidateRect(window_, nullptr, FALSE);
     }
@@ -1743,22 +1715,20 @@ private:
                 browseLabel, IdBrowse, 568, 180, 36, false, ButtonSurface::Field, true);
             addBrowseTooltip(browseLabel);
         }
-        pathErrorText_ = addText(L"", 64, 230, 552, 28, smallFont_);
-        SetPropW(pathErrorText_, L"YanamiError", reinterpret_cast<HANDLE>(
-            static_cast<INT_PTR>(1)));
+        pathErrorText_ = addText(L"", 64, 230, 552, 42, smallFont_);
 
         startMenuCheck_ = addSwitch(
             text(language_, L"开始菜单", L"Start menu"),
             text(language_,
                  L"在“所有应用”中显示，之后可手动固定",
                  L"Show in All apps; you can pin it later"),
-            IdStartMenu, 269, startMenu_);
+            IdStartMenu, 291, startMenu_);
         desktopCheck_ = addSwitch(
             text(language_, L"桌面快捷方式", L"Desktop shortcut"),
             text(language_,
                  L"在桌面创建快捷方式",
                  L"Create a shortcut on the desktop"),
-            IdDesktop, 335, desktop_);
+            IdDesktop, 357, desktop_);
 
         addText(
             text(language_,
@@ -1815,6 +1785,17 @@ private:
                  L"卸载：Windows 设置 → 应用 → 已安装的应用",
                  L"Uninstall from Windows Settings → Apps → Installed apps"),
             64, 360, 552, 32, smallFont_, SS_CENTER);
+        if (shortcutsIncomplete_) {
+            addText(
+                text(language_,
+                           L"程序已安装，部分快捷方式未能创建。您仍可直接启动；稍后重开安装器可重试。",
+                           L"The app is installed. Some shortcuts could not be created. You can launch now and retry setup later."),
+                80, 405, 520, 44, smallFont_, SS_CENTER);
+            if (!preservedLog_.empty()) {
+                addButton(text(language_, L"查看详情", L"View details"),
+                          IdOpenLog, 64, 488, 120);
+            }
+        }
         addButton(
             text(language_, L"稍后", L"Later"), IdLater,
             376, 488, 96);
@@ -1824,16 +1805,71 @@ private:
         SetFocus(launch);
     }
 
+    void renderRecovery() {
+        addText(text(language_, L"安装尚未完成", L"Installation paused"),
+                64, 64, 552, 50, titleFont_);
+        addText(
+            registeredInstall_.has_value()
+                ? text(language_,
+                       L"检测到现有安装。可直接在原位置重试修复，无需删除文件夹。",
+                       L"An installation was found. Retry to repair it in place; there is no need to delete its folder.")
+                : text(language_,
+                       L"已保留您的安装选项和现有文件。请查看下方原因，然后重试或调整安装位置。",
+                       L"Your choices and existing files have been kept. Review the issue below, then retry or choose another folder."),
+            64, 130, 552, 66, normalFont_);
+        HWND location = addText(text(language_, L"安装位置", L"Installation directory"),
+                                84, 230, 500, 22, smallFont_);
+        HWND path = addText(installDirectory_.c_str(), 84, 260, 512, 34,
+                            normalFont_, SS_PATHELLIPSIS | SS_CENTERIMAGE);
+        for (HWND control : {location, path}) {
+            SetPropW(control, L"YanamiTextSurface", reinterpret_cast<HANDLE>(
+                static_cast<INT_PTR>(ButtonSurface::Panel)));
+        }
+        addText(localizedCoreError(language_, installError_).c_str(),
+                64, 342, 552, 60, normalFont_);
+        if (!preservedLog_.empty()) {
+            addText(text(language_, L"诊断日志已保存，可通过下方按钮查看。",
+                         L"A diagnostic log was saved. Open it using the button below."),
+                    64, 411, 552, 32, smallFont_);
+            addButton(text(language_, L"查看日志", L"View log"),
+                      IdOpenLog, 64, 488, 120);
+        }
+        addButton(text(language_, L"返回设置", L"Options"),
+                  IdReviewOptions, 376, 488, 96);
+        const bool canRetry = resolveInstallDirectory(
+            registeredInstall_.has_value() ? installDirectory_ : selectedDirectory_,
+            registeredInstall_, roots_).ok;
+        HWND retry = addButton(
+            canRetry ? text(language_, L"重试安装", L"Retry")
+                     : text(language_, L"调整位置", L"Choose folder"),
+            IdRetry, 484, 488, 132, true);
+        SetFocus(retry);
+    }
+
     void updatePathValidationUi() {
         if (pathEdit_ != nullptr) {
             installDirectory_ = editText(pathEdit_);
         }
         PathValidationResult validation;
-        pathValid_ = validateInstallDirectory(
-            installDirectory_, registeredInstall_, roots_, validation);
+        validation = resolveInstallDirectory(installDirectory_, registeredInstall_, roots_);
+        pathValid_ = validation.ok;
         pathValidationMessage_ = pathValid_
-            ? std::wstring{} : localizedCoreError(language_, validation.error);
+            ? (samePath(installDirectory_, validation.normalizedPath)
+                   ? text(language_, L"直接安装到此目录，文件夹会自动创建。",
+                          L"Install directly here. Setup creates the folder if needed.")
+                   : std::wstring(text(language_, L"将安装到：", L"Install to: "))
+                       + validation.normalizedPath)
+            : localizedCoreError(language_, validation.error);
+        if (pathValid_ && registeredInstall_.has_value()) {
+            pathValidationMessage_ = text(language_, L"在此位置更新或修复，无需清空文件夹。",
+                                          L"Update or repair here without emptying the folder.");
+        }
         if (pathErrorText_ != nullptr) {
+            if (!pathValid_) {
+                SetPropW(pathErrorText_, L"YanamiError", reinterpret_cast<HANDLE>(1));
+            } else {
+                RemovePropW(pathErrorText_, L"YanamiError");
+            }
             SetWindowTextW(
                 pathErrorText_, pathValidationMessage_.c_str());
         }
@@ -1845,6 +1881,7 @@ private:
             InvalidateRect(window_, &field, FALSE);
         }
     }
+
 
     void browseForDirectory() {
         ComPointer<IFileOpenDialog> dialog;
@@ -1876,15 +1913,8 @@ private:
         if (SUCCEEDED(selected->GetDisplayName(SIGDN_FILESYSPATH, &path))
             && path != nullptr) {
             std::filesystem::path preview(path);
-            std::wstring normalizeError;
-            const auto normalized = normalizeAbsolutePath(
-                preview.wstring(), normalizeError);
-            if (normalized.has_value()
-                && inspectExistingPath(*normalized)
-                    == ExistingPathState::NonEmptyDirectory
-                && _wcsicmp(preview.filename().c_str(), L"Yanami") != 0) {
-                preview /= L"Yanami";
-            }
+            // Keep exactly the selected folder. The shared resolver previews
+            // the final location and appends Yanami only when it is non-empty.
             installDirectory_ = preview.wstring();
             if (pathEdit_ != nullptr) {
                 SetWindowTextW(pathEdit_, installDirectory_.c_str());
@@ -1906,14 +1936,18 @@ private:
     }
 
     void beginInstall() {
-        if (pathEdit_ != nullptr) {
-            installDirectory_ = editText(pathEdit_);
+        captureControlState();
+        registeredInstall_ = readRegisteredInstallLocation();
+        if (registeredInstall_.has_value()
+            && !samePath(installDirectory_, *registeredInstall_)) {
+            // Show the actual registered location before the user authorizes
+            // a repair there; never silently install to a different directory.
+            reviewInstallOptions();
+            return;
         }
-        startMenu_ = SendMessageW(startMenuCheck_, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        desktop_ = SendMessageW(desktopCheck_, BM_GETCHECK, 0, 0) == BST_CHECKED;
         PathValidationResult validation;
-        if (!validateInstallDirectory(
-                installDirectory_, registeredInstall_, roots_, validation)) {
+        validation = resolveInstallDirectory(installDirectory_, registeredInstall_, roots_);
+        if (!validation.ok) {
             pathValid_ = false;
             pathValidationMessage_ = localizedCoreError(
                 language_, validation.error);
@@ -1930,10 +1964,11 @@ private:
             }
             return;
         }
+        selectedDirectory_ = installDirectory_;
         installDirectory_ = validation.normalizedPath;
         page_ = UiPage::Installing;
         installing_ = true;
-        renderPage();
+        renderPage(false);
 
         InstallRequest request;
         request.selfPath = selfPath_;
@@ -1945,6 +1980,10 @@ private:
         request.desktop = desktop_;
         request.launchAfterInstall = false;
         const HWND destination = window_;
+#ifdef YANAMI_INSTALLER_TESTING
+        extern void testDispatchInstall(const InstallRequest&, HWND);
+        testDispatchInstall(request, destination);
+#else
         std::thread([request = std::move(request), destination]() mutable {
             auto outcome = std::make_unique<InstallOutcome>(performInstall(request));
             if (!PostMessageW(
@@ -1954,6 +1993,30 @@ private:
             }
             outcome.release();
         }).detach();
+#endif
+    }
+
+    void reviewInstallOptions() {
+        captureControlState();
+        if (registeredInstall_.has_value()) {
+            installDirectory_ = *registeredInstall_;
+        } else if (!selectedDirectory_.empty()) {
+            installDirectory_ = selectedDirectory_;
+        }
+        page_ = UiPage::Options;
+        renderPage(false);
+    }
+
+    void retryInstall() {
+        registeredInstall_ = readRegisteredInstallLocation();
+        if (!registeredInstall_.has_value() && !selectedDirectory_.empty()) {
+            installDirectory_ = selectedDirectory_;
+        }
+        if (!resolveInstallDirectory(installDirectory_, registeredInstall_, roots_).ok) {
+            reviewInstallOptions();
+            return;
+        }
+        beginInstall();
     }
 
     void showError(const std::wstring& message) const {
@@ -1965,24 +2028,23 @@ private:
 
     void handleInstallFinished(std::unique_ptr<InstallOutcome> outcome) {
         installing_ = false;
+        registeredInstall_ = readRegisteredInstallLocation();
+        installError_ = outcome->error;
+        preservedLog_ = outcome->preservedLog;
         if (!outcome->success) {
-            page_ = UiPage::Options;
-            renderPage();
-            std::wstring message = localizedCoreError(language_, outcome->error);
-            if (!outcome->preservedLog.empty()) {
-                message.append(text(
-                    language_, L"\n\n诊断日志已保存到：\n",
-                    L"\n\nA diagnostic log was saved to:\n"));
-                message.append(outcome->preservedLog);
-            }
-            showError(message);
             if (renderUnavailable_) {
+                showError(localizedCoreError(language_, installError_)
+                          + L"\n\n" + preservedLog_);
                 DestroyWindow(window_);
+            } else {
+                page_ = UiPage::Recovery;
+                renderPage();
             }
             return;
         }
         installDirectory_ = outcome->installDirectory;
         launchTarget_ = outcome->launchTarget;
+        shortcutsIncomplete_ = outcome->shortcutsIncomplete;
         if (renderUnavailable_) {
             const std::wstring result = std::wstring(text(language_,
                 L"Yanami 已安装到：\n", L"Yanami was installed at:\n"))
@@ -2122,9 +2184,9 @@ private:
                 (GetFocus() == pathEdit_
                  || (keyboardFocusVisible_ && GetFocus() == browseButton_)) ? 2 : 1);
             drawRoundedSurface(
-                logicalRect(64, 262, 552, 132),
+                logicalRect(64, 284, 552, 132),
                 surface, outline, 20);
-            painter_.fillRect(logicalRect(84, 328, 512, 1), outline);
+            painter_.fillRect(logicalRect(84, 350, 512, 1), outline);
             drawFooter();
             finishDrawing();
             return;
@@ -2139,13 +2201,18 @@ private:
                 highContrast_ ? GetSysColor(COLOR_WINDOWTEXT)
                               : RGB(0x27, 0x2b, 0x35),
                 3);
-            painter_.pushClip(track);
-            const int segmentLeft = 200 + progressPhase_ - 80;
-            drawRoundedSurface(
-                logicalRect(segmentLeft, 316, 80, 6),
-                highContrast_ ? GetSysColor(COLOR_HIGHLIGHT) : kAccent,
-                highContrast_ ? GetSysColor(COLOR_HIGHLIGHT) : kAccent,
-                3);
+            painter_.pushRoundedClip(track, fontPixels(3));
+            const auto elapsed = progressStartedAt_
+                ? std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - *progressStartedAt_).count()
+                : 0;
+            const COLORREF accent = highContrast_
+                ? GetSysColor(COLOR_HIGHLIGHT) : kAccent;
+            for (const auto& segment : yanami::installer::ui::indeterminateProgressSegments(
+                     track, static_cast<std::uint64_t>(elapsed))) {
+                painter_.roundedRectSubpixel(segment, fontPixels(3), accent, accent,
+                                             fontPixels(1));
+            }
             painter_.popClip();
             finishDrawing();
             HICON icon = installingIcon_ != nullptr
@@ -2172,6 +2239,11 @@ private:
                 surface, outline, 20);
             drawFooter();
         }
+        if (page_ == UiPage::Recovery) {
+            drawRoundedSurface(logicalRect(64, 212, 552, 102),
+                               surface, outline, 20);
+            drawFooter();
+        }
         finishDrawing();
     }
 
@@ -2180,6 +2252,14 @@ private:
         case WM_CREATE:
             return 0;
         case kRenderRecoveryMessage:
+            // A recovery can have been queued before WM_SIZE suspended the
+            // surface. Consume it without spending retries or failing setup.
+            if (!renderRecoveryQueued_ || !renderHadFailure_ || !hasDrawableSurface()) {
+                renderRecoveryQueued_ = false;
+                renderHadFailure_ = false;
+                renderRecoveryAttempts_ = 0;
+                return 0;
+            }
             // A failed EndDraw has already validated the update region. Retry
             // explicitly, but never leave a broken device in a busy paint loop.
             renderHadFailure_ = false;
@@ -2207,6 +2287,19 @@ private:
                 }
             }
             return 0;
+        case WM_SIZE:
+            if (wParam == SIZE_MINIMIZED || !hasDrawableSurface()) {
+                KillTimer(window_, kProgressTimer);
+                renderHadFailure_ = false;
+                renderRecoveryAttempts_ = 0;
+                // Leave a queued recovery marked until its message is
+                // consumed; don't enqueue duplicate retries while restoring.
+            } else {
+                updateProgressTimer();
+                RedrawWindow(window_, nullptr, nullptr,
+                             RDW_INVALIDATE | RDW_ALLCHILDREN);
+            }
+            return 0;
         case WM_DPICHANGED: {
             dpi_ = HIWORD(wParam);
             const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
@@ -2225,8 +2318,8 @@ private:
             renderPage();
             return 0;
         case WM_TIMER:
-            if (wParam == kProgressTimer && page_ == UiPage::Installing) {
-                progressPhase_ = (progressPhase_ + 5) % 360;
+            if (wParam == kProgressTimer && page_ == UiPage::Installing
+                && hasDrawableSurface()) {
                 const RECT progress = logicalRect(196, 312, 288, 14);
                 InvalidateRect(window_, &progress, FALSE);
                 return 0;
@@ -2248,9 +2341,9 @@ private:
         case WM_PAINT: {
             PAINTSTRUCT paint{};
             HDC device = BeginPaint(window_, &paint);
-            RECT client{};
-            GetClientRect(window_, &client);
-            FillRect(device, &client, backgroundBrush_);
+            // The Direct2D DC target clears its internal bitmap and submits
+            // the completed drawing at EndDraw. Clearing this window DC first
+            // exposes a blank progress track between animation frames.
             drawPageSurface(device);
             EndPaint(window_, &paint);
             return 0;
@@ -2308,6 +2401,10 @@ private:
             }
             switch (identifier) {
             case IdContinue:
+                registeredInstall_ = readRegisteredInstallLocation();
+                if (registeredInstall_.has_value()) {
+                    installDirectory_ = *registeredInstall_;
+                }
                 page_ = UiPage::Options;
                 renderPage();
                 return 0;
@@ -2320,6 +2417,18 @@ private:
                 return 0;
             case IdInstall:
                 beginInstall();
+                return 0;
+            case IdRetry:
+                retryInstall();
+                return 0;
+            case IdReviewOptions:
+                reviewInstallOptions();
+                return 0;
+            case IdOpenLog:
+                if (!preservedLog_.empty()) {
+                    ShellExecuteW(window_, L"open", preservedLog_.c_str(),
+                                  nullptr, nullptr, SW_SHOWNORMAL);
+                }
                 return 0;
             case IdOpenFolder:
                 ShellExecuteW(
@@ -2384,7 +2493,7 @@ private:
     HICON welcomeIcon_ = nullptr;
     HICON installingIcon_ = nullptr;
     UINT dpi_ = 96;
-    int progressPhase_ = 0;
+    std::optional<std::chrono::steady_clock::time_point> progressStartedAt_;
     bool highContrast_ = false;
     bool keyboardFocusVisible_ = false;
     bool imeComposing_ = false;
@@ -2397,14 +2506,18 @@ private:
     bool startMenu_ = true;
     bool desktop_ = false;
     bool pathValid_ = true;
+    bool shortcutsIncomplete_ = false;
     UiPage page_ = UiPage::Welcome;
     std::wstring selfPath_;
     std::wstring localAppData_;
     PathPolicyRoots roots_;
     std::optional<std::wstring> registeredInstall_;
     std::wstring installDirectory_;
+    std::wstring selectedDirectory_;
     std::wstring pathValidationMessage_;
     std::wstring launchTarget_;
+    std::wstring installError_;
+    std::wstring preservedLog_;
 };
 
 int runVerifyPayload(const std::wstring& selfPath) {
@@ -2451,6 +2564,11 @@ int runSilentInstall(
     writeHandleUtf8(
         STD_OUTPUT_HANDLE,
         "Yanami installed at " + wideToUtf8(outcome.installDirectory) + "\n");
+    if (!outcome.error.empty()) {
+        writeHandleUtf8(STD_ERROR_HANDLE,
+                        "Shortcut notice: " + wideToUtf8(outcome.error)
+                        + "\nLog: " + wideToUtf8(outcome.preservedLog) + "\n");
+    }
     return 0;
 }
 
@@ -2482,6 +2600,7 @@ void enablePerMonitorDpi() {
 
 } // namespace
 
+#ifndef YANAMI_INSTALLER_TESTING
 int WINAPI wWinMain(
     HINSTANCE instance, HINSTANCE, wchar_t*, int) {
     enablePerMonitorDpi();
@@ -2544,3 +2663,4 @@ int WINAPI wWinMain(
     }
     return static_cast<int>(message.wParam);
 }
+#endif

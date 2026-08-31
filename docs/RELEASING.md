@@ -73,6 +73,23 @@ antialiased surfaces and text, with native controls for keyboard navigation and
 accessibility. `yanami-installer-painter-tests` checks 100%, 150%, and 200%
 rendering; release visual checks must also cover first-open text, pointer versus
 keyboard focus, card corners, and long paths in the actual Setup executable.
+Check that the first visible frame is centered within the launch-time pointer
+monitor's working area using that monitor's DPI, including secondary monitors
+with negative coordinates. Moving the wizard or restoring it must retain its
+position rather than re-center it.
+Also minimize and restore the wizard before and during installation, including
+an attempt that finishes while minimized. Rendering and the progress timer must
+pause without failing or cancelling the backend; restoring must show the current
+progress, completion, or recovery page without a rendering-error dialog.
+The GUI resolves an empty selected folder directly and a non-empty selection to
+an available `Yanami` child (numbered only if the child is occupied); it previews
+the final path without writing anything. A registered installation is repaired
+in place. The worker revalidates the resolved final directory without resolving
+it again. Selected same-named shortcuts are replaced atomically; unselected
+foreign shortcuts are left alone. Shortcut I/O failures do not invalidate a
+successful application installation. The recovery page preserves choices and
+offers retry, options, and the saved diagnostic log. Each attempt re-reads the
+installation registration and logs its before/after values.
 Shortcuts point into the Velopack installation root so
 Velopack can keep them valid across updates and remove them during uninstall.
 The Start-menu choice means the searchable **All apps** entry; an unpackaged
