@@ -668,7 +668,10 @@ jobs:
             "User-Agent" = "Yanami release packaging"
           }
           $api = "https://api.github.com/repos/$env:YANAMI_REPOSITORY/releases?per_page=10"
-          $releases = @(Invoke-RestMethod -Uri $api -Headers $headers)
+          # Invoke-RestMethod emits a JSON array as one pipeline object. Do not
+          # wrap it in @(...): that nests the releases and turns .draft into a
+          # truthy array, incorrectly skipping every published baseline.
+          $releases = Invoke-RestMethod -Uri $api -Headers $headers
           $currentVersion = [Management.Automation.SemanticVersion]::Parse(
             $env:YANAMI_RELEASE_VERSION)
           $candidateByName = @{}
